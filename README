@@ -2,12 +2,23 @@ WHAT THIS IS:
 
 A 3D drag racing simulator and GPU benchmark.
 
-Players benchmark their GPU and are provided with a score. That score is then used as your horsepower for the drag car.
+Players benchmark their GPU and are provided with a score. That score is then used as your base horsepower for the drag car.
 The car must then be tuned and adjusted for maximum performance.
 Players are competing against ghost versions of the top leaderboard spots.
 The car may be driven manually or use the ingame autopilot.
 
 CONTROLS:
+(rebindable in the options menu)
+
+gas
+brake
+turn left
+turn right
+chute
+shift up
+shift down
+burnout - hold gas and brake
+
 
 
 TUNING:
