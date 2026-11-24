@@ -1,0 +1,20 @@
+changes to drag mode for GPU Wars
+
+refer to the following link for itch.io requirements. https://itch.io/docs/creators/html5#common-pitfalls
+add touch support for mobile.
+gpu benchmark needs to work for anything that can play this game.
+no currency or upgrade options, only tuning. horsepower and torque will be determined from gpu benchmark. use the current top upgrades as the simulations stock parts.
+no rivals. players will race a ghost of the top player on the leaderboard for their class.
+the ghost doesnt need to follow the games simulation. just simulate the top leaderboard time and make it look like it.
+the ghost doesnt have to be an exact copy of the current leaders exact run.
+Benchmark should not run automatically, it should be selectable from the title screen.
+incorparate beat effects equalizer and a song into the benchmark
+Save the benchmark score, player only needs to re run the benchmark if they make changes to the gpu.
+classes should be split between integrated and discreet GPU. also split the discreet GPU classes between both generations and amd, nvidia, etc.
+players race against the leader from their own class but are added to the overall leaderboard and their class leaderboard
+Do not add all the songs from drag mode. Only the 2 versions of simulation theory should play.
+Add a billboard in game with the chromium halo logo. logo.png in the projects folder.
+only use the 3d chase cam. top down mode doesnt need to be included.
+make sure the code is human readable in english language.
+the city hub from chromium halo: neon should not be included. only the drag mode stuff
+keep the same menu style but change it to work for a standalone GPU Wars release.
