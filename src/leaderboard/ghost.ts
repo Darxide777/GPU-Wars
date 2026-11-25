@@ -11,10 +11,18 @@ import type { LeaderRecord } from './leader.ts';
 export const LEADERBOARD_GHOST = {
   /** seconds between samples */ step: 0.05,
   /** seconds the path continues after the quarter-mile line (the same as a recorded ghost) */ tail: 0.1,
-  /** the acceleration envelope: distance grows as time to this power, x = quarter * (t / ET)^power. 2 is constant acceleration; more means a slower start and a harder end. */
-  powerByEra: { integrated: 1.55, retro: 1.6, classic: 1.65, modern: 1.7, current: 1.75 } as Record<string, number>,
-  /** the power is also pulled toward what the trap speed says (trap * ET / quarter distance): this share comes from the trap speed, the rest from the class */ trapShare: 0.5,
-  powerRange: [1.2, 2.4] as [number, number],
+  /** The shape of a launch. Real cars are traction-limited for the first 60 ft and power-limited after, so the time to each mark, as a share of the ET, is
+   * `(distance share) ^ (1 / power)` (the power-limited pull) pulled toward `(distance share) ^ tractionExponent` (a hard, near constant acceleration) near the start.
+   * Turn `launchShare` first to change how long the first 60 ft takes. */
+  /** the pull-away exponent of the power-limited part, by era: a higher power is a slower start and a harder end */
+  powerByEra: { integrated: 1.6, retro: 1.6, classic: 1.6, modern: 1.6, current: 1.6 } as Record<string, number>,
+  /** the power is also pulled toward what the trap speed says (trap * ET / quarter distance): this share comes from the trap speed, the rest from the class */ trapShare: 0.2,
+  powerRange: [1.3, 1.75] as [number, number],
+  /** the exponent of the traction-limited launch (0.5 is constant acceleration; a little less is a car that pulls harder as it goes) */ tractionExponent: 0.45,
+  /** the traction-limited launch fades out by this share of the distance (the first 60 ft is mostly it, 330 ft a little, the eighth mile none) */ tractionFadeShare: 0.5,
+  /** Real 60 ft times as a share of the ET, as (ET seconds, share) points joined by straight lines and held flat outside them: a top fuel car runs a 0.8 s 60 ft in a 3.7 s ET (22 percent),
+   * a ten second street car about 1.6 s (16 percent), a thirteen to fourteen second car about 2.0 s (15 percent). These are only used for a 60 ft the leader's record does not give. */
+  launchShare: [[4.1, 0.193], [4.8, 0.176], [5.5, 0.17], [6.25, 0.171], [10.4, 0.182]] as [number, number][],
   /** the smallest gap between two marks, seconds (a generated split never gets closer than this to its neighbours) */ minGap: 0.04,
   /** the sideways wander in the lane: how far (m), the waves' frequencies (Hz) and weights, and how long it takes to build up after the launch (s) */
   driftMetres: 0.1, driftHz: [0.31, 0.83, 1.7] as number[], driftWeight: [0.55, 0.3, 0.15] as number[], driftRamp: 0.6,
@@ -29,18 +37,36 @@ const MARKS: SplitMark[] = ['ft60', 'ft330', 'eighth', 'ft1000', 'quarter'];
 const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
 const smooth = (u: number): number => { const t = clamp(u, 0, 1); return t * t * (3 - 2 * t); };
 
-/** the exponent of the class's envelope, mixed with the one the trap speed implies */
+/** the exponent of the class's power-limited pull, mixed with the one the trap speed implies */
 export function envelopePower(cls: ClassId, quarter: number, trapMph: number): number {
-  const G = LEADERBOARD_GHOST, classPower = G.powerByEra[eraOf(cls) ?? 'integrated'] ?? 1.65;
+  const G = LEADERBOARD_GHOST, classPower = G.powerByEra[eraOf(cls) ?? 'integrated'] ?? 1.5;
   const fromTrap = trapMph > 0 ? trapMph * MPH_TO_MS * quarter / DRAG.marks.quarter : classPower;
   return clamp(G.trapShare * fromTrap + (1 - G.trapShare) * classPower, G.powerRange[0], G.powerRange[1]);
+}
+
+/** the share of the ET a real car spends on its first 60 ft, for a quarter-mile time (see `LEADERBOARD_GHOST.launchShare`) */
+export function launchShareFor(quarter: number): number {
+  const pts = LEADERBOARD_GHOST.launchShare, first = pts[0] as [number, number], last = pts[pts.length - 1] as [number, number];
+  if (quarter <= first[0]) return first[1]; if (quarter >= last[0]) return last[1];
+  for (let i = 1; i < pts.length; i++) { const a = pts[i - 1] as [number, number], b = pts[i] as [number, number]; if (quarter <= b[0]) return a[1] + (b[1] - a[1]) * (quarter - a[0]) / (b[0] - a[0]); }
+  return last[1];
+}
+
+/** The class envelope: the share of the ET (0 to 1) at which a car has covered a share `u` of the quarter mile. It is the power-limited pull blended with a traction-limited
+ * start that fades out over the first part of the run, with the blend set so the 60 ft mark lands on the real-car launch share. It rises steadily from 0 to 1. */
+export function launchEnvelope(cls: ClassId, quarter: number, trapMph: number): (u: number) => number {
+  const G = LEADERBOARD_GHOST, power = envelopePower(cls, quarter, trapMph), u60 = DRAG.marks.ft60 / DRAG.marks.quarter;
+  const pull = (u: number): number => Math.pow(u, 1 / power), launch = (u: number): number => Math.pow(u, G.tractionExponent);
+  const fade = (u: number): number => { const f = Math.max(0, 1 - u / G.tractionFadeShare); return f * f; };
+  const blend = clamp((launchShareFor(quarter) - pull(u60)) / Math.max(1e-9, (launch(u60) - pull(u60)) * fade(u60)), 0, 1);
+  return (u: number): number => pull(u) + blend * fade(u) * (launch(u) - pull(u));
 }
 
 /** The times at every mark: the leader's own where they make sense, the rest from the envelope. A missing time is placed between the nearest known times
  * (before it and after it) in proportion to the envelope, so the marks are always strictly increasing and a known time is never moved. */
 export function completeSplits(rec: LeaderRecord): Record<SplitMark, number> {
-  const G = LEADERBOARD_GHOST, quarter = rec.splits.quarter, power = envelopePower(rec.class, quarter, rec.trapSpeed);
-  const envelope = (m: SplitMark): number => quarter * Math.pow(DRAG.marks[m] / DRAG.marks.quarter, 1 / power);
+  const G = LEADERBOARD_GHOST, quarter = rec.splits.quarter, shape = launchEnvelope(rec.class, quarter, rec.trapSpeed);
+  const envelope = (m: SplitMark): number => quarter * shape(DRAG.marks[m] / DRAG.marks.quarter);
   const known: Partial<Record<SplitMark, number>> = {}; let lastKnown = 0;
   for (const m of MARKS) {
     const v = rec.splits[m];

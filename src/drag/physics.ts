@@ -73,6 +73,10 @@ export const TRACTION = {
   lateralFloor: 0.5, lateralUse: 0.85,
   /** how much unrealised turn the lane marker shows */
   understeer: 0.8,
+  /** tire growth: at speed the slick's diameter grows and its patch lengthens, so it grips this share more at `growthSpeed` (m/s) and above (a straight rise from standstill) */
+  growth: 0.35, growthSpeed: 90,
+  /** the wing: downforce on the rear axle is 0.5 x air density x `downforceArea` (m2, lift coefficient x area) x speed squared; it adds load, so grip, but through the same `loadExp` as weight does */
+  downforceArea: 2.2,
 } as const;
 /** grip force relative to the reference axle: a loaded axle gains less than its extra load, and an unloaded axle loses less */
 export const loadGrip = (load: number, ref: number): number => Math.pow(Math.max(0, load) / Math.max(1, ref), TRACTION.loadExp);
@@ -80,6 +84,12 @@ export const loadGrip = (load: number, ref: number): number => Math.pow(Math.max
 export const slipGrip = (ratio: number): number => { const u = Number.isFinite(ratio) ? Math.max(0, ratio) : 0; return u <= TRACTION.slipPeak ? 1 : TRACTION.slideGrip + (1 - TRACTION.slideGrip) * Math.exp(-(u - TRACTION.slipPeak) / TRACTION.slipFall); };
 /** grip left for turning once the tire is using `used` of its `grip` to drive: a circle with a floor for the correction still needed at full power */
 export const lateralShare = (used: number, grip: number): number => { const u = used / Math.max(1, grip), room = Math.sqrt(Math.max(0, 1 - u * u)); return TRACTION.lateralFloor + (1 - TRACTION.lateralFloor) * room; };
+/** TOP-FUEL-STYLE TRACTION. A real top fuel car makes far more power than its tires can hold, so it is managed: the clutch is let slip on a curve that ramps the power in, the tires grow and bite harder as they spin up, the wing pushes the rear down at speed and weight transfer loads the rear at the launch.
+ * The AUTOMATIC CLUTCH MANAGER lets through at most `use` x the force the tires are expected to hold (a nominal track: it does not know about a cold, wet or worn tire, a bad pressure or a slick strip, so those still make the car spin). `use` rises with the tune's launch aggression (`useBase + aggression x useStep`); too high and the car breaks traction, too low and it leaves speed on the track.
+ * The clutch also HOLDS the launch rpm: for `holdTime` seconds after the launch the engine is kept near the tune's launch rpm (a slipping clutch, as a dragster's is) so a car with modest power still launches in its power band.
+ * The ramp starts at `rampStart` of the force and reaches all of it after `rampTime` seconds (longer at a gentle aggression). What the clutch holds back is slip: the engine revs `slipRpmMax` higher at full shedding and the clutch heats by `managedHeatPerJoule`.
+ * The top-fuel car's own grip and drag area are the stock car's times `gripGain` and `dragGain` (applied in spec-source.ts), and its clutch makes `heatShare` of the plain car's heat. Turn `gripGain` and `dragGain` first (how fast the high end is and how fast it trips), then `TRACTION.growth` and `TRACTION.downforceArea` first (how much grip the high end has), then `useBase`/`useStep`, then `rampTime`. */
+export const CLUTCH_MANAGER = { useBase: 0.70, useStep: 0.04, rampStart: 0.55, rampTime: 0.5, rampPerStep: 0.08, slipRpmMax: 2600, slipRate: 9000, holdTime: 1.4, heatShare: 0.18, gripGain: 3.67, dragGain: 6.77, managedHeatPerJoule: 0.000005 } as const;
 export const CONDITIONS = {
   airRange: [0, 40] as [number, number], trackRange: [10, 60] as [number, number], surfaceGripRange: [0.9, 1.1] as [number, number], gripClamp: [0.85, 1.15] as [number, number],
   /** sea level up to this many metres: turn this first for how thin a seeded day can get */
@@ -302,7 +312,7 @@ export function createDrag(o: { seed: number; entrants: Entrant[]; conditions?: 
     }
     const startDeep = quick && plan.deepStage, startX = quick ? (startDeep ? -DRAG.deepStageRollout : -DRAG.stageRollout) : STAGE.startX;
     const engineTemp = clamp(Number.isFinite(e.engineTemp) ? e.engineTemp as number : weather.airC, weather.airC, BOOST.heatMax);
-    return { name: e.name, spec: e.spec, tune: e.tune, ai, x: startX, v: 0, rpm: e.spec.idle, gear: 1, launched: false, rolling: false, deepStage: startDeep, stage: (quick ? (startDeep ? 'deepStaged' : 'staged') : 'waterBoxApproach') as StagePhase, preBulb: quick, stageBulb: quick, overstaged: false, burnDistance: 0, stagedFor: 0, reversing: false, wet: 0, shiftTo: 1, accel: 0, sprungTransfer: 0, hotPsi: e.tune.pressure, aborted: false, launchT: 0, shiftT: 0, shiftTargetRpm: e.spec.idle, shiftPenalty: 0, shiftMissed: false, nitroLeft: e.spec.nitroSecs, nitroOn: false, nitroUsed: 0, nitroTemp: weather.airC, nitroPressure: 1, nitroGain: 0, nitroPeakGain: 0, spin: false, limiter: false, tireTemp: weather.airC, tires: [{ temp: weather.airC, wear: 0 }, { temp: weather.airC, wear: 0 }] as [DragTire, DragTire], burnout: false, clutchTemp: weather.airC, clutchPeakTemp: weather.airC, clutchSlip: 0, clutchCondition: clamp(e.clutchCondition ?? e.spec.clutchCondition ?? 1, CLUTCH.minCondition, 1), clutchLocked: false, clutchLockT: Infinity, reaction: null, foul: false, marks: {}, trap: 0, finished: false, ghost: e.ghost, trace: [], spinTime: 0, plan, prev: { ...NO_INPUT }, y: 0, psi: 0, yawRate: 0, steer: 0, spinL: false, spinR: false, crossed: false, foulT: Infinity, wall: false, gripLeft: 1, drift: 0, pitch: 0, pitchRate: 0, rearShare: staticRearShare(e.spec, e.tune, fuel), lift: 0, boost: 0, boostPeak: 0, engineTemp, enginePeakTemp: engineTemp, retard: boostRetardAt(engineTemp), fuel, fuelUsed: 0, shutdown: false, brake: false, chute: false, stopped: false, crashed: false, crashT: Infinity, brakeTemp: weather.airC, brakeFade: 1, chuteT: 0, chuteOpen: 0 };
+    return { name: e.name, spec: e.spec, tune: e.tune, ai, x: startX, v: 0, rpm: e.spec.idle, gear: 1, launched: false, rolling: false, deepStage: startDeep, stage: (quick ? (startDeep ? 'deepStaged' : 'staged') : 'waterBoxApproach') as StagePhase, preBulb: quick, stageBulb: quick, overstaged: false, burnDistance: 0, stagedFor: 0, reversing: false, wet: 0, shiftTo: 1, accel: 0, sprungTransfer: 0, hotPsi: e.tune.pressure, aborted: false, launchT: 0, shiftT: 0, shiftTargetRpm: e.spec.idle, shiftPenalty: 0, shiftMissed: false, nitroLeft: e.spec.nitroSecs, nitroOn: false, nitroUsed: 0, nitroTemp: weather.airC, nitroPressure: 1, nitroGain: 0, nitroPeakGain: 0, spin: false, limiter: false, tireTemp: weather.airC, tires: [{ temp: weather.airC, wear: 0 }, { temp: weather.airC, wear: 0 }] as [DragTire, DragTire], burnout: false, clutchTemp: weather.airC, clutchPeakTemp: weather.airC, clutchSlip: 0, managedSlip: 0, managedShed: 0, clutchCondition: clamp(e.clutchCondition ?? e.spec.clutchCondition ?? 1, CLUTCH.minCondition, 1), clutchLocked: false, clutchLockT: Infinity, reaction: null, foul: false, marks: {}, trap: 0, finished: false, ghost: e.ghost, trace: [], spinTime: 0, plan, prev: { ...NO_INPUT }, y: 0, psi: 0, yawRate: 0, steer: 0, spinL: false, spinR: false, crossed: false, foulT: Infinity, wall: false, gripLeft: 1, drift: 0, pitch: 0, pitchRate: 0, rearShare: staticRearShare(e.spec, e.tune, fuel), lift: 0, boost: 0, boostPeak: 0, engineTemp, enginePeakTemp: engineTemp, retard: boostRetardAt(engineTemp), fuel, fuelUsed: 0, shutdown: false, brake: false, chute: false, stopped: false, crashed: false, crashT: Infinity, brakeTemp: weather.airC, brakeFade: 1, chuteT: 0, chuteOpen: 0 };
   });
   // each lane's own strip: the rubber under each wheel and the ruts, as gentle waves along it (their own random numbers, so the race's draws are untouched)
   const strips = s.runners.map((_, i) => { const q = createRng(o.seed * 7919 + i * 104729 + 13); return Array.from({ length: 8 }, () => q.range(0, Math.PI * 2)); });
@@ -321,11 +331,25 @@ export function createDrag(o: { seed: number; entrants: Entrant[]; conditions?: 
     const a = samples[lo] as GhostSample, b = samples[hi] as GhostSample, f = (t - a.t) / Math.max(1e-9, b.t - a.t);
     return { t, x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, psi: a.psi + (b.psi - a.psi) * f, v: a.v + (b.v - a.v) * f };
   };
+  /** how much harder than the player's brakes a ghost must brake to stop inside the run-out (1 when its own speed is no problem): a fast ghost on the stock car's brakes would drive off the end of the strip. It is estimated with the same forces, a little pessimistically (brake fade), and the answer only depends on the ghost's speed at the line. */
+  function ghostBrakeScale(r: Runner): number {
+    const room = (SHUTDOWN.end - r.x) * 0.8, mass = runnerMass(r), fade = (SHUTDOWN.brakeFadeMin + 1) / 2;
+    for (let scale = 1; scale < 8; scale *= 1.1) {
+      let v = r.v, x = 0, t = 0;
+      while (v > SHUTDOWN.stopSpeed && t < 60) { const drag = 0.5 * weather.rho * (r.spec.cda + SHUTDOWN.chuteCda) * v * v, brakes = SHUTDOWN.brakeG * fade * mass * DRAG.g * weather.grip * scale; const v0 = v; v = Math.max(0, v - (drag + brakes) / mass * 0.02); x += (v0 + v) / 2 * 0.02; t += 0.02; }
+      if (x <= room) return scale;
+    }
+    return 8;
+  }
+  const ghostBrake = new Map<number, number>();
   const ghostPaths = new Map<number, StagingPath>();
+  /** the ghosts that have crossed the finish line and are now braking on the run-out */
+  const ghostRunOut = new Set<number>();
   /** the ghost's canned staging path (burnout, run-out, back up, stage): it is only for the eye, its time starts at the green */
   const pathOf = (i: number, deep: boolean): StagingPath => { let p = ghostPaths.get(i); if (!p) { p = ghostStagingPath(o.seed, i, deep); ghostPaths.set(i, p); } return p; };
   function playGhost(i: number, r: Runner, g: DragGhost): void {
     const t = s.armed ? s.t - s.greenAt : -1, q = g.marks.quarter, at = ghostAt(g.samples, t);
+    if (ghostRunOut.has(i) && t >= 0) { if (!r.stopped) shutdownStep(i, r, { ...NO_INPUT, brake: true, chute: true }, ghostBrake.get(i)); r.psi *= 0.98; return; }
     if (t < 0) {      // before the green the ghost does the staging procedure along its canned path (the leaderboard ghost only has samples from the green)
       const pose = stagingPoseAt(pathOf(i, !!g.deepStage), s.t);
       r.x = pose.x; r.y = pose.y; r.psi = 0; r.v = pose.v; r.stage = pose.stage; r.burnout = pose.burnout; r.reversing = pose.reversing; r.deepStage = pose.stage === 'deepStaged'; r.preBulb = pose.x >= -STAGE.preStageRollout && pose.x < 0; r.stageBulb = pose.stage === 'staged' || pose.stage === 'deepStaged';
@@ -334,7 +358,16 @@ export function createDrag(o: { seed: number; entrants: Entrant[]; conditions?: 
     r.reaction = g.reaction; r.marks = { ...g.marks }; r.trap = g.trap; r.foul = g.reaction < 0; r.crossed = false; r.aborted = false; r.crashed = false;
     r.rolling = t >= g.reaction - stageRolloutTime(g.deepStage) && t < g.reaction; if (t >= 0) r.deepStage = !!g.deepStage && (r.rolling || t < g.reaction); r.launched = t >= g.reaction; r.launchT = s.greenAt + g.reaction; if (t >= 0) r.stage = r.launched ? 'launched' : r.rolling ? 'rolling' : r.deepStage ? 'deepStaged' : 'staged';
     r.chute = false; r.chuteOpen = 0; r.nitroOn = false; r.nitroUsed = 0; r.nitroTemp = s.conditions.airC; r.nitroPressure = 0; r.nitroGain = 0; r.nitroPeakGain = 0; r.boost = 0; r.retard = 0; r.yawRate = 0; r.steer = 0; r.gripLeft = 1; r.drift = 0; r.fuel = FUEL.capacity; r.fuelUsed = 0;
-    /* the marks are timed from the launch and `t` from the green: the finish is the reaction plus the quarter */ if (q !== undefined && t >= g.reaction + q) { if (!r.finished) events.push({ t: 'finish', car: i }); r.finished = true; r.shutdown = true; r.brake = true; r.chute = true; r.chuteOpen = 1; }
+    /* the marks are timed from the launch and `t` from the green: the finish is the reaction plus the quarter */
+    if (q !== undefined && t >= g.reaction + q) {
+      if (!r.finished) events.push({ t: 'finish', car: i });
+      r.finished = true; r.shutdown = true;
+      // from the line the ghost is a car on the run-out: it takes the position and speed it had at the line, then brakes and opens its chute through the same shutdown physics the player's car uses
+      if (!ghostRunOut.has(i)) { const atLine = ghostAt(g.samples, g.reaction + q) ?? { t, x: DRAG.marks.quarter, y: 0, psi: 0, v: g.trap / 3.6 }; ghostRunOut.add(i); r.x = atLine.x; r.v = Math.max(0, atLine.v); r.y = atLine.y; r.psi = atLine.psi; ghostBrake.set(i, ghostBrakeScale(r)); }
+      if (!r.stopped) shutdownStep(i, r, { ...NO_INPUT, brake: true, chute: true }, ghostBrake.get(i));
+      r.psi *= 0.98;
+      return;
+    }
     const last = g.samples[g.samples.length - 1] as GhostSample | undefined; if (last && t >= last.t) { r.v = 0; r.stopped = true; }
   }
   const recordTrace = (r: Runner): void => { if (r.ghost) return; const prev = r.trace[r.trace.length - 1]; if (!prev || s.t - prev.t + DRAG.dt / 2 >= GHOST.step) r.trace.push({ t: s.t, x: r.x, y: r.y, psi: r.psi, v: r.v }); };
@@ -483,6 +516,10 @@ export function createDrag(o: { seed: number; entrants: Entrant[]; conditions?: 
     else rpm = Math.max(wr, tu.launchRpm * (1 - engage) + wr * engage);
     if (manual && engage < 0.999) { r.clutchLocked = false; r.clutchLockT = Infinity; }
     if (!r.clutchLocked && r.shiftT <= 0 && engage > 0 && (rpm - wr <= CLUTCH.lockRpm || engage >= 0.999)) { r.clutchLocked = true; r.clutchLockT = s.t; if (!r.spin) rpm = wr; }
+    // managed slip: what the clutch holds back lets the engine rev above the wheels (it chases the share being shed, so the power ramps in smoothly)
+    const holdSlip = manual || !sp.topFuel ? 0 : Math.max(0, tu.launchRpm - wr) * (1 - clamp(since / CLUTCH_MANAGER.holdTime, 0, 1)), slipWanted = Math.min(CLUTCH_MANAGER.slipRpmMax, Math.max(CLUTCH_MANAGER.slipRpmMax * r.managedShed, holdSlip));
+    r.managedSlip = clamp(r.managedSlip + clamp(slipWanted - r.managedSlip, -CLUTCH_MANAGER.slipRate * dt, CLUTCH_MANAGER.slipRate * dt), 0, CLUTCH_MANAGER.slipRpmMax);
+    if (r.shiftT <= 0 && !r.spin) rpm += r.managedSlip;
     const over = clamp((rpm - (sp.redline - ENGINE.limiter.span)) / Math.max(1, ENGINE.limiter.span), 0, 1);
     r.limiter = over > 0; rpm = Math.min(sp.redline, Math.max(sp.idle, rpm)); r.rpm = rpm;
     const boostCap = sp.boostCap * boostLimitOf(tu), risk = boostCap > 0 ? boostRisk(tu) : 0;
@@ -502,18 +539,25 @@ export function createDrag(o: { seed: number; entrants: Entrant[]; conditions?: 
     const settle = r.clutchLocked && s.t - r.clutchLockT < CLUTCH.lockedDragTime ? CLUTCH.lockedDrag : 0;
     const shiftSettle = r.shiftPenalty > 0 ? 1 - clamp(r.shiftPenalty / SHIFT_QUALITY.penaltyMax, 0, 1) : 1;
     const share = r.clutchLocked && r.shiftT <= 0 ? (1 - settle) * shiftSettle : slipping ? clutchTorqueShare(tu, sp) : 0;
-    const heat = (engine * share + fly) * slip * dt * CLUTCH.heatPerJoule * (BOOST.maxLimit + BOOST.riskHeat * risk * r.boost) / Math.max(1, sp.clutchHeatCapacity);
-    r.clutchTemp = clamp(r.clutchTemp + heat + (CLUTCH.ambient - r.clutchTemp) * CLUTCH.cool * (1 + CLUTCH.airflowCool * r.v) * dt, CLUTCH.ambient, CLUTCH.maxTemp);
+    const heat = (engine * share + fly) * slip * dt * CLUTCH.heatPerJoule * (sp.topFuel ? CLUTCH_MANAGER.heatShare : 1) * (BOOST.maxLimit + BOOST.riskHeat * risk * r.boost) / Math.max(1, sp.clutchHeatCapacity);
+    const managedHeat = engine * share * r.managedSlip * CLUTCH.radPerRpm * dt * CLUTCH_MANAGER.managedHeatPerJoule / Math.max(1, sp.clutchHeatCapacity);
+    r.clutchTemp = clamp(r.clutchTemp + heat + managedHeat + (CLUTCH.ambient - r.clutchTemp) * CLUTCH.cool * (1 + CLUTCH.airflowCool * r.v) * dt, CLUTCH.ambient, CLUTCH.maxTemp);
     r.clutchPeakTemp = Math.max(r.clutchPeakTemp, r.clutchTemp); if (slipping) r.clutchSlip += dt;
     const fade = slipping ? clutchTorqueScale(r) : 1;
     const torque = (fly + (engine + engineBrake) * share) * fade;
     const spent = Math.min(Math.max(0, torque * rpm * CLUTCH.radPerRpm * dt) * FUEL.burnPerJoule, Math.max(0, r.fuel - FUEL.reserve)); r.fuel -= spent; r.fuelUsed += spent;
-    const mass = runnerMass(r), drive = torque * ratio * tu.final * gearEfficiency(sp, r.gear) / sp.tire;
+    const mass = runnerMass(r), driveRaw = torque * ratio * tu.final * gearEfficiency(sp, r.gear) / sp.tire;
     // each rear wheel has its own grip: the engine's torque lifts the right one a little, and the rubber under each varies. The axle is locked, so they turn together: the weaker
     // wheel slips at its limit and the other takes the rest (pushing the nose round), and both spin up when the drive beats their grip together
     const loadRef = staticRearShare(sp, tu, FUEL.capacity) * (sp.mass + tu.ballast + DRAG.driver) * DRAG.g;
     r.hotPsi = hotPressure(tu.pressure, r.tireTemp, weather.airC);
-    const gripBase = DRAG.gripScale * sp.grip * weather.grip * pressureGrip(r.hotPsi) * (1 - STAGE.wetGripLoss * r.wet) * loadRef * loadGrip(r.rearShare * mass * DRAG.g, loadRef), meanWear = (tires[0]!.wear + tires[1]!.wear) / 2, grip = gripBase * tireGrip(r.tireTemp, weather.airC) * wearGrip(meanWear), bias = LANE.torqueBias * Math.max(0, Math.min(1, drive / Math.max(1, grip)));
+    // the wing and the growing slick add to what the rear can hold; the clutch manager then lets through no more than the NOMINAL track would hold (see CLUTCH_MANAGER)
+    const downforce = !sp.topFuel ? 0 : 0.5 * weather.rho * TRACTION.downforceArea * r.v * r.v, rearLoad = r.rearShare * mass * DRAG.g + downforce, growth = sp.topFuel ? 1 + TRACTION.growth * Math.min(1, r.v / TRACTION.growthSpeed) : 1;
+    const nominalGrip = DRAG.gripScale * sp.grip * loadRef * loadGrip(rearLoad, loadRef) * growth, managerUse = CLUTCH_MANAGER.useBase + CLUTCH_MANAGER.useStep * clamp(tu.launchAggression, CLUTCH.aggressionMin, CLUTCH.aggressionMax);
+    const rampLength = CLUTCH_MANAGER.rampTime * (1 + (CLUTCH.aggressionMid - clamp(tu.launchAggression, CLUTCH.aggressionMin, CLUTCH.aggressionMax)) * CLUTCH_MANAGER.rampPerStep), rampAt = clamp(since / Math.max(0.05, rampLength), 0, 1), rampShare = CLUTCH_MANAGER.rampStart + (1 - CLUTCH_MANAGER.rampStart) * rampAt * rampAt * (3 - 2 * rampAt);
+    const managedForce = manual || !sp.topFuel ? Infinity : nominalGrip * managerUse * rampShare, drive = Math.min(driveRaw, managedForce);
+    r.managedShed = driveRaw > 1 && drive < driveRaw ? 1 - drive / driveRaw : 0;
+    const gripBase = DRAG.gripScale * sp.grip * weather.grip * pressureGrip(r.hotPsi) * (1 - STAGE.wetGripLoss * r.wet) * loadRef * loadGrip(rearLoad, loadRef) * growth, meanWear = (tires[0]!.wear + tires[1]!.wear) / 2, grip = gripBase * tireGrip(r.tireTemp, weather.airC) * wearGrip(meanWear), bias = LANE.torqueBias * Math.max(0, Math.min(1, drive / Math.max(1, grip)));
     const gL = gripBase / 2 * (1 + bias) * rubber(i, 0, r.x) * tireGrip(tires[0]!.temp, weather.airC) * wearGrip(tires[0]!.wear), gR = gripBase / 2 * (1 - bias) * rubber(i, 1, r.x) * tireGrip(tires[1]!.temp, weather.airC) * wearGrip(tires[1]!.wear), both = gL + gR, half = drive / 2;
     const spinning = r.spin ? drive > both * DRAG.spinHold : drive > both;
     if (spinning && !r.spin) events.push({ t: 'spin', car: i }); r.spin = spinning; if (spinning) r.spinTime += dt; r.spinL = spinning || half > gL; r.spinR = spinning || half > gR;
@@ -577,7 +621,8 @@ export function createDrag(o: { seed: number; entrants: Entrant[]; conditions?: 
     }
   }
   /** the run-out after the line: no engine, no nitro, just aero, brakes that heat and fade, and a chute that opens over a moment. Missing the end of the strip is a crash. */
-  function shutdownStep(i: number, r: Runner, inp: DragInput): void {
+  /** `brakeScale` is only for ghosts (see `ghostBrakeScale`): the player's car always brakes with 1 */
+  function shutdownStep(i: number, r: Runner, inp: DragInput, brakeScale = 1): void {
     if (r.stopped) return;
     coolEngine(r, DRAG.dt); r.retard = boostRetardAt(r.engineTemp);
     if (!r.chute && inp.chute) { r.chute = true; events.push({ t: 'chute', car: i }); }
@@ -594,7 +639,7 @@ export function createDrag(o: { seed: number; entrants: Entrant[]; conditions?: 
     if (r.brake) brakeTemp += brakes / mass * Math.abs(r.v) * DRAG.dt * SHUTDOWN.brakeHeat;
     brakeTemp = clamp(brakeTemp - (SHUTDOWN.brakeCool + SHUTDOWN.brakeAirCool * Math.abs(r.v)) * DRAG.dt, weather.airC, SHUTDOWN.brakeMaxTemp);
     r.brakeTemp = brakeTemp; r.brakeFade = brakeFadeOf(brakeTemp);
-    const v0 = r.v; r.v = Math.max(0, r.v - (aero + chute + brakes) / mass * DRAG.dt); r.x += (v0 + r.v) / 2 * DRAG.dt;
+    const v0 = r.v; r.v = Math.max(0, r.v - (aero + chute + brakes * brakeScale) / mass * DRAG.dt); r.x += (v0 + r.v) / 2 * DRAG.dt;
     if (r.v <= SHUTDOWN.stopSpeed) { r.v = 0; r.stopped = true; }
     else if (r.x >= SHUTDOWN.end) { r.x = SHUTDOWN.end; r.v = 0; r.stopped = true; r.crashed = true; r.crashT = s.t; events.push({ t: 'crash', car: i }); }
   }

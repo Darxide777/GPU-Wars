@@ -5,7 +5,7 @@ export interface DragCarDef {
   id: string; name: string; col: string; trim: string;
   /** kg */ mass: number;
   /** the engine: peak torque (Nm) at `peakRpm`, idling at `idle`, the limiter at `redline` */ torque: number; peakRpm: number; idle: number; redline: number;
-  /** the gearbox it comes with: the number of gears, their ratios and the final drive; the drivetrain efficiency of each stock gear (0 to 1) */ gears: number[]; gearEff: number[]; final: number;
+  /** the gearbox it comes with: the number of gears, their ratios and the final drive; the drivetrain efficiency of each stock gear (0 to 1) */ gears: number[]; gearEff: number[]; final: number; /** the launch rpm a first tune starts at (missing: halfway between idle and the torque peak) */ launchRpm?: number;
   /** tire radius (m), grip (1 is a street tire), the share of the weight on the driven (rear) wheels, the frontal drag (Cd x area, m2) */ tire: number; grip: number; rear: number; cda: number;
   /** a sentence about the car */ blurb: string;
 }
@@ -55,6 +55,7 @@ export interface DragSpec {
   gearEff: number[];
   /** the blower's full boost multiplier (0 with no part) and the seconds it takes to reach 90% of its target */
   boostCap: number; boostLag: number;
+  /** a top-fuel-style car (GPU Wars cars): the clutch is managed, the tires grow with speed and the wing presses the rear down (see CLUTCH_MANAGER and TRACTION in physics.ts). Missing is the plain car the engine tests use. */ topFuel?: boolean;
   /** this car's own torque curve; missing means the shared ENGINE.map (the stock dragster with no benchmark) */ curve?: TorqueCurve;
   /** clutch: torque share while slipping, heat capacity, wear resistance and the condition this run starts with (1 new) */
   clutchShare: number; clutchHeatCapacity: number; clutchWearResist: number; clutchCondition: number;
@@ -78,7 +79,7 @@ export interface Runner {
   /** the rear tires' temperature (C), the mean of the two slicks, and whether they are burning out on the line now */ tireTemp: number; burnout: boolean;
   /** the left and right rear slicks, with their own temperature and wear; tireTemp is their mean */ tires: [DragTire, DragTire];
   /** the clutch's temperature now and its peak this run (C), seconds of slip this run, its condition at the start of the run, whether the plates have locked and when */
-  clutchTemp: number; clutchPeakTemp: number; clutchSlip: number; clutchCondition: number; clutchLocked: boolean; clutchLockT: number;
+  clutchTemp: number; clutchPeakTemp: number; clutchSlip: number; /** rpm the engine revs above the wheels because the clutch manager is holding power back, and the share of the engine's pull it is holding back (0 to 1) */ managedSlip: number; managedShed: number; clutchCondition: number; clutchLocked: boolean; clutchLockT: number;
   /** seconds from green to the launch (negative: jumped the start), and when it crossed each mark */ reaction: number | null; foul: boolean; marks: Partial<Record<Mark, number>>; trap: number; finished: boolean;
   ghost?: DragGhost; trace: GhostSample[];
   /** after the line: braking and the chute, whether the car stopped before the end of the strip or crashed, and when */ shutdown: boolean; brake: boolean; chute: boolean; stopped: boolean; crashed: boolean; crashT: number;

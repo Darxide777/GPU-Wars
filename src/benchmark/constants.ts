@@ -4,7 +4,7 @@ export type BackendId = 'webgl2' | 'webgl1' | 'canvas2d';
 
 export const BENCHMARK = {
   /** the version of the workload and the scoring; a saved result with another version must be run again */
-  version: 1,
+  version: 2,
   /** warm-up before the timed passes: shaders compile, clocks rise and the batch size settles. Not scored. */
   warmupMs: 2000,
   /** how many timed passes, and how long each lasts */
@@ -29,8 +29,8 @@ export const BENCHMARK = {
   batchTargetMs: 30,
   /** work units per second that score 0 and the full `maxScore` (log scale), for each way of drawing. One unit is one shader iteration of one pixel (or one filled pixel on the 2D canvas). Calibrate on real cards. */
   rate: {
-    webgl2: { min: 2e9, max: 2e12 },
-    webgl1: { min: 2e9, max: 2e12 },
+    webgl2: { min: 3e10, max: 4e12 },
+    webgl1: { min: 3e10, max: 4e12 },
     canvas2d: { min: 1e8, max: 1e10 },
   } as Record<BackendId, { min: number; max: number }>,
   /** the 2D canvas fallback is not a real GPU test: its score can never pass this share of `maxScore` */

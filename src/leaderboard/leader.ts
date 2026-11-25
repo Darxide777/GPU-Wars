@@ -30,13 +30,15 @@ export function parseLeader(raw: unknown): LeaderRecord | null {
   };
 }
 
-/** The bundled leader times. They are PLAUSIBLE PLACEHOLDERS (not real players): turn these first when real numbers exist.
- * `eraEt` is the quarter-mile time of the fastest car of that generation; a vendor adds or takes a little; autopilot runs are a little slower than hand-driven ones. */
+/** The bundled leader times. They are PLAUSIBLE PLACEHOLDERS (not real players): turn these first when real numbers exist. docs/CALIBRATION.md says how they were made.
+ * `eraEt` is the quarter-mile time of a made-up leader of that generation on the ranked class day: a card at about 70% of its class's top score with a GOOD tune (a shorter final drive, a higher launch rpm and a firmer launch than the defaults) plus 0.04 s.
+ * So a good tune of a typical (70% to 80%) card beats it (the 80% card by more), a card at the class's top score beats it with room to spare, and a default tune does not beat it. A vendor adds or takes a little; autopilot runs are a little slower than hand-driven ones.
+ * tests/calibration.test.mjs checks every leader against the ET bands and against the physics. */
 export const FALLBACK_LEADERS = {
-  eraEt: { integrated: 9.4, retro: 8.6, classic: 7.9, modern: 7.0, current: 5.9 } as Record<string, number>,
-  vendorEt: { amd: -0.05, nvidia: -0.15, intel: 0.2, other: 0.35 } as Record<string, number>,
-  autopilotExtraEt: 0.18,
-  /** trap speed in mph is about this many mph-seconds divided by the ET (a faster car also crosses the line faster) */ trapMphSeconds: 1130,
+  eraEt: { integrated: 10.0, retro: 6.09, classic: 5.36, modern: 4.72, current: 4.11 } as Record<string, number>,
+  vendorEt: { amd: 0, nvidia: -0.02, intel: 0.05, other: 0.08 } as Record<string, number>,
+  autopilotExtraEt: 0.12,
+  /** trap speed in mph is about this many mph-seconds divided by the ET (the simulation's quarter mile gives 1310 to 1380 from the 10 s class to the 4 s class) */ trapMphSeconds: 1340,
   reaction: 0.064,
 } as const;
 

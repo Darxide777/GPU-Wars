@@ -23,6 +23,21 @@ describe('classes', () => {
   it('has 17 classes', () => { expect(CLASS_IDS.length).toBe(17); expect(CLASS_IDS).toContain('integrated'); });
 });
 
+describe('class bounds catch impossible runs and accept what the simulation really gives', () => {
+  // [class, a real run's ET and trap (mph) from the simulation's top card of the class (docs/CALIBRATION.md), an impossible ET for the class]
+  const cases: [string, number, number, number][] = [
+    ['integrated', 9.6, 138, 7.9], ['discrete-amd-retro', 5.9, 220, 4.9], ['discrete-nvidia-classic', 5.1, 250, 4.2],
+    ['discrete-intel-modern', 4.5, 288, 3.8], ['discrete-nvidia-current', 4.0, 340, 3.2],
+  ];
+  const run = (cls: string, et: number, mph: number) => sub({ class: cls, splits: { ft60: +(et * 0.2).toFixed(3), ft330: +(et * 0.44).toFixed(3), eighth: +(et * 0.65).toFixed(3), ft1000: +(et * 0.84).toFixed(3), quarter: et }, trapSpeed: mph });
+  it.each(cases)('%s: a real %f s run at %f mph is accepted', async (cls, et, mph) => { expect((await post(mkEnv(), run(cls, et, mph))).status).toBe(200); });
+  it.each(cases)('%s: an impossible time is refused', async (cls, _et, mph, impossible) => { expect((await post(mkEnv(), run(cls, impossible, mph))).status).toBe(422); });
+  it('refuses a trap speed beyond the class', async () => {
+    expect((await post(mkEnv(), run('integrated', 9.6, 250))).status).toBe(422);
+    expect((await post(mkEnv(), run('discrete-nvidia-current', 4.0, 420))).status).toBe(422);
+  });
+});
+
 describe('validation', () => {
   it('accepts a good run', async () => {
     const r = await post(mkEnv(), sub());

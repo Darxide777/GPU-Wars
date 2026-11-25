@@ -48,13 +48,18 @@ export function checkDurations(passWallMs: number[], runMs: number, wasHidden: b
 }
 
 /** everything the run produced */
-export interface BenchmarkOutcome { ok: boolean; reason: string; score: number; rawScore: number; capped: boolean; sustain: number; backend: BackendId; rates: number[]; discarded: number[] }
+export interface BenchmarkOutcome { ok: boolean; reason: string; score: number; rawScore: number; capped: boolean; sustain: number; backend: BackendId; rates: number[]; discarded: number[]; /** the mean work rate of the kept passes (units per second): the number docs/CALIBRATION.md asks you to report */ meanRate: number }
 
 /** from the passes (work rate and clock time of each) to the outcome */
 export function outcomeFromPasses(passes: { rate: number; wallMs: number }[], runMs: number, wasHidden: boolean, backend: BackendId, id: ClassId): BenchmarkOutcome {
-  const rates = passes.map(p => p.rate), blank = { score: 0, rawScore: 0, capped: false, sustain: 0, backend, rates, discarded: [] as number[] };
+  const rates = passes.map(p => p.rate), blank = { score: 0, rawScore: 0, capped: false, sustain: 0, backend, rates, discarded: [] as number[], meanRate: 0 };
   const dur = checkDurations(passes.map(p => p.wallMs), runMs, wasHidden); if (!dur.ok) return { ok: false, reason: dur.reason, ...blank };
   const sum = summarizePasses(rates); if (!sum.ok) return { ok: false, reason: sum.reason, ...blank, sustain: sum.sustain, discarded: sum.discarded };
   const raw = scoreFromRate(sum.rate, backend), score = capScore(raw, id);
-  return { ok: true, reason: '', score, rawScore: raw, capped: score < raw, sustain: sum.sustain, backend, rates, discarded: sum.discarded };
+  return { ok: true, reason: '', score, rawScore: raw, capped: score < raw, sustain: sum.sustain, backend, rates, discarded: sum.discarded, meanRate: sum.rate };
 }
+
+/** the work rate in plain words, for example "612.0 G units/s" */
+export const rateText = (rate: number): string => (rate >= 1e12 ? `${(rate / 1e12).toFixed(2)} T` : rate >= 1e9 ? `${(rate / 1e9).toFixed(1)} G` : `${(rate / 1e6).toFixed(1)} M`) + ' units/s';
+/** THE CALIBRATION LINE: the raw (uncapped) score, the score kept for the class, the class cap and the mean work rate. It is shown on the result screen and written to the console, so a player can report it (docs/CALIBRATION.md). */
+export const calibrationLine = (o: BenchmarkOutcome, id: ClassId): string => `RAW SCORE ${o.rawScore} (KEPT ${o.score}, CLASS CAP ${classScoreCap(id)}) | RATE ${o.meanRate.toExponential(3)} units/s (${rateText(o.meanRate)}) | ${o.backend} | version ${BENCHMARK.version}`;

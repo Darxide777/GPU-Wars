@@ -158,8 +158,8 @@ test('only a clean ranked pass with a benchmark is sent', () => {
 const reply = (status, body) => async () => ({ ok: status >= 200 && status < 300, status, json: async () => body });
 const payload = () => buildScorePayload({ playerName: 'Test Pilot', category: 'manual', benchmark, slip: cleanSlip(), tune, seed: RANKED.seed });
 
-test('with no server address the game is fully offline: nothing throws and the bundled leader is used', async () => {
-  const c = createLeaderboardClient({ clientId: 'abcdefgh12345678' });
+test('with an empty server address override the game is fully offline: nothing throws and the bundled leader is used', async () => {
+  const c = createLeaderboardClient({ baseUrl: '', clientId: 'abcdefgh12345678' });
   assert.equal(c.configured, false);
   const s = await c.submit(payload()); assert.equal(s.ok, false); assert.equal(s.kind, 'not-configured'); assert.match(s.message, /OFFLINE/);
   const l = await c.leader('integrated', 'manual'); assert.equal(l.online, false); assert.equal(l.record.source, 'fallback'); assert.equal(l.record.class, 'integrated');
@@ -234,12 +234,12 @@ test('the letter picker: cycle wraps, add and delete edit the name, short names 
 });
 
 test('rubber from your own burnout raises grip: a run on a strip with burnout rubber beats the same run on a fresh strip', () => {
-  const spec = specForBenchmark(null), fresh = rankedStrip(), burnt = rankedStrip();
+  const spec = specForBenchmark({ score: 10000, class: 'discrete-nvidia-current', benchmarkVersion: 2, gpuId: 'x', date: 1 }), fresh = rankedStrip(), burnt = rankedStrip();
   const d = createDrag({ seed: RANKED.seed, conditions: RANKED.conditions, strip: burnt, entrants: [{ name: 'YOU', spec, tune, ai: null, ...rankedStart() }] });
   const r = d.state.runners[0];      // roll to the water box, then burn out down the strip: the rubber is laid past the line (x > 0)
   for (let i = 0; i < 240 * 14 && r.x < 9; i++) { const burn = r.x >= STAGE.waterBoxStart; d.setInput(0, { throttle: burn ? 1 : 0.6, launch: false, shiftUp: false, nitro: false, burnout: burn, brake: false, backUp: false, chute: false, deepStage: false, steer: 0 }); d.step(); }
   assert.ok(rubberShare(burnt, 0) > 0 && rubberShare(fresh, 0) === 0, 'the burnout laid rubber');
-  const spinny = { ...tune, launchRpm: 7000, pressure: 12 };      // (the stock tune hooks up without spin, where rubber changes nothing: a soft, high-revving launch does spin)
+  const spinny = { ...tune, launchRpm: 7000, pressure: 12, launchAggression: 10 };      // (the stock tune hooks up without spin, where rubber changes nothing: a soft, high-revving, most aggressive launch on the strongest card does spin)
   const run = strip => predictDrag(spec, spinny, RANKED.seed, RANKED.conditions, rankedStart().fuel, rankedStart().engineTemp, strip).slip;
   const a = run(fresh), b = run(burnt);
   assert.ok(b.ft60 < a.ft60 && b.quarter <= a.quarter, `60 ft ${b.ft60} vs ${a.ft60}, quarter ${b.quarter} vs ${a.quarter}`);
