@@ -7,6 +7,7 @@ GPU Wars is a standalone top-down drag-racing simulator and GPU benchmark, extra
 ```bash
 npm run build       # bundles src/drag/page.ts into dist/gpuwars.js
 npm run typecheck   # strict TypeScript
+npm run package     # dist/gpuwars-itch.zip for itch.io (docs/ITCH.md)
 npm test            # builds, then runs every test
 node --test tests/<file>.test.mjs
 ```
@@ -16,7 +17,7 @@ node --test tests/<file>.test.mjs
 - **Top-down only.** No 3D camera, no city hub, no shop, parts, points or currency, no rivals, no other game modes. The only thing a player changes on the car is its tune. The car's parts are the top level of every part (`STOCK_PARTS`).
 - **Plain-English names and comments.** A new reader should follow the code. Name things for what they are (`clutchCondition`, not `cc`); explain the why in a short comment on its own line. **Never put a `//` comment in the middle of a line before code**: many lines hold several statements and it swallows the rest of the line.
 - **A deterministic simulation.** Everything in `src/drag/physics.ts` (and what it calls) takes its randomness from the seeded `createRng`, never `Math.random`. The same seed must give the same race. The page may use `Math.random` only to pick a seed or a song.
-- **Rebindable controls.** Every gameplay key is an action in `DEFAULT_BINDS` (`src/options/model.ts`), read in the page through `held(id)` / `isBound(id, k)`. Never test a literal key in gameplay code (menus keep Esc, Enter, Tab). A key does one thing: a new action needs a default no other action has. There is no clutch key: the clutch is automatic.
+- **Rebindable controls.** Every gameplay key is an action in `DEFAULT_BINDS` (`src/options/model.ts`), read in the page through `held(id)` / `isBound(id, k)`. Never test a literal key in gameplay code (menus keep Esc, Enter, Tab). All driving input goes through `src/input/` (one `DriverInput`); the autopilot returns the same shape. A key does one thing: a new action needs a default no other action has. There is no clutch key: the clutch is automatic.
 - **Numbers in named constants** (`DRAG`, `BOOST`, `CLUTCH`, `TRACTION`, ...). When you hand something over, say which constant to turn first.
 - **Storage must never throw.** All reads and writes go through `src/browser-store.ts` (itch.io iframes can block localStorage). The save is versioned and repaired on load.
 - **itch.io:** one `index.html`, relative paths, no external requests at load, works in an iframe, resizes with the window.

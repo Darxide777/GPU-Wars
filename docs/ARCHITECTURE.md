@@ -9,6 +9,7 @@ What it is **not**: there is **no city hub, no shop, no parts, no points or curr
 ```bash
 npm run build       # node build.mjs: bundles src/drag/page.ts into dist/gpuwars.js and rebuilds assets/music/library.json
 npm run typecheck   # strict TypeScript (also flags unused locals)
+npm run package     # builds and writes dist/gpuwars-itch.zip for itch.io (see docs/ITCH.md)
 npm test            # builds, then runs every test in tests/ (a few seconds, CPU only)
 node --test tests/<file>.test.mjs   # one test file (Node runs the TypeScript directly)
 ```
@@ -30,7 +31,12 @@ src/benchmark/              constants.ts (BENCHMARK tunables), workload.ts (WebG
 src/beat/, src/neon/building-eq.ts  the beat clock and the equalizer from Chromium Halo: Neon (building-eq without Three.js); assets/music/analysis.json is trimmed to the two songs
 src/save.ts                 the ONE save: benchmark result, class lock, tune, tune slots, records, your best-pass ghost
 src/browser-store.ts        localStorage that never throws, with a memory fallback (blocked itch iframes)
-src/options/model.ts        settings (music volume, rebindable key binds); the OPTIONS screen is a later phase
+src/options/model.ts        settings: music volume, rebindable key binds and gamepad binds (assignKeySlot, assignPadButton), touch options, input delay, driver (manual/autopilot)
+src/options/screen.ts       the OPTIONS rows and the rebinding flow (no page in it, tested)
+src/input/                  the input layer: queue.ts (timestamped events), controls.ts (held/edge state -> DriverInput), keyboard.ts, pad.ts, touch.ts (layout, analog pedal and steering, pointer events), haptics.ts, constants.ts (INPUT), index.ts (createInput)
+src/platform.ts             fullscreen, audio unlock on first gesture, viewport change watcher
+src/drag/autopilot.ts       the deterministic driver AI (createAutopilot), category 'autopilot'
+tools/package.mjs, zip.mjs  npm run package: the itch.io zip (no dependencies)
 src/sound.ts                music only, from the two songs
 src/tune-slots.ts           the six named tune slots (pure functions)
 src/tune-slots-menu.ts      the menu rows for them
@@ -56,9 +62,10 @@ tests/                      drag.test.mjs (engine, model and save), drag-staging
 
 One canvas draws the strip behind a neon menu card (the Chromium Halo: Neon menu style, from `drag.html`'s CSS now in `index.html`).
 
-- **Title menu:** BENCHMARK, CLASS, TUNE, RACE CLASS LEADER, RECORDS, OPTIONS. OPTIONS is still a stub that says COMING SOON; the rest work.
+- **Title menu:** BENCHMARK, CLASS, TUNE, RACE CLASS LEADER, DRIVER (MANUAL or AUTOPILOT), RECORDS, OPTIONS. All rows work.
 - **TUNE:** the TUNING tab (shifting, launch, boost, gears, final drive, tire pressure, ballast, fuel load, suspension, wheelie bar, nitro, the six tune slots, REPLACE CLUTCH, COOL ENGINE, CLEAR STRIP, RESET TUNE, TEST RUN) and the STATS tab (the car's numbers, the dyno graph and a predicted timeslip from a perfect-driver run). Every change is saved at once and made safe for the car (`cleanTune`).
 - **RACE CLASS LEADER:** a ranked run: the fixed class day (see below) against the ghost of your class leader. A clean pass with a benchmark is sent to the leaderboard when it ends.
+- **OPTIONS** (`src/options/screen.ts`): DRIVER, MUSIC VOLUME, TOUCH CONTROLS (AUTO/ON/OFF), TOUCH SIZE, ANALOG TOUCH GAS, VIBRATION, INPUT DELAY (ms), FULLSCREEN, CONTROLS FOR (keyboard or gamepad), one row per control in `BIND_ROWS` (Enter rebinds the first key or button, Right the second, Left clears the second; a key or button does one thing, so it is taken from the other control unless that would leave it with none), RESET CONTROLS. Settings are saved at once under `gpuwars.options`.
 - **Timeslip:** the result, with RUN AGAIN, NEXT RACE, TUNE and MAIN MENU.
 
 ## The simulation (`src/drag/physics.ts`)
@@ -117,9 +124,9 @@ One small versioned record under the key `gpuwars.save`, repaired on load (`sani
 
 ## Extension points for the next phases
 
-- **OPTIONS and touch input, autopilot:** the full staging sequence and the `backUp` input are done (see the staging section); `readInput()` in `page.ts` is the one place input is turned into a `DragInput` (a touch layout needs on-screen gas, brake, burnout, back up and deep stage).
-- **OPTIONS:** `src/options/model.ts` already holds the volume and binds, with `assignKey`.
-- **Leaderboard server:** `backend/` (Cloudflare Workers and D1) is on its own branch; set `LEADERBOARD_API.baseUrl` after deploying it.
+- **Input:** `readInput()` in `page.ts` is one line: `race.setInput(0, options.driver === 'autopilot' ? autopilot.decide(viewOf(race, 0, phase)) : input.read())`. Keys, touch pointers and pad polls are pushed as timestamped events (`src/input/queue.ts`); each fixed tick drains the events due by that tick's time and builds a `DriverInput`. Touch controls are drawn on the canvas by `input.draw()` (`touch.ts`). Haptics buzz on launch, shift, nitro, wheelspin, wheelie, chute, foul, wall and crash.
+- **Autopilot:** see the autopilot section above.
+- **Leaderboard server:** `backend/` (Cloudflare Workers and D1); set `LEADERBOARD_API.baseUrl` after deploying it.
 
 ## Conventions
 
@@ -129,4 +136,6 @@ See `CLAUDE.md`. The ones that matter most: plain-English names, a deterministic
 
 - The tune screen's STATS tab does not show the density altitude, the hot tire pressure or the staging (the prediction starts staged, with warm tires and no burnout); the timeslip screen does not show `hotPsi`.
 - Staging uses the speed model in `stagingStep`, not the drivetrain: the clutch and engine temperature only see the revs and the heat from the gas, as before.
+- `topdown.ts` uses `Math.random` for the look of tire smoke puffs (drawing only, not the simulation); it should move to a seeded source so replays look identical.
+- The input delay only delays delivery of presses; it cannot move a press earlier than the frame it arrived in.
 - Per-run tire wear that the source charged points for is gone: tires start every race new (the live per-run wear inside a race is unchanged).

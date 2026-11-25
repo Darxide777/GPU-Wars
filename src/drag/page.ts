@@ -4,10 +4,15 @@
 import { loadSave, writeSave, type Save } from '../save.ts';
 import { browserStore } from '../browser-store.ts';
 import { createMusic } from '../sound.ts';
-import { keyLabel, loadOptions } from '../options/model.ts';
+import { keyLabel, loadOptions, saveOptions } from '../options/model.ts';
+import { createRebinder, optionsItems, type Device } from '../options/screen.ts';
+import { createInput } from '../input/index.ts';
+import { createHaptics } from '../input/haptics.ts';
+import { createAutopilot, viewOf, AUTOPILOT_CATEGORY, type Autopilot, type RunCategory } from './autopilot.ts';
+import { fullscreenAvailable, onFirstGesture, toggleFullscreen, watchViewport } from '../platform.ts';
 import { createMenu, type Menu, type MenuItem } from '../arena/view/menu.ts';
 import { createPadMenu } from '../gamepad.ts';
-import { firstPad, padToInput } from '../arena/view/pad.ts';
+import { firstPad } from '../arena/view/pad.ts';
 import { newSlotState, slotRows } from '../tune-slots-menu.ts';
 import { STOCK_CAR } from './spec-source.ts';
 import { clearSaveSlot, loadFromSlot, readyCar, recordRace, saveToSlot, saveTune, tuneSlots } from './model.ts';
@@ -30,7 +35,7 @@ import type { DragGhost, DragRaceKind, DragSpec, Runner, Timeslip, Tune } from '
 
 const $ = (id: string): HTMLElement => document.getElementById(id) as HTMLElement;
 const cv = $('cv') as HTMLCanvasElement, ctx = cv.getContext('2d') as CanvasRenderingContext2D, card = document.querySelector('.card') as HTMLElement;
-const options = loadOptions(browserStore), binds = options.binds;
+const options = loadOptions(browserStore);      // (changed in place by the OPTIONS screen: always read `options.binds`, never keep a copy)
 const music = createMusic({ music: options.music });
 
 // ---- the save (kept in the browser when it can be; in memory when the page is in a blocked iframe) ----
@@ -109,14 +114,14 @@ function finishBenchmark(cls: ClassId, r: Parameters<Parameters<typeof openBench
 void readGpuIdentity().then(g => { gpu = g; if (screen === 'title') show('title'); });
 
 // ---- the screens ----
-type Screen = 'title' | 'soon' | 'bench' | 'records' | 'name' | 'tune' | 'race' | 'slip';
+type Screen = 'title' | 'soon' | 'bench' | 'records' | 'name' | 'tune' | 'options' | 'race' | 'slip';
 type TuneTab = 'tuning' | 'stats';
 let screenBefore: Screen = 'title', screen: Screen = 'title', menu: Menu | null = null, msg = '', raceKind: DragRaceKind = 'solo', sel: Record<string, number> = {}, tuneTab: TuneTab = 'tuning';
 let soon: { title: string; text: string; help?: string } = { title: '', text: '' };
 let race: Drag = createDrag({ seed: raceSeed, strip, entrants: [myEntrant(), ...ghostList()] }), banked = true, overT = 0, acc = 0;
-let result: { won: boolean; crashed: boolean; records: string[]; improved: boolean; slips: Timeslip[]; reason: string; winner: number; kind: DragRaceKind; hp: number[] } | null = null;
+let result: { category: RunCategory; won: boolean; crashed: boolean; records: string[]; improved: boolean; slips: Timeslip[]; reason: string; winner: number; kind: DragRaceKind; hp: number[] } | null = null;
 function ghostList(): Entrant[] { const g = ghostToRace(); return g ? [ghostEntrant(g)] : []; }
-const WIDE: Screen[] = ['tune', 'slip', 'records'];
+const WIDE: Screen[] = ['tune', 'slip', 'records', 'options'];
 const setTuneTab = (tab: TuneTab): void => { if (tuneTab === tab) return; tuneTab = tab; show('tune'); };
 
 function statsTable(spec: DragSpec, tune: Tune, seed = raceSeed, kg = fuelOf()): string {
@@ -132,15 +137,18 @@ function backdrop(): void {
   const g = ghostToRace(), key = `${g?.total ?? 0}|${g?.marks.quarter ?? 0}|${raceSeed}|${clutchCondition}|${fuelOf()}|${engineOf()}|${JSON.stringify(save.tune)}|${save.benchmark?.score ?? 0}`; if (isBackdrop && key === backdropKey) return;
   race = createDrag({ seed: raceSeed, strip, entrants: [myEntrant(), ...ghostList()] }); isBackdrop = true; backdropKey = key;
 }
-/** a row for a part of the game that is not built yet: it says so on screen and does nothing else */
-const comingSoon = (id: string, label: string, title: string, text: string): MenuItem => ({ id, label, value: () => 'COMING SOON', hint: () => text, enter: () => { soon = { title, text }; show('soon'); } });
 const raceItem = (): MenuItem => ({ id: 'race', label: 'RACE CLASS LEADER', value: () => `${sec(lb.leader().splits.quarter)} S TO BEAT`, hint: () => `Ranked run in ${lb.className()} against ${lb.leader().name}${lb.leader().source === 'fallback' ? ' (a bundled time: no leader online yet)' : ''}. Everyone races the same class day: ${RANKED.rubberPolicy}. ${lb.leaderNote()}`, enter: () => { startRace(ghostToRace() ? 'ghost' : 'solo'); } });
+/** DRIVER: MANUAL / AUTOPILOT (also in OPTIONS). Autopilot runs are their own leaderboard category. */
+const driverItem = (): MenuItem => { const flip = (): void => { options.driver = options.driver === 'manual' ? 'autopilot' : 'manual'; saveOptions(browserStore, options); show('title'); }; return { id: 'driver', label: 'DRIVER', value: () => (options.driver === 'autopilot' ? 'AUTOPILOT' : 'MANUAL'), hint: () => 'MANUAL: you drive. AUTOPILOT: the car drives itself with the same controls. Autopilot runs count in their own leaderboard category and do not touch your manual records.', left: flip, right: flip, enter: flip }; };
+const optionsDevice = { v: 'keyboard' as Device, get(): Device { return this.v; }, set(d: Device): void { this.v = d; } };
+const optionsHost = { options, save: () => saveOptions(browserStore, options), apply: (what: string): void => { if (what === 'music') music.volumesChanged(); }, say: (text: string): void => { msg = text; }, refresh: (): void => { render(); }, fullscreen: toggleFullscreen, back: (): void => show('title') };
+const rebinder = createRebinder(optionsHost);
 function show(next: Screen): void {
   const prev = screen; screen = next; menu = null; const scr = $('screen'); if (prev !== next) msg = '';
   if (next === 'tune' && prev !== next && prev !== 'race') backFrom[next] = prev;
   if (next !== 'race' && next !== 'slip') backdrop();
   if (next === 'race' || next === 'bench') { scr.style.display = 'none'; return; }
-  scr.style.display = 'flex'; card.classList.toggle('wide', WIDE.includes(next)); $('rows').className = next === 'tune' ? 'rows-grid' : ''; $('extra').innerHTML = '';
+  scr.style.display = 'flex'; card.classList.toggle('wide', WIDE.includes(next)); $('rows').className = next === 'tune' || next === 'options' ? 'rows-grid' : ''; $('extra').innerHTML = '';
   const title = (t: string, col = '#ff2bd6'): void => { $('title').textContent = t; $('title').style.color = col; };
   if (next === 'title') {
     title('GPU WARS'); if (touchedPage) void lb.refreshLeader();
@@ -148,10 +156,12 @@ function show(next: Screen): void {
       benchmarkItem(benchContext),
       classItem(benchContext),
       { id: 'tune', label: 'TUNE', hint: () => 'Set up the car: gearing, launch, boost, nitro and more. Your tune is kept on this computer.', enter: () => show('tune') },
-      raceItem(),
+      raceItem(), driverItem(),
       { id: 'records', label: 'RECORDS', hint: () => 'Your own best times on this computer.', enter: () => show('records') },
-      comingSoon('options', 'OPTIONS', 'OPTIONS', 'Volume and rebinding the controls are not built yet. The controls work with their default keys.'),
+      { id: 'options', label: 'OPTIONS', hint: () => 'Rebind every control (keyboard and gamepad), volume, touch controls, input delay and fullscreen.', enter: () => show('options') },
     ], sel.title ?? 3);
+  } else if (next === 'options') {
+    title('OPTIONS'); rebinder.cancel(); menu = createMenu(optionsItems(optionsHost, rebinder, optionsDevice), sel.options ?? 0);
   } else if (next === 'soon') {
     title(soon.title); $('extra').innerHTML = `<p class="help">${soon.help ?? 'COMING SOON'}</p><p>${soon.text}</p>`;
     menu = createMenu([{ id: 'back', label: 'BACK', enter: () => show('title') }]);
@@ -251,7 +261,7 @@ function render(): void {
   if (!menu) return; const m = menu, rows = $('rows'); rows.innerHTML = ''; info();
   const tabs = $('tabs'); tabs.innerHTML = screen === 'tune' ? `<button class="${tuneTab === 'tuning' ? 'on' : ''}" data-tab="tuning">TUNING</button><button class="${tuneTab === 'stats' ? 'on' : ''}" data-tab="stats">STATS</button>` : '';
   for (const b of tabs.querySelectorAll('button')) b.onclick = () => setTuneTab(b.dataset.tab as TuneTab);
-  if (screen === 'title') sel.title = m.sel; else if (screen === 'tune') sel[tuneTab] = m.sel;
+  if (screen === 'title') sel.title = m.sel; else if (screen === 'tune') sel[tuneTab] = m.sel; else if (screen === 'options') sel.options = m.sel;
   m.items.forEach((it, i) => {
     const e = document.createElement('div'), off = !!it.disabled?.(); e.className = 'opt' + (i === m.sel ? ' sel' : '') + (off ? ' off' : '');
     e.innerHTML = `<span>${it.label}</span>${it.value ? `<em>${it.left || it.right ? '<b class="dn">‹</b> ' : ''}${it.value()}${it.left || it.right ? ' <b class="up">›</b>' : ''}</em>` : ''}`;
@@ -266,7 +276,7 @@ function render(): void {
 function startRace(kind: DragRaceKind): void {
   raceKind = kind; screenBefore = screen; msg = ''; const ranked = kind === 'ghost', entrants = [ranked ? rankedEntrant() : myEntrant()], g = ranked ? ghostToRace() : null; if (g) entrants.push(ghostEntrant(g));
   if (ranked) { raceSeed = RANKED.seed; lb.clearStatus(); }      // (a ranked run is the fixed class day: the same seed, weather and fresh strip for everyone)
-  race = createDrag(ranked ? { seed: RANKED.seed, conditions: RANKED.conditions, strip: rankedStrip(), entrants } : { seed: raceSeed, strip, entrants }); isBackdrop = false; banked = false; overT = 0; acc = 0; result = null; taps.launch = taps.nitro = taps.chute = false; music.startMusic(); show('race');
+  race = createDrag(ranked ? { seed: RANKED.seed, conditions: RANKED.conditions, strip: rankedStrip(), entrants } : { seed: raceSeed, strip, entrants }); isBackdrop = false; banked = false; overT = 0; acc = 0; result = null; music.startMusic(); input.reset(performance.now()); autopilot = createAutopilot(); show('race');
 }
 function finishRace(): void {
   if (banked) return; banked = true; const s = race.state, me = s.runners[0] as Runner, slip = timeslip(me), crashed = !!slip.crashed;
@@ -274,63 +284,59 @@ function finishRace(): void {
   const ranked = raceKind === 'ghost';      // (a ranked run starts fresh, so it leaves the visit's clutch, fuel and engine heat alone)
   if (!ranked) { if (me.launched) clutchCondition = clutchAfterRun(me); fuelLoad = me.fuel; engineTemp = slip.engineTemp ?? engineOf(); }
   const slips = s.runners.map(timeslip), candidate = ghostFromRunner(me, s.greenAt, STOCK_CAR.id);
-  const res = recordRace(save, { kind: raceKind, won, slip, ghost: candidate, crashed }, Date.now()); commit(res.save);
+  // autopilot runs are a separate leaderboard category, on the same ranked class day, and never touch your local records or best-pass ghost
+  const category: RunCategory = options.driver === 'autopilot' ? AUTOPILOT_CATEGORY : 'manual', res = category === 'autopilot' ? { save, records: [] as string[], improved: false } : recordRace(save, { kind: raceKind, won, slip, ghost: candidate, crashed }, Date.now()); if (category === 'manual') commit(res.save);
   if (ranked) void lb.submitRun(slip, me.tune, RANKED.seed, candidate);
-  result = { won, crashed, records: res.records, improved: res.improved, slips, reason: s.reason, winner: s.winner, kind: raceKind, hp: s.runners.map(r => Math.round(dynoPeaks(r.spec).hp)) };
+  result = { category, won, crashed, records: res.records, improved: res.improved, slips, reason: s.reason, winner: s.winner, kind: raceKind, hp: s.runners.map(r => Math.round(dynoPeaks(r.spec).hp)) };
 }
-// ---- input: gas and brake are held keys (or the pad's triggers), launch and shift-up are one press, burnout is its own key or gas + brake together; the clutch is automatic ----
-const keys = new Set<string>(), taps = { launch: false, nitro: false, chute: false };
-const held = (id: string): boolean => (binds[id] ?? []).some(k => !!k && keys.has(k.toLowerCase()));
-const isBound = (id: string, k: string): boolean => (binds[id] ?? []).some(b => !!b && b.toLowerCase() === k);
-const padMenu = createPadMenu(() => screen !== 'race');
-function readInput(): void {
-  const pad = padToInput(firstPad()), go = held('launch') || keys.has('enter') || !!pad?.fire || taps.launch;
-  const steer = (held('steerRight') ? 1 : 0) - (held('steerLeft') ? 1 : 0) + (pad ? pad.steer : 0);
-  const gas = Math.max(held('gas') ? 1 : 0, pad ? Math.max(0, pad.throttle) : 0), braking = held('brake') || (!!pad && pad.throttle < -0.3);
-  race.setInput(0, { throttle: gas, launch: go, shiftUp: go || held('shiftUp'), shiftDown: held('shiftDown'), backUp: held('backUp'), nitro: held('nitro') || !!pad?.nitro || taps.nitro, burnout: held('burnout') || (gas > 0 && braking), brake: braking, chute: held('chute') || !!pad?.special || taps.chute, deepStage: held('deepStage'), steer: Math.max(-1, Math.min(1, steer)) });
-}
+// ---- input: everything goes through src/input (keys, touch, pad -> a timestamped queue -> the fixed-step loop -> one DriverInput). The autopilot returns the same shape. ----
+let autopilot: Autopilot = createAutopilot();
+const input = createInput({ options: () => options, racing: () => screen === 'race' && options.driver === 'manual', size: () => ({ w: innerWidth, h: innerHeight }), onMenu: () => { if (screen === 'race') show(screenBefore); } });
+const haptics = createHaptics(() => options.touch.haptics);
+const padMenu = createPadMenu(() => screen !== 'race' && rebinder.pending?.device !== 'gamepad');
+/** the input for this tick goes to the car: the driver's (keys, touch, pad) or the autopilot's */
+function readInput(): void { race.setInput(0, options.driver === 'autopilot' ? autopilot.decide(viewOf(race)) : input.read()); }
 addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
   if (screen === 'bench') { if (k === 'escape') benchScreen?.cancel(); return; }
   if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', 'tab'].includes(k)) e.preventDefault();
-  if (screen === 'race') {
-    if (e.repeat) return; keys.add(k);
-    if (isBound('launch', k) || k === 'enter') taps.launch = true; if (isBound('nitro', k)) taps.nitro = true; if (isBound('chute', k)) taps.chute = true;
-    if (k === 'escape') show(screenBefore);      // leaving a race records nothing (from the timeslip screen it goes back to the menu)
-    return;
-  }
+  if (screen === 'options' && rebinder.pending && rebinder.key(e.key)) { e.preventDefault(); return; }
+  if (screen === 'race') { if (k === 'escape') show(screenBefore); return; }      // (leaving a race records nothing; the driving keys are read by src/input)
   if (screen === 'tune' && k === 'tab') { setTuneTab(tuneTab === 'tuning' ? 'stats' : 'tuning'); return; }
   if (k === 'escape') { if (screen === 'tune') show(backFrom.tune ?? 'title'); else if (screen === 'name') { lb.cancelNameEdit(); show('records'); } else if (screen !== 'title') show('title'); return; }
   if (menu && menu.key(k)) render();
 });
-addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
-addEventListener('blur', () => keys.clear());
+input.attach(window, cv);
 
 // ---- drawing: the strip from above (see topdown.ts), sized to the window (an itch.io frame can be any size, and can be resized or made fullscreen at any time) ----
 function resize(): void { const dpr = Math.min(2, devicePixelRatio || 1); cv.width = Math.floor(innerWidth * dpr); cv.height = Math.floor(innerHeight * dpr); cv.style.width = innerWidth + 'px'; cv.style.height = innerHeight + 'px'; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); }
-addEventListener('resize', resize); resize();
+watchViewport(resize); resize();
+onFirstGesture(() => { if (screen === 'race') music.startMusic(); });      // (audio stays locked until the first touch or key)
+const fsButton = $('fs'); if (fullscreenAvailable()) { fsButton.style.display = 'block'; fsButton.onclick = toggleFullscreen; }
 const topDown = createDragTopDown();
 let last = performance.now();
 function frame(now: number): void {
-  const dt = Math.min(0.1, (now - last) / 1000); last = now; padMenu();
+  const dt = Math.min(0.1, (now - last) / 1000); last = now; padMenu(); if (screen === 'options') rebinder.pad(firstPad());
   if (screen === 'bench') { requestAnimationFrame(frame); return; }      // (nothing else draws while the benchmark measures the card)
   const W = innerWidth, H = innerHeight, S = Math.max(0.7, Math.min(1.6, H / 720)), s = race.state, me = s.runners[0] as Runner;
   if (screen === 'race') {
-    acc += dt; let n = 0; while (acc >= DRAG.dt && n++ < 60) { acc -= DRAG.dt; readInput(); race.step(); taps.launch = taps.nitro = taps.chute = false; }
+    acc += dt; let n = 0; input.startFrame(now - acc * 1000, firstPad(), now);
+    while (acc >= DRAG.dt && n++ < 60) { acc -= DRAG.dt; readInput(); race.step(); haptics.onEvents(race.events); }
     if (s.phase === 'over') { finishRace(); if ((overT += dt) > 1.6) show('slip'); }
   }
   topDown.draw(ctx, W, H, race.state, 0, dt, now / 1000);
   if (screen === 'race') {
     drawTach(ctx, W, H, me, S, now / 1000, s.weather); drawLane(ctx, W, H, me, 0, S);
-    const label = (id: string, fallback: string): string => keyLabel((binds[id] ?? [])[0] ?? fallback);
+    const label = (id: string, fallback: string): string => keyLabel((options.binds[id] ?? [])[0] ?? fallback);
+    input.draw(ctx, options.driver === 'manual');
     drawBanner(ctx, W, S, conditionsBanner(s.weather ?? s.conditions, raceKind === 'ghost'), raceKind === 'ghost');
     const rival = s.runners[1]; if (rival) drawDeltas(ctx, W, S, rival.name, markDeltas(me.marks, rival.marks, me.reaction, rival.reaction));
-    drawProgress(ctx, W, H, s, 0, S, { launch: label('launch', ' '), nitro: label('nitro', 'Shift'), manual: me.tune.shift === 'manual', auto: !!me.ai, burnout: label('burnout', 'j'), gas: label('gas', 'w'), brake: label('brake', 's'), chute: label('chute', 'n'), deepStage: label('deepStage', 'h'), backUp: label('backUp', 'r') });
+    drawProgress(ctx, W, H, s, 0, S, { launch: label('launch', ' '), nitro: label('nitro', 'Shift'), manual: me.tune.shift === 'manual' && options.driver === 'manual', auto: !!me.ai || options.driver === 'autopilot', burnout: label('burnout', 'j'), gas: label('gas', 'w'), brake: label('brake', 's'), chute: label('chute', 'n'), deepStage: label('deepStage', 'h'), backUp: label('backUp', 'r') });
   }
   requestAnimationFrame(frame);
 }
 window.__drag = () => {
   const s = race.state;
-  return { screen, tuneTab, phase: s.phase, seed: raceSeed, conditions: s.conditions, menu: menu ? { sel: menu.items[menu.sel]?.id, items: menu.items.map(i => i.id) } : null, benchmark: save.benchmark, kind: raceKind, clutch: clutchCondition, fuel: fuelOf(), ghost: (() => { const g = ghostToRace(); return g ? { et: g.marks.quarter ?? 0, total: g.total, samples: g.samples.length } : null; })(), leaderboard: { class: lb.playerClass(), category: lb.category, leader: lb.leader().name, source: lb.leader().source, status: lb.status, ranked: raceKind === 'ghost', configured: lb.configured }, winner: s.winner, runners: s.runners.map(r => ({ name: r.name, x: r.x, v: r.v, gear: r.gear, rpm: r.rpm, launched: r.launched, finished: r.finished, crashed: r.crashed })), result };
+  return { screen, tuneTab, phase: s.phase, seed: raceSeed, conditions: s.conditions, menu: menu ? { sel: menu.items[menu.sel]?.id, items: menu.items.map(i => i.id) } : null, benchmark: save.benchmark, kind: raceKind, driver: options.driver, category: result?.category ?? null, clutch: clutchCondition, fuel: fuelOf(), ghost: (() => { const g = ghostToRace(); return g ? { et: g.marks.quarter ?? 0, total: g.total, samples: g.samples.length } : null; })(), leaderboard: { class: lb.playerClass(), category: lb.category, leader: lb.leader().name, source: lb.leader().source, status: lb.status, ranked: raceKind === 'ghost', configured: lb.configured }, winner: s.winner, runners: s.runners.map(r => ({ name: r.name, x: r.x, v: r.v, gear: r.gear, rpm: r.rpm, launched: r.launched, finished: r.finished, crashed: r.crashed })), result };
 };
 show('title'); requestAnimationFrame(t => { last = t; frame(t); });

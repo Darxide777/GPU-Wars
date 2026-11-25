@@ -18,14 +18,13 @@ test('index.html is the one itch.io page: relative paths, no external requests, 
   assert.ok(existsSync(new URL('../dist/gpuwars.js', import.meta.url)), 'npm test builds first');
 });
 
-test('the title menu is BENCHMARK, CLASS, TUNE, RACE CLASS LEADER, RECORDS, OPTIONS, and only OPTIONS still says coming soon', () => {
+test('the title menu is BENCHMARK, CLASS, TUNE, RACE CLASS LEADER, DRIVER, RECORDS, OPTIONS, and every row is a real row', () => {
   const page = read('src/drag/page.ts'), start = page.indexOf("title('GPU WARS')"), block = page.slice(start, page.indexOf('], sel.title', start));
   const order = ['benchmarkItem(', 'classItem(', "id: 'tune'", 'raceItem()', "id: 'records'", "'options'"].map(k => block.indexOf(k));
   assert.ok(order.every(i => i >= 0) && order.every((i, n) => n === 0 || i > order[n - 1]), 'the six rows are there, in order');
   assert.ok(page.includes("label: 'RACE CLASS LEADER'") && block.includes("label: 'RECORDS'") && block.includes("'OPTIONS'"));
   assert.ok(block.includes('benchmarkItem(') && block.includes('classItem('), 'the BENCHMARK and CLASS rows are real rows now');
-  assert.ok(block.includes("comingSoon('options'"), 'options is still a coming soon row');
-  assert.match(page, /value: \(\) => 'COMING SOON'/);
+  assert.ok(block.includes("id: 'options'") && block.includes('driverItem()'), 'OPTIONS and DRIVER are built');
 });
 
 test('the tune screen keeps its TUNING and STATS tabs and every number row has a description', () => {

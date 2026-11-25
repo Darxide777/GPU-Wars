@@ -24,7 +24,8 @@ export const LEADERBOARD_GHOST = {
 } as const;
 
 const MPH_TO_MS = 0.44704;
-const MARKS: Mark[] = ['ft60', 'ft330', 'eighth', 'ft1000', 'quarter'];
+type SplitMark = Exclude<Mark, 'trapStart'>;
+const MARKS: SplitMark[] = ['ft60', 'ft330', 'eighth', 'ft1000', 'quarter'];
 const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
 const smooth = (u: number): number => { const t = clamp(u, 0, 1); return t * t * (3 - 2 * t); };
 
@@ -37,23 +38,23 @@ export function envelopePower(cls: ClassId, quarter: number, trapMph: number): n
 
 /** The times at every mark: the leader's own where they make sense, the rest from the envelope. A missing time is placed between the nearest known times
  * (before it and after it) in proportion to the envelope, so the marks are always strictly increasing and a known time is never moved. */
-export function completeSplits(rec: LeaderRecord): Record<Mark, number> {
+export function completeSplits(rec: LeaderRecord): Record<SplitMark, number> {
   const G = LEADERBOARD_GHOST, quarter = rec.splits.quarter, power = envelopePower(rec.class, quarter, rec.trapSpeed);
-  const envelope = (m: Mark): number => quarter * Math.pow(DRAG.marks[m] / DRAG.marks.quarter, 1 / power);
-  const known: Partial<Record<Mark, number>> = {}; let lastKnown = 0;
+  const envelope = (m: SplitMark): number => quarter * Math.pow(DRAG.marks[m] / DRAG.marks.quarter, 1 / power);
+  const known: Partial<Record<SplitMark, number>> = {}; let lastKnown = 0;
   for (const m of MARKS) {
     const v = rec.splits[m];
     // a given time counts only if it is later than the one before and leaves room before the quarter
     if (typeof v === 'number' && Number.isFinite(v) && v > lastKnown + G.minGap && (m === 'quarter' || v < quarter - G.minGap)) { known[m] = v; lastKnown = v; }
   }
   known.quarter = quarter;
-  const out = {} as Record<Mark, number>;
+  const out = {} as Record<SplitMark, number>;
   MARKS.forEach((m, i) => {
     const given = known[m]; if (given !== undefined) { out[m] = given; return; }
     let lo = -1, hi = MARKS.length - 1;
-    for (let k = i - 1; k >= 0; k--) if (known[MARKS[k] as Mark] !== undefined) { lo = k; break; }
-    for (let k = i + 1; k < MARKS.length; k++) if (known[MARKS[k] as Mark] !== undefined) { hi = k; break; }
-    const tLo = lo < 0 ? 0 : known[MARKS[lo] as Mark] as number, eLo = lo < 0 ? 0 : envelope(MARKS[lo] as Mark), tHi = known[MARKS[hi] as Mark] as number, eHi = envelope(MARKS[hi] as Mark);
+    for (let k = i - 1; k >= 0; k--) if (known[MARKS[k] as SplitMark] !== undefined) { lo = k; break; }
+    for (let k = i + 1; k < MARKS.length; k++) if (known[MARKS[k] as SplitMark] !== undefined) { hi = k; break; }
+    const tLo = lo < 0 ? 0 : known[MARKS[lo] as SplitMark] as number, eLo = lo < 0 ? 0 : envelope(MARKS[lo] as SplitMark), tHi = known[MARKS[hi] as SplitMark] as number, eHi = envelope(MARKS[hi] as SplitMark);
     out[m] = tLo + (tHi - tLo) * (envelope(m) - eLo) / Math.max(1e-9, eHi - eLo);
   });
   return out;
