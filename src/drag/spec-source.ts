@@ -1,6 +1,6 @@
 // WHERE THE CAR'S NUMBERS COME FROM. Every race and every tune screen asks this one file for the car's spec.
 //
-// With no benchmark result the stock dragster races as it is (so the game plays before the benchmark is run). With one, the SCORE sets the engine:
+// With no benchmark result the car gets the WEAKEST spec (WEAKEST_RESULT). With one, the SCORE sets the engine:
 // peak torque, the revs where it peaks, the limiter, and the SHAPE of the torque curve. The stock parts (STOCK_PARTS) are the same for everyone, so the score (and the class limits) are what make one car stronger than another.
 // The torque range stops near 1500 Nm on purpose: the dragster's grip is the limit past that, and with the default tune more torque only adds wheelspin (checked in tests/benchmark.test.mjs: a higher score is never slower with the default tune).
 // Everything here is a pure function of the saved result: the same result in gives the same spec out.
@@ -78,11 +78,13 @@ export function tableRowFor(score: number): { torqueNm: number; peakRpm: number;
 /** how steady this result says the card is (0 burst, 1 sustained): the measured value, else the class's usual */
 export const sustainOf = (b: BenchmarkResult): number => (typeof b.sustain === 'number' && Number.isFinite(b.sustain) ? clamp(b.sustain, 0, 1) : b.class === 'integrated' ? SUSTAIN_BY_KIND.integrated : SUSTAIN_BY_KIND.discrete);
 
-/** the car to race for this save's benchmark result (null: the benchmark has not been run, so the stock dragster). Deterministic: same result in, same spec out. */
+/** the weakest result there can be: score 0 in the integrated class. A player who has not benchmarked races with this, so no one is better off for skipping the benchmark. */
+export const WEAKEST_RESULT: BenchmarkResult = { score: 0, class: 'integrated', benchmarkVersion: BENCHMARK.version, gpuId: 'none', date: 0 };
+
+/** the car to race for this save's benchmark result. With no result (or one that is not believable) it is the WEAKEST spec, never stronger than any benchmarked car. Deterministic: same result in, same spec out. */
 export function specForBenchmark(benchmark: BenchmarkResult | null, clutchCondition = 1): DragSpec {
-  const stock = stockSpec(clutchCondition);
-  if (!benchmark || !isClassId(benchmark.class)) return stock;
-  const limits = specLimitsOf(benchmark.class), row = tableRowFor(benchmark.score), sustain = sustainOf(benchmark);
+  const result = benchmark && isClassId(benchmark.class) ? benchmark : WEAKEST_RESULT;
+  const stock = stockSpec(clutchCondition), limits = specLimitsOf(result.class as ClassId), row = tableRowFor(result.score), sustain = sustainOf(result);
   const redline = Math.round(clamp(row.redline, limits.redline[0], limits.redline[1]) / 50) * 50;
   const peakWanted = row.peakRpm + (sustain - 0.5) * SUSTAIN_PEAK_SHIFT_RPM;
   const peakRpm = Math.round(clamp(peakWanted, redline * PEAK_BELOW_LIMITER.maxShare, redline - PEAK_BELOW_LIMITER.min) / 50) * 50;

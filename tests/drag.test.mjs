@@ -858,8 +858,9 @@ test('the car runs the TOP level of every part as stock, whatever the benchmark 
   assert.deepEqual(stockSpec(), specFor(STOCK_CAR, built(1)), 'the stock spec is the car with every part at its top');
   assert.ok(stockSpec().torque > specFor(STOCK_CAR, {}).torque * 1.25, 'the stock parts make it much stronger than the bare chassis');
   const save = emptySave(); assert.equal(save.benchmark, null);
-  assert.deepEqual(readyCar(save).spec, stockSpec(), 'with no benchmark the placeholder stock car races');
-  assert.deepEqual(specForBenchmark(null), stockSpec(), 'no benchmark: the stock car');
+  // (owner decision: with no benchmark the car gets the WEAKEST spec, never the stock parts' full power, so skipping the benchmark never pays)
+  assert.deepEqual(readyCar(save).spec, specForBenchmark(null), 'with no benchmark the weakest car races');
+  assert.ok(specForBenchmark(null).torque < stockSpec().torque, 'no benchmark: weaker than the stock engine');
   assert.notEqual(specForBenchmark({ score: 9000, class: 'discrete-nvidia-current', benchmarkVersion: 1, gpuId: 'x', date: 1 }).torque, stockSpec().torque, 'a benchmark result sets the engine (tests/benchmark.test.mjs)');
   assert.equal(readyCar(save, 0.6).spec.clutchCondition, 0.6, 'a worn clutch is passed to the car');
   assert.equal(emptySave().ghost, null, 'the save given is left alone');
