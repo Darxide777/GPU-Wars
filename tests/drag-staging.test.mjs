@@ -254,3 +254,13 @@ function recorder() {
   });
   return { ctx, texts, arcs, get fills() { return fills.filter(f => f !== null); } };
 }
+
+test('a ghost finishes at its reaction PLUS its quarter-mile time from the green (the marks are timed from the launch, not from the green)', () => {
+  const reaction = 0.4, quarter = 8, samples = [];
+  for (let t = -2; t <= reaction + quarter + 1; t += 0.25) samples.push({ t, x: Math.max(0, t - reaction) / quarter * DRAG.marks.quarter, y: 0, psi: 0, v: 50 });
+  const ghost = { car: 'x', name: 'G', reaction, marks: { quarter }, trap: 200, total: reaction + quarter, samples };
+  const d = full({ seed: 5, quickStart: true, entrants: [mine(), { name: 'G', spec: mine().spec, tune: mine().tune, ghost }] }), g = d.state.runners[1];
+  let finishedAt = -1; for (let i = 0; i < 240 * 20 && finishedAt < 0; i++) { d.step(); if (g.finished) finishedAt = d.state.t - d.state.greenAt; }
+  assert.ok(finishedAt >= reaction + quarter - 0.01 && finishedAt < reaction + quarter + 0.05, `finished ${finishedAt.toFixed(3)} s after the green, expected ${(reaction + quarter).toFixed(3)}`);
+  assert.ok(!g.finished || g.launched, 'it is launched by then');
+});

@@ -2,7 +2,7 @@
 // the test imports that file and checks every payload this module makes is accepted.
 import type { BenchmarkResult } from '../save.ts';
 import type { DragGhost, Timeslip, Tune } from '../drag/types.ts';
-import { isClassId, type Category, type ClassId } from './classes.ts';
+import { isClassId, type Category, type ClassId } from '../classes.ts';
 
 export interface ScorePayload {
   playerName: string;

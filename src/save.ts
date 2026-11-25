@@ -2,8 +2,7 @@
 // No profile, points, shop or other game's section lives here. Settings (volume, key binds) are kept separately by src/options/model.ts.
 import type { Store } from './browser-store.ts';
 import { cleanSlots, emptySlots, type TuneSlots } from './tune-slots.ts';
-import { cleanDragGhost } from './drag/physics.ts';
-import type { DragGhost, Tune } from './drag/types.ts';
+import type { Tune } from './drag/types.ts';
 import { isClassId } from './classes.ts';
 import { BENCHMARK } from './benchmark/constants.ts';
 
@@ -25,11 +24,10 @@ export interface Save {
   /** the tune, as typed (made safe for the car when it is used) */ tune: Partial<Tune> | null;
   /** the six named tune slots */ slots: TuneSlots;
   records: Records;
-  /** your best clean pass: the stand-in for the class leader's ghost until the leaderboard exists */ ghost: DragGhost | null;
 }
 
 export const emptyRecords = (): Records => ({ races: 0, wins: 0, fouls: 0, crashes: 0, bestEt: 0, best60: 0, bestTrap: 0, bestReaction: 0, history: [] });
-export const emptySave = (): Save => ({ version: SAVE_VERSION, benchmark: null, classLock: null, tune: null, slots: emptySlots(), records: emptyRecords(), ghost: null });
+export const emptySave = (): Save => ({ version: SAVE_VERSION, benchmark: null, classLock: null, tune: null, slots: emptySlots(), records: emptyRecords() });
 
 const num = (v: unknown, d = 0, lo = 0, hi = 1e9): number => (typeof v === 'number' && Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : d);
 const count = (v: unknown): number => Math.floor(num(v, 0, 0, 1e15));      // (large enough for a date in milliseconds)
@@ -63,7 +61,7 @@ export function sanitizeSave(raw: unknown): Save {
   const r = isObject(raw) ? raw : {};
   return {
     version: SAVE_VERSION, benchmark: cleanBenchmark(r.benchmark), classLock: cleanClassLock(r.classLock), tune: isObject(r.tune) ? (JSON.parse(JSON.stringify(r.tune)) as Partial<Tune>) : null,
-    slots: cleanSlots(r.slots, t => t), records: cleanRecords(r.records), ghost: cleanDragGhost(r.ghost as DragGhost | null | undefined),
+    slots: cleanSlots(r.slots, t => t), records: cleanRecords(r.records),
   };
 }
 export function loadSave(store: Store): Save { let raw: unknown = null; try { raw = JSON.parse(store.get(SAVE_KEY) || 'null'); } catch (e) { /* damaged: start fresh */ } return sanitizeSave(raw); }

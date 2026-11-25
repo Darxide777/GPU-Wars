@@ -1,6 +1,6 @@
 // The class leader as the game uses it: a name, the ET and splits, the trap speed, a reaction time and a seed. It comes from the server (GET /leader) or, when there is
 // no server or no leader yet, from the bundled fallback list below, so the ghost works from the first run. All the numbers are plain data: nothing here runs physics.
-import { CLASS_BOUNDS, CLASS_IDS, eraOf, isCategory, isClassId, type Category, type ClassId } from './classes.ts';
+import { CLASS_BOUNDS, CLASS_IDS, eraOf, isCategory, isClassId, type Category, type ClassId } from '../classes.ts';
 
 export interface LeaderSplits { ft60?: number; ft330?: number; eighth?: number; ft1000?: number; quarter: number }
 export interface LeaderRecord {
@@ -49,7 +49,7 @@ export function textSeed(text: string): number {
 /** the fallback leader of a class and category: only the ET, trap speed, reaction and seed are known, so the ghost generates every split */
 export function fallbackLeader(cls: ClassId, category: Category = 'manual'): LeaderRecord {
   const f = FALLBACK_LEADERS, vendor = cls === 'integrated' ? '' : cls.split('-')[1] as string, bounds = CLASS_BOUNDS[cls];
-  const base = (f.eraEt[eraOf(cls)] ?? 8) + (f.vendorEt[vendor] ?? 0) + (category === 'autopilot' ? f.autopilotExtraEt : 0);
+  const base = (f.eraEt[eraOf(cls) ?? 'integrated'] ?? 8) + (f.vendorEt[vendor] ?? 0) + (category === 'autopilot' ? f.autopilotExtraEt : 0);
   const quarter = Math.round(Math.max(bounds.minQuarterEt + 0.4, base) * 1000) / 1000;
   const trap = Math.round(Math.max(bounds.minTrapSpeed + 10, Math.min(bounds.maxTrapSpeed - 5, f.trapMphSeconds / quarter)) * 10) / 10;
   return { name: category === 'autopilot' ? 'AUTO LEADER' : 'CLASS LEADER', class: cls, category, reactionTime: f.reaction, splits: { quarter }, trapSpeed: trap, seed: textSeed(`${cls}|${category}`), source: 'fallback' };

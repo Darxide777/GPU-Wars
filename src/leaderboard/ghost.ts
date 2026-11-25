@@ -4,7 +4,7 @@
 import { createRng } from '../arena/rng.ts';
 import { DRAG, cleanDragGhost, stageRolloutTime } from '../drag/physics.ts';
 import type { DragGhost, GhostSample, Mark } from '../drag/types.ts';
-import { eraOf, type ClassId } from './classes.ts';
+import { eraOf, type ClassId } from '../classes.ts';
 import type { LeaderRecord } from './leader.ts';
 
 /** Turn `powerByEra` first to change how a class launches (higher: a slower start and a harder pull at the end); `driftMetres` for how much the lane wanders. */
@@ -31,7 +31,7 @@ const smooth = (u: number): number => { const t = clamp(u, 0, 1); return t * t *
 
 /** the exponent of the class's envelope, mixed with the one the trap speed implies */
 export function envelopePower(cls: ClassId, quarter: number, trapMph: number): number {
-  const G = LEADERBOARD_GHOST, classPower = G.powerByEra[eraOf(cls)] ?? 1.65;
+  const G = LEADERBOARD_GHOST, classPower = G.powerByEra[eraOf(cls) ?? 'integrated'] ?? 1.65;
   const fromTrap = trapMph > 0 ? trapMph * MPH_TO_MS * quarter / DRAG.marks.quarter : classPower;
   return clamp(G.trapShare * fromTrap + (1 - G.trapShare) * classPower, G.powerRange[0], G.powerRange[1]);
 }

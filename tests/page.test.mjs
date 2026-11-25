@@ -66,3 +66,13 @@ test('the controls: every action in the spec is rebindable, no two actions share
   assert.equal(assignKey(DEFAULT_BINDS, 'nitro', 'Escape').ok, false);
   assert.deepEqual(sanitizeOptions('junk').binds, DEFAULT_BINDS);
 });
+
+test('the screens show density altitude and the hot tire pressure, window.__drag has the stage, and no race against your own pass is left', () => {
+  const page = read('src/drag/page.ts'), bench = read('src/benchmark/screen.ts');
+  assert.match(page, /\['DENSITY ALT'/, 'the STATS tab shows density altitude'); assert.match(page, /\['TIRES HOT'/, 'the STATS tab shows the hot pressure');
+  assert.match(page, /DENSITY ALT \$\{R\.da\} FT/, 'the timeslip shows density altitude'); assert.match(page, /line\('HOT PSI'/, 'the timeslip shows Timeslip.hotPsi');
+  assert.match(page, /stage: \(s\.runners\[0\] as Runner\)\.stage/, 'window.__drag reports the staging phase');
+  assert.match(bench, /CANNOT SEE AN OVERCLOCK[\s\S]*RUN THE BENCHMARK AGAIN/, 'the benchmark screen says to re-run it by hand after an overclock or a GPU change');
+  assert.ok(!/NEW BEST PASS|improved/.test(page), 'no race against your own best pass');
+  assert.doesNotMatch(page, /save\.ghost|BEST PASS/);
+});

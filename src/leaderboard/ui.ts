@@ -3,7 +3,7 @@
 import type { Store } from '../browser-store.ts';
 import type { BenchmarkResult } from '../save.ts';
 import type { DragGhost, Timeslip, Tune } from '../drag/types.ts';
-import { DEFAULT_CLASS, classLabel, isClassId, type Category, type ClassId } from './classes.ts';
+import { DEFAULT_CLASS, classLabel, isClassId, type Category, type ClassId } from '../classes.ts';
 import { createLeaderboardClient, type Board, type Failure, type LeaderboardClient } from './client.ts';
 import { buildLeaderGhost } from './ghost.ts';
 import { fallbackLeader, type LeaderRecord } from './leader.ts';

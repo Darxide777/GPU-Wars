@@ -1,8 +1,8 @@
 // The drag engine (src/drag): the tree and red lights, the physics behaving like a car (parts, launch revs, tire pressure, gearing, nitro), manual and automatic shifting,
-// the saved best-pass ghost, the timeslip, and tunes kept within what a car allows.
+// the timeslip, and tunes kept within what a car allows.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { STAGE, STAGE_LABELS, stageLabel, ghostStagingPath, stagingPoseAt, stagingPlanFor, densityAltitudeOf, densityTorqueShare, hotPressure, pressureGrip, CONDITIONS, WIND, WEATHER, GHOST, FUEL, RUBBER, TRACTION, airDensity, autoThrottle, betterDragGhost, bottlePressure, brakeFadeOf, boostLimitOf, boostRetardAt, boostRisk, chuteOpening, cleanDragGhost, clutchAfterRun, clutchBiteTime, clutchTorqueScale, clutchTorqueShare, conditionsForSeed, conditionsText, conditionsAt, forecastText, createDrag, createDragStrip, clearDragStrip, engineHotShare, engineTrim, fuelKg, fuelTorqueShare, ghostFromRunner, gearEfficiency, lateralShare, loadGrip, nitroShotGain, predictDrag, rubberAt, rubberShare, runnerMass, slipGrip, stageRolloutTime, staticRearShare, throttleOf, timeslip, trackGrip, tireTarget, wearGrip, windAt, weatherText, DRAG, SHUTDOWN, SUSP } from '../src/drag/physics.ts';
+import { STAGE, STAGE_LABELS, stageLabel, ghostStagingPath, stagingPoseAt, stagingPlanFor, densityAltitudeOf, densityTorqueShare, hotPressure, pressureGrip, CONDITIONS, WIND, WEATHER, GHOST, FUEL, RUBBER, TRACTION, airDensity, autoThrottle, bottlePressure, brakeFadeOf, boostLimitOf, boostRetardAt, boostRisk, chuteOpening, cleanDragGhost, clutchAfterRun, clutchBiteTime, clutchTorqueScale, clutchTorqueShare, conditionsForSeed, conditionsText, conditionsAt, forecastText, createDrag, createDragStrip, clearDragStrip, engineHotShare, engineTrim, fuelKg, fuelTorqueShare, ghostFromRunner, gearEfficiency, lateralShare, loadGrip, nitroShotGain, predictDrag, rubberAt, rubberShare, runnerMass, slipGrip, stageRolloutTime, staticRearShare, throttleOf, timeslip, trackGrip, tireTarget, wearGrip, windAt, weatherText, DRAG, SHUTDOWN, SUSP } from '../src/drag/physics.ts';
 import { DRAG_CARS, PARTS, dragCarById } from '../src/drag/data.ts';
 import { BOOST, CLUTCH, ENGINE, TURBO, limiterTorqueShare, specFor, cleanTune, defaultTune, torqueShape } from '../src/drag/tune.ts';
 import { TUNE_HINTS, tuneHint } from '../src/drag/tune-help.ts';
@@ -480,14 +480,6 @@ test('a saved ghost is repaired before replay: bad samples are dropped, values c
   assert.equal(cleanDragGhost({ marks: { ft60: 2 }, samples: [{ t: 0 }, { t: 1 }] }), null);
 });
 
-test('the best pass is the lower total, with the lower quarter mile as the tie-break', () => {
-  const first = bestGhost(13.1, 12.9), slower = bestGhost(13.3, 13.1), faster = bestGhost(12.9, 12.7), tie = bestGhost(13.1, 12.8);
-  assert.ok(betterDragGhost(null, first)); assert.equal(betterDragGhost(first, null), false);
-  assert.ok(betterDragGhost(first, faster)); assert.equal(betterDragGhost(first, slower), false);
-  assert.ok(betterDragGhost(first, tie), 'the same total with a lower ET wins'); assert.equal(betterDragGhost(tie, first), false, 'a higher ET with the same total does not');
-  assert.equal(betterDragGhost(first, bestGhost(13.1, 12.9)), false, 'an identical pass does not replace the ghost');
-});
-
 test('a saved ghost replays its samples relative to green without driving a second car', () => {
   const g = cleanDragGhost({ car: 'streeter', name: 'BEST PASS', reaction: 0.2, marks: { quarter: 13, ft60: 2 }, trap: 180, total: 13.2, samples: [{ t: 0, x: 0, y: 0, psi: 0, v: 0 }, { t: 1, x: 10, y: 0, psi: 0, v: 20 }, { t: 13.1, x: DRAG.marks.quarter, y: 0, psi: 0, v: 40 }] });
   const car = dragCarById('streeter'), spec = specFor(car, {}), d = quick({ seed: 1, conditions: neutral, entrants: [entrant('streeter', {}, {}, perfect, 'YOU'), { name: 'BEST PASS', spec, tune: defaultTune(car), ghost: g }] }), ghostRunner = d.state.runners[1];
@@ -873,7 +865,7 @@ test('the car runs the TOP level of every part as stock, whatever the benchmark 
   assert.ok(specForBenchmark(null).torque < stockSpec().torque, 'no benchmark: weaker than the stock engine');
   assert.notEqual(specForBenchmark({ score: 9000, class: 'discrete-nvidia-current', benchmarkVersion: 1, gpuId: 'x', date: 1 }).torque, stockSpec().torque, 'a benchmark result sets the engine (tests/benchmark.test.mjs)');
   assert.equal(readyCar(save, 0.6).spec.clutchCondition, 0.6, 'a worn clutch is passed to the car');
-  assert.equal(emptySave().ghost, null, 'the save given is left alone');
+  assert.ok(!('ghost' in emptySave()), 'the save keeps no ghost of your own: you only race the class leader');
 });
 
 test('a tune is kept, made safe, and used when the car races', () => {
@@ -882,30 +874,25 @@ test('a tune is kept, made safe, and used when the car races', () => {
   assert.equal(readyCar(saveTune(emptySave(), { pressure: 999 })).tune.pressure, 40, 'clamped');
 });
 
-test('the first race is solo: a clean pass saves the ghost; a test run saves nothing and does not count', () => {
-  const start = emptySave(), first = bestGhost(13.1, 12.9), res = recordRace(start, { kind: 'solo', won: true, slip: slip(), ghost: first }, 1);
-  assert.equal(res.improved, true); assert.deepEqual(res.save.ghost, first); assert.equal(res.save.records.races, 1); assert.equal(res.save.records.wins, 1);
-  assert.equal(res.save.records.history.at(-1).against, 'SOLO'); assert.equal(start.ghost, null, 'the save given is left alone');
-  const test = recordRace(res.save, { kind: 'test', won: true, slip: slip({ quarter: 9, ft60: 1.5, trap: 400, reaction: 0.05 }), ghost: bestGhost(9.05, 9) }, 2);
-  assert.equal(test.improved, false); assert.deepEqual(test.save.ghost, first, 'a test run does not save a ghost');
-  assert.equal(test.save.records.races, 1); assert.equal(test.save.records.wins, 1); assert.equal(test.save.records.history.at(-1).against, 'TEST RUN');
+test('a race is a plain record: totals, the history and the bests; a test run saves nothing and does not count', () => {
+  const start = emptySave(), res = recordRace(start, { kind: 'solo', won: true, slip: slip() }, 1);
+  assert.equal(res.save.records.races, 1); assert.equal(res.save.records.wins, 1); assert.ok(!('ghost' in res.save) && !('improved' in res) && !('ghost' in res), 'no best-pass ghost of your own');
+  assert.equal(res.save.records.history.at(-1).against, 'SOLO'); assert.equal(start.records.races, 0, 'the save given is left alone');
+  const test = recordRace(res.save, { kind: 'test', won: true, slip: slip({ quarter: 9, ft60: 1.5, trap: 400, reaction: 0.05 }) }, 2);
+  assert.equal(test.save.records.races, 1, 'a test run does not count'); assert.equal(test.save.records.history.at(-1).against, 'TEST RUN');
 });
 
-test('a quicker pass replaces the ghost, a slower or identical one does not, and the record is announced', () => {
-  const start = recordRace(emptySave(), { kind: 'solo', won: true, slip: slip(), ghost: bestGhost(13.1, 12.9) }, 1).save;
-  const slower = recordRace(start, { kind: 'ghost', won: false, slip: slip(), ghost: bestGhost(13.3, 13.1) }, 2);
-  assert.equal(slower.improved, false); assert.deepEqual(slower.save.ghost, start.ghost);
-  const better = recordRace(start, { kind: 'ghost', won: true, slip: slip({ quarter: 12.5, ft60: 2.1 }), ghost: bestGhost(12.7, 12.5) }, 3);
-  assert.equal(better.improved, true); assert.deepEqual(better.records, ['BEST PASS', 'BEST ET', 'BEST 60 FT']);
-  assert.equal(better.save.ghost.marks.quarter, 12.5); assert.equal(better.save.records.history.at(-1).against, 'CLASS LEADER');
-  const tie = recordRace(better.save, { kind: 'ghost', won: true, slip: slip(), ghost: bestGhost(12.7, 12.4) }, 4);
-  assert.equal(tie.improved, true, 'the same total with a lower ET is a new best pass');
-  assert.equal(recordRace(tie.save, { kind: 'ghost', won: true, slip: slip(), ghost: bestGhost(12.7, 12.4) }, 5).improved, false);
+test('a quicker run beats the bests and is announced; a slower one does not', () => {
+  const start = recordRace(emptySave(), { kind: 'solo', won: true, slip: slip() }, 1).save;
+  const slower = recordRace(start, { kind: 'ghost', won: false, slip: slip({ quarter: start.records.bestEt + 0.2 }) }, 2);
+  assert.deepEqual(slower.records, []); assert.equal(slower.save.records.bestEt, start.records.bestEt);
+  const better = recordRace(start, { kind: 'ghost', won: true, slip: slip({ quarter: 12.5, ft60: 2.1 }) }, 3);
+  assert.deepEqual(better.records, ['BEST ET', 'BEST 60 FT']); assert.equal(better.save.records.history.at(-1).against, 'CLASS LEADER');
 });
 
-test('a crash is not a win and keeps no ghost or best; the crash survives a save', () => {
+test('a crash is not a win and keeps no best; the crash survives a save', () => {
   const slipUp = slip({ crashed: true, stopped: true, quarter: 4, ft60: 1, reaction: 0, trap: 500 }), r = recordRace(emptySave(), { kind: 'ghost', won: true, slip: slipUp }, 1);
-  assert.equal(r.ghost, null); assert.deepEqual(r.records, []); assert.equal(r.save.records.races, 1); assert.equal(r.save.records.wins, 0); assert.equal(r.save.records.crashes, 1);
+  assert.deepEqual(r.records, []); assert.equal(r.save.records.races, 1); assert.equal(r.save.records.wins, 0); assert.equal(r.save.records.crashes, 1);
   assert.equal(r.save.records.bestEt, 0); assert.equal(r.save.records.best60, 0); assert.equal(r.save.records.bestTrap, 0); assert.equal(r.save.records.bestReaction, 0);
   assert.equal(r.save.records.history.at(-1).crashed, true); assert.equal(r.save.records.history.at(-1).won, false);
   assert.equal(sanitizeSave(JSON.parse(JSON.stringify(r.save))).records.crashes, 1);
@@ -918,13 +905,13 @@ test('records come from clean runs (a red light keeps none); only a better one r
   for (let i = 0; i < 14; i++) s = recordRace(s, { kind: 'ghost', won: false, slip: slip() }, 10 + i).save; assert.equal(s.records.history.length, 10); assert.equal(s.records.history.at(-1).at, 23);
 });
 
-test('the save is checked: junk becomes an empty save, the benchmark result must be believable, the ghost is repaired, slots stay six', () => {
+test('the save is checked: junk becomes an empty save, the benchmark result must be believable, old ghost fields are dropped, slots stay six', () => {
   assert.deepEqual(sanitizeSave(null), emptySave()); assert.deepEqual(sanitizeSave('garbage'), emptySave()); assert.deepEqual(sanitizeSave({ points: 3, drag: {} }), emptySave(), 'old profile fields are ignored');
   const good = { score: 4200, class: 'discrete-nvidia-modern', benchmarkVersion: 2, gpuId: 'NVIDIA GeForce X', date: 1700000000000 };
   assert.deepEqual(sanitizeSave({ benchmark: good }).benchmark, good);
   for (const bad of [{ ...good, score: -1 }, { ...good, gpuId: '' }, { ...good, class: 5 }, { ...good, class: 'DISCRETE NVIDIA' }, 'x', 7]) assert.equal(sanitizeSave({ benchmark: bad }).benchmark, null);
   const s = sanitizeSave({ ghost: { car: 'streeter', name: 'BEST PASS', reaction: 0.2, marks: { quarter: 12.5 }, trap: 181, total: 12.7, samples: [{ t: 0, x: 0 }, { t: 1, x: 5 }] }, slots: 'garbage', records: { races: 'many', bestEt: -5, history: [{ against: 'SOLO', et: 'x' }, 7] } });
-  assert.equal(s.ghost.marks.quarter, 12.5, 'the ghost is checked and kept'); assert.equal(sanitizeSave({ ghost: { car: 'streeter', samples: [] } }).ghost, null, 'a ghost with no quarter is discarded'); assert.equal(s.slots.length, 6); assert.equal(s.records.races, 0); assert.equal(s.records.bestEt, 0); assert.equal(s.records.history.length, 1);
+  assert.ok(!('ghost' in s), 'a ghost from an old save is dropped'); assert.equal(s.slots.length, 6); assert.equal(s.records.races, 0); assert.equal(s.records.bestEt, 0); assert.equal(s.records.history.length, 1);
 });
 
 // ---- steering ----

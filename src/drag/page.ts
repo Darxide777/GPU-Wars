@@ -28,9 +28,9 @@ import { resultFromRun } from '../benchmark/rules.ts';
 import { dynoPeaks, dynoSvg } from '../benchmark/dyno.ts';
 import type { ClassId } from '../classes.ts';
 import { createLeaderboardUi } from '../leaderboard/ui.ts';
-import { RANKED, conditionsBanner, rankedStart, rankedStrip } from '../leaderboard/ranked.ts';
+import { RANKED, conditionsBanner, densityAltitudeFt, rankedStart, rankedStrip } from '../leaderboard/ranked.ts';
 import { deltaRowsHtml, drawBanner, drawDeltas, markDeltas } from '../leaderboard/delta.ts';
-import { classLabel } from '../leaderboard/classes.ts';
+import { classLabel } from '../classes.ts';
 import type { DragGhost, DragRaceKind, DragSpec, Runner, Timeslip, Tune } from './types.ts';
 
 const $ = (id: string): HTMLElement => document.getElementById(id) as HTMLElement;
@@ -81,7 +81,7 @@ addEventListener('keydown', askLeader, { once: true }); addEventListener('pointe
 const ghostToRace = (): DragGhost | null => lb.ghost();
 const ghostEntrant = (g: DragGhost): Entrant => {
   const { spec, tune } = readyCar(save, clutchCondition);
-  return { name: g.name || 'BEST PASS', spec: { ...spec, col: '#bdf7ff', trim: '#ffffff' }, tune, ghost: g };
+  return { name: g.name || 'CLASS LEADER', spec: { ...spec, col: '#bdf7ff', trim: '#ffffff' }, tune, ghost: g };
 };
 const fuelItem = (): MenuItem => {
   const at = (): number => { const share = fuelShareOf(fuelOf()), i = FUEL.loads.findIndex(v => Math.abs(v - share) < 0.01); return i < 0 ? FUEL.loads.length - 1 : i; };
@@ -106,7 +106,7 @@ function finishBenchmark(cls: ClassId, r: Parameters<Parameters<typeof openBench
   if (r.status === 'done') {
     commit({ ...save, benchmark: resultFromRun({ score: r.outcome.score, sustain: r.outcome.sustain, cls, gpuId: gpu.gpuId, now: Date.now() }) });
     const spec = readyCar(save).spec, peaks = dynoPeaks(spec);
-    soon = { title: 'BENCHMARK DONE', help: `SCORE ${r.outcome.score}${r.outcome.capped ? ' (CAPPED FOR YOUR CLASS)' : ''}`, text: `Your car now makes ${Math.round(peaks.hp)} hp at ${peaks.hpRpm} rpm and ${Math.round(peaks.torqueNm)} Nm of torque. ${r.outcome.discarded.length ? `${r.outcome.discarded.length} unsteady pass(es) were thrown away. ` : ''}Drawn with ${r.outcome.backend}.` };
+    soon = { title: 'BENCHMARK DONE', help: `SCORE ${r.outcome.score}${r.outcome.capped ? ' (CAPPED FOR YOUR CLASS)' : ''}`, text: `Your car now makes ${Math.round(peaks.hp)} hp at ${peaks.hpRpm} rpm and ${Math.round(peaks.torqueNm)} Nm of torque. ${r.outcome.discarded.length ? `${r.outcome.discarded.length} unsteady pass(es) were thrown away. ` : ''}Drawn with ${r.outcome.backend}. The game cannot see an overclock: run the benchmark again yourself after overclocking or changing your GPU.` };
     show('soon');
   } else if (r.status === 'failed') { soon = { title: 'BENCHMARK FAILED', help: 'NOT SCORED', text: `${r.reason}. Nothing was saved. Run it again from the BENCHMARK row.` }; show('soon'); }
   else show('title');
@@ -119,14 +119,14 @@ type TuneTab = 'tuning' | 'stats';
 let screenBefore: Screen = 'title', screen: Screen = 'title', menu: Menu | null = null, msg = '', raceKind: DragRaceKind = 'solo', sel: Record<string, number> = {}, tuneTab: TuneTab = 'tuning';
 let soon: { title: string; text: string; help?: string } = { title: '', text: '' };
 let race: Drag = createDrag({ seed: raceSeed, strip, entrants: [myEntrant(), ...ghostList()] }), banked = true, overT = 0, acc = 0;
-let result: { category: RunCategory; won: boolean; crashed: boolean; records: string[]; improved: boolean; slips: Timeslip[]; reason: string; winner: number; kind: DragRaceKind; hp: number[] } | null = null;
+let result: { category: RunCategory; won: boolean; crashed: boolean; records: string[]; slips: Timeslip[]; reason: string; winner: number; kind: DragRaceKind; hp: number[]; da: number } | null = null;
 function ghostList(): Entrant[] { const g = ghostToRace(); return g ? [ghostEntrant(g)] : []; }
 const WIDE: Screen[] = ['tune', 'slip', 'records', 'options'];
 const setTuneTab = (tab: TuneTab): void => { if (tuneTab === tab) return; tuneTab = tab; show('tune'); };
 
 function statsTable(spec: DragSpec, tune: Tune, seed = raceSeed, kg = fuelOf()): string {
   const temp = engineOf(), p = predict(spec, tune, seed, kg, temp), s = p.slip, tops = gearTops(spec, tune).map(v => Math.round(v)).join(' / ');
-  const rows: [string, string][] = [['WEIGHT', `${Math.round(spec.mass)} KG`], ['FUEL LOAD', `${Math.round(kg)} KG ${Math.round(fuelShareOf(kg) * 100)}%`], ['ENGINE START', `${Math.round(temp)}C`], ['TORQUE', `${Math.round(spec.torque)} NM @ ${spec.peakRpm}`], ['POWER', `${Math.round(dynoPeaks(spec).hp)} HP @ ${dynoPeaks(spec).hpRpm}`], ['LIMITER', `${spec.redline} RPM`], ['GEARS', `${tune.ratios.length}  (SHIFT ${spec.shiftTime.toFixed(2)} S)`], ['BOOST', spec.boostCap > 0 ? `${Math.round(boostLimitOf(tune) * 100)}% OF +${Math.round(spec.boostCap * 100)}%` : 'NONE'], ['CLUTCH BITE', `${tune.launchAggression}/10`], ['CLUTCH CONDITION', `${Math.round(spec.clutchCondition * 100)}%`], ['GRIP', spec.grip.toFixed(2)], ['CONDITIONS', forecastText(conditionsForSeed(seed))], ['NITRO', spec.nitroSecs > 0 ? `${spec.nitroSecs} S, UP TO ${Math.round(spec.nitroMax * 100)}%` : 'NONE'], ['TOP OF EACH GEAR', tops]];
+  const rows: [string, string][] = [['WEIGHT', `${Math.round(spec.mass)} KG`], ['FUEL LOAD', `${Math.round(kg)} KG ${Math.round(fuelShareOf(kg) * 100)}%`], ['ENGINE START', `${Math.round(temp)}C`], ['DENSITY ALT', `${densityAltitudeFt(conditionsForSeed(seed))} FT  (THIN AIR COSTS POWER)`], ['TIRES HOT', `${(s.hotPsi ?? tune.pressure).toFixed(1)} PSI HOT FROM ${Math.round(tune.pressure)} COLD`], ['TORQUE', `${Math.round(spec.torque)} NM @ ${spec.peakRpm}`], ['POWER', `${Math.round(dynoPeaks(spec).hp)} HP @ ${dynoPeaks(spec).hpRpm}`], ['LIMITER', `${spec.redline} RPM`], ['GEARS', `${tune.ratios.length}  (SHIFT ${spec.shiftTime.toFixed(2)} S)`], ['BOOST', spec.boostCap > 0 ? `${Math.round(boostLimitOf(tune) * 100)}% OF +${Math.round(spec.boostCap * 100)}%` : 'NONE'], ['CLUTCH BITE', `${tune.launchAggression}/10`], ['CLUTCH CONDITION', `${Math.round(spec.clutchCondition * 100)}%`], ['GRIP', spec.grip.toFixed(2)], ['CONDITIONS', forecastText(conditionsForSeed(seed))], ['NITRO', spec.nitroSecs > 0 ? `${spec.nitroSecs} S, UP TO ${Math.round(spec.nitroMax * 100)}%` : 'NONE'], ['TOP OF EACH GEAR', tops]];
   const pred: [string, string][] = [['60 FT', sec(s.ft60)], ['330 FT', sec(s.ft330)], ['1/8 MILE', sec(s.eighth)], ['1000 FT', sec(s.ft1000)], ['1/4 MILE', sec(s.quarter)], ['TRAP', kmh(s.trap)], ['BOOST PEAK', s.boostPeak !== undefined ? `${Math.round(s.boostPeak * 100)}%` : '-'], ['ENGINE PEAK', s.enginePeakTemp !== undefined ? `${Math.round(s.enginePeakTemp)}C  -${Math.round((s.peakRetard ?? 0) * 100)}% TIMING` : '-'], ['SPIN', spinCell(s)], ['TIRE WEAR', s.tireWearL !== undefined && s.tireWearR !== undefined ? `L${Math.round(s.tireWearL * 100)}% R${Math.round(s.tireWearR * 100)}%` : '-'], ['NITRO SHOT', s.nitroUsed ? `${s.nitroUsed.toFixed(2)} S  +${Math.round((s.nitroPeakGain ?? 0) * 100)}% PEAK` : '-'], ['NITRO DELTA', spec.nitroSecs > 0 && p.nitroDelta !== undefined ? `${p.nitroDelta >= 0 ? '+' : ''}${p.nitroDelta.toFixed(3)} S WITH BOTTLE` : '-'], ['FUEL LEFT', fuelCell(s)], ['REAR WEIGHT', rearCell(s)], ['BRAKE', brakeCell(s)], ['CHUTE', chuteCell(s)]];
   const t = (title: string, r: [string, string][]): string => `<table><tr><th>${title}</th><th></th></tr>${r.map(([a, b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join('')}</table>`;
   return `${dynoSvg(spec, tune.shiftRpm)}<div class="slips">${t(spec.name, rows)}${t('PREDICTED: PERFECT R/T, AUTO SHIFTS, WARM TIRES, NO BURNOUT, START ENGINE HEAT, AUTO RUN-OUT, SESSION RUBBER', pred)}</div>`;
@@ -151,7 +151,7 @@ function show(next: Screen): void {
   scr.style.display = 'flex'; card.classList.toggle('wide', WIDE.includes(next)); $('rows').className = next === 'tune' || next === 'options' ? 'rows-grid' : ''; $('extra').innerHTML = '';
   const title = (t: string, col = '#ff2bd6'): void => { $('title').textContent = t; $('title').style.color = col; };
   if (next === 'title') {
-    title('GPU WARS'); if (touchedPage) void lb.refreshLeader();
+    title('GPU WARS'); syncCategory(); if (touchedPage) void lb.refreshLeader();
     menu = createMenu([
       benchmarkItem(benchContext),
       classItem(benchContext),
@@ -195,13 +195,13 @@ function show(next: Screen): void {
     const R = result, me = R.slips[0] as Timeslip, them = R.slips[1];
     const head = R.crashed ? 'You crashed' : me.aborted ? 'START ABORTED' : me.crossed ? 'CROSSED THE LINE' : me.foul ? 'RED LIGHT' : R.kind === 'test' ? 'TIMESLIP' : R.slips.length === 1 ? (R.won ? 'CLEAN PASS' : 'NO PASS') : R.won ? 'YOU WIN' : 'LEADER WINS';
     title(head, R.crashed || me.foul || me.crossed || (!!them && !R.won) ? '#ff3355' : '#34ff7a');
-    if (R.crashed) $('sub').dataset.note = 'YOU DID NOT STOP BEFORE THE END OF THE STRIP'; else if (R.improved) $('sub').dataset.note = 'NEW BEST PASS SAVED'; else delete $('sub').dataset.note;
+    if (R.crashed) $('sub').dataset.note = 'YOU DID NOT STOP BEFORE THE END OF THE STRIP'; else delete $('sub').dataset.note;
     const line = (k: string, f: (s: Timeslip) => string): string => `<tr><td>${k}</td>${R.slips.map(s => `<td>${f(s)}</td>`).join('')}</tr>`;
     const tireCell = (s: Timeslip): string => s.tireWearL === undefined || s.tireWearR === undefined ? '-' : `L${Math.round(s.tireTempL ?? 0)}C ${Math.round(s.tireWearL * 100)}%  R${Math.round(s.tireTempR ?? 0)}C ${Math.round(s.tireWearR * 100)}%`;
     const nitroCell = (s: Timeslip): string => !s.nitroUsed ? '-' : `${s.nitroUsed.toFixed(2)} S  +${Math.round((s.nitroPeakGain ?? 0) * 100)}% PEAK`;
     const bottleCell = (s: Timeslip): string => !s.nitroUsed ? '-' : `${Math.round(s.nitroTemp ?? 0)}C ${Math.round((s.nitroPressure ?? 0) * 100)}%`;
-    $('extra').innerHTML = `<table><tr><th></th>${R.slips.map((s, i) => `<th${i === R.winner ? ' style="color:#34ff7a"' : ''}>${s.name}</th>`).join('')}</tr>`
-      + line('R/T', s => (s.aborted ? '<span style="color:#ff3355">ABORT</span>' : s.foul ? '<span style="color:#ff3355">RED LIGHT</span>' : sec(s.reaction))) + line('60 FT', s => sec(s.ft60)) + line('330 FT', s => sec(s.ft330)) + line('1/8 MILE', s => sec(s.eighth)) + line('1000 FT', s => sec(s.ft1000)) + line('1/4 MILE', s => sec(s.quarter)) + line('TRAP', s => kmh(s.trap)) + line('SPIN', spinCell) + `<tr><td>POWER</td>${R.hp.map(h => `<td>${h} HP</td>`).join('')}</tr>` + line('TOTAL', s => (s.crossed || s.foul || s.crashed ? '<span style="color:#ff3355">DQ</span>' : sec(s.total))) + line('BOOST', s => (s.boostPeak !== undefined ? Math.round(s.boostPeak * 100) + '%' : '-')) + line('ENGINE', s => (s.enginePeakTemp !== undefined ? `${Math.round(s.enginePeakTemp)}C  -${Math.round((s.peakRetard ?? 0) * 100)}% TIMING` : '-')) + line('CLUTCH', s => `${s.clutchTemp !== undefined ? Math.round(s.clutchTemp) + 'C ' : ''}${s.clutchCondition !== undefined ? Math.round(s.clutchCondition * 100) + '%' : ''}`) + line('TIRES', tireCell) + line('FUEL', fuelCell) + line('REAR WEIGHT', rearCell) + line('BRAKE', brakeCell) + line('CHUTE', chuteCell) + line('NITRO', nitroCell) + line('BOTTLE', bottleCell)
+    $('extra').innerHTML = `<p class="help">DENSITY ALT ${R.da} FT</p><table><tr><th></th>${R.slips.map((s, i) => `<th${i === R.winner ? ' style="color:#34ff7a"' : ''}>${s.name}</th>`).join('')}</tr>`
+      + line('R/T', s => (s.aborted ? '<span style="color:#ff3355">ABORT</span>' : s.foul ? '<span style="color:#ff3355">RED LIGHT</span>' : sec(s.reaction))) + line('60 FT', s => sec(s.ft60)) + line('330 FT', s => sec(s.ft330)) + line('1/8 MILE', s => sec(s.eighth)) + line('1000 FT', s => sec(s.ft1000)) + line('1/4 MILE', s => sec(s.quarter)) + line('TRAP', s => kmh(s.trap)) + line('SPIN', spinCell) + `<tr><td>POWER</td>${R.hp.map(h => `<td>${h} HP</td>`).join('')}</tr>` + line('TOTAL', s => (s.crossed || s.foul || s.crashed ? '<span style="color:#ff3355">DQ</span>' : sec(s.total))) + line('BOOST', s => (s.boostPeak !== undefined ? Math.round(s.boostPeak * 100) + '%' : '-')) + line('ENGINE', s => (s.enginePeakTemp !== undefined ? `${Math.round(s.enginePeakTemp)}C  -${Math.round((s.peakRetard ?? 0) * 100)}% TIMING` : '-')) + line('CLUTCH', s => `${s.clutchTemp !== undefined ? Math.round(s.clutchTemp) + 'C ' : ''}${s.clutchCondition !== undefined ? Math.round(s.clutchCondition * 100) + '%' : ''}`) + line('HOT PSI', s => (s.hotPsi !== undefined ? s.hotPsi.toFixed(1) + ' PSI' : '-')) + line('TIRES', tireCell) + line('FUEL', fuelCell) + line('REAR WEIGHT', rearCell) + line('BRAKE', brakeCell) + line('CHUTE', chuteCell) + line('NITRO', nitroCell) + line('BOTTLE', bottleCell)
       + `</table><div class="pts">${R.records.length ? 'NEW: ' + R.records.join(', ') : ''}</div>`
       + (R.kind === 'ghost' && them ? `<table><tr><th>VS ${them.name} (${classLabel(lb.playerClass())})</th><th>DELTA</th></tr>${deltaRowsHtml(markDeltas(me, them, me.reaction, them.reaction))}</table><p class="help" id="lbstatus">${lb.status}</p>` : '');
     const items: MenuItem[] = [{ id: 'again', label: 'RUN AGAIN', enter: () => { raceSeed = freshSeed(); startRace(R.kind); } }];
@@ -273,8 +273,10 @@ function render(): void {
 }
 
 // ---- the race ----
+/** autopilot runs go to their own leaderboard category (and race that category's class leader) */
+const syncCategory = (): void => { const c = options.driver === 'autopilot' ? AUTOPILOT_CATEGORY : 'manual'; if (lb.category !== c) { lb.setCategory(c); void lb.refreshLeader(); } };
 function startRace(kind: DragRaceKind): void {
-  raceKind = kind; screenBefore = screen; msg = ''; const ranked = kind === 'ghost', entrants = [ranked ? rankedEntrant() : myEntrant()], g = ranked ? ghostToRace() : null; if (g) entrants.push(ghostEntrant(g));
+  syncCategory(); raceKind = kind; screenBefore = screen; msg = ''; const ranked = kind === 'ghost', entrants = [ranked ? rankedEntrant() : myEntrant()], g = ranked ? ghostToRace() : null; if (g) entrants.push(ghostEntrant(g));
   if (ranked) { raceSeed = RANKED.seed; lb.clearStatus(); }      // (a ranked run is the fixed class day: the same seed, weather and fresh strip for everyone)
   race = createDrag(ranked ? { seed: RANKED.seed, conditions: RANKED.conditions, strip: rankedStrip(), entrants } : { seed: raceSeed, strip, entrants }); isBackdrop = false; banked = false; overT = 0; acc = 0; result = null; music.startMusic(); input.reset(performance.now()); autopilot = createAutopilot(); show('race');
 }
@@ -285,9 +287,9 @@ function finishRace(): void {
   if (!ranked) { if (me.launched) clutchCondition = clutchAfterRun(me); fuelLoad = me.fuel; engineTemp = slip.engineTemp ?? engineOf(); }
   const slips = s.runners.map(timeslip), candidate = ghostFromRunner(me, s.greenAt, STOCK_CAR.id);
   // autopilot runs are a separate leaderboard category, on the same ranked class day, and never touch your local records or best-pass ghost
-  const category: RunCategory = options.driver === 'autopilot' ? AUTOPILOT_CATEGORY : 'manual', res = category === 'autopilot' ? { save, records: [] as string[], improved: false } : recordRace(save, { kind: raceKind, won, slip, ghost: candidate, crashed }, Date.now()); if (category === 'manual') commit(res.save);
+  const category: RunCategory = options.driver === 'autopilot' ? AUTOPILOT_CATEGORY : 'manual', res = category === 'autopilot' ? { save, records: [] as string[] } : recordRace(save, { kind: raceKind, won, slip, crashed }, Date.now()); if (category === 'manual') commit(res.save);
   if (ranked) void lb.submitRun(slip, me.tune, RANKED.seed, candidate);
-  result = { category, won, crashed, records: res.records, improved: res.improved, slips, reason: s.reason, winner: s.winner, kind: raceKind, hp: s.runners.map(r => Math.round(dynoPeaks(r.spec).hp)) };
+  result = { category, won, crashed, records: res.records, slips, reason: s.reason, winner: s.winner, kind: raceKind, hp: s.runners.map(r => Math.round(dynoPeaks(r.spec).hp)), da: densityAltitudeFt(s.conditions) };
 }
 // ---- input: everything goes through src/input (keys, touch, pad -> a timestamped queue -> the fixed-step loop -> one DriverInput). The autopilot returns the same shape. ----
 let autopilot: Autopilot = createAutopilot();
@@ -295,7 +297,7 @@ const input = createInput({ options: () => options, racing: () => screen === 'ra
 const haptics = createHaptics(() => options.touch.haptics);
 const padMenu = createPadMenu(() => screen !== 'race' && rebinder.pending?.device !== 'gamepad');
 /** the input for this tick goes to the car: the driver's (keys, touch, pad) or the autopilot's */
-function readInput(): void { race.setInput(0, options.driver === 'autopilot' ? autopilot.decide(viewOf(race)) : input.read()); }
+function readInput(): void { race.setInput(0, options.driver === 'autopilot' ? autopilot.decide(viewOf(race, 0, (race.state.runners[0] as Runner).stage)) : input.read()); }
 addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
   if (screen === 'bench') { if (k === 'escape') benchScreen?.cancel(); return; }
@@ -337,6 +339,6 @@ function frame(now: number): void {
 }
 window.__drag = () => {
   const s = race.state;
-  return { screen, tuneTab, phase: s.phase, seed: raceSeed, conditions: s.conditions, menu: menu ? { sel: menu.items[menu.sel]?.id, items: menu.items.map(i => i.id) } : null, benchmark: save.benchmark, kind: raceKind, driver: options.driver, category: result?.category ?? null, clutch: clutchCondition, fuel: fuelOf(), ghost: (() => { const g = ghostToRace(); return g ? { et: g.marks.quarter ?? 0, total: g.total, samples: g.samples.length } : null; })(), leaderboard: { class: lb.playerClass(), category: lb.category, leader: lb.leader().name, source: lb.leader().source, status: lb.status, ranked: raceKind === 'ghost', configured: lb.configured }, winner: s.winner, runners: s.runners.map(r => ({ name: r.name, x: r.x, v: r.v, gear: r.gear, rpm: r.rpm, launched: r.launched, finished: r.finished, crashed: r.crashed })), result };
+  return { screen, tuneTab, phase: s.phase, stage: (s.runners[0] as Runner).stage, seed: raceSeed, conditions: s.conditions, menu: menu ? { sel: menu.items[menu.sel]?.id, items: menu.items.map(i => i.id) } : null, benchmark: save.benchmark, kind: raceKind, driver: options.driver, category: result?.category ?? null, clutch: clutchCondition, fuel: fuelOf(), ghost: (() => { const g = ghostToRace(); return g ? { et: g.marks.quarter ?? 0, total: g.total, samples: g.samples.length } : null; })(), leaderboard: { class: lb.playerClass(), category: lb.category, leader: lb.leader().name, source: lb.leader().source, status: lb.status, ranked: raceKind === 'ghost', configured: lb.configured }, winner: s.winner, runners: s.runners.map(r => ({ name: r.name, x: r.x, v: r.v, gear: r.gear, rpm: r.rpm, launched: r.launched, finished: r.finished, crashed: r.crashed })), result };
 };
 show('title'); requestAnimationFrame(t => { last = t; frame(t); });

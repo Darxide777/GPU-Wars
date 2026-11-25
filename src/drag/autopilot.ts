@@ -2,44 +2,34 @@
 // returns a DriverInput, the same shape the keyboard, pad and touch controls produce, which the page hands to `race.setInput` exactly like a manual input.
 // It is fully deterministic: no random numbers, no clock; the same car, tune and seed give the same run. Autopilot runs carry `category: 'autopilot'` (see `AUTOPILOT_CATEGORY`)
 // so the leaderboard keeps them apart from manual runs.
-import { DRAG, LANE, autoThrottle, engineHotShare, stageRolloutTime } from './physics.ts';
+import { DRAG, LANE, STAGE, autoThrottle, engineHotShare, stageRolloutTime } from './physics.ts';
 import { BOOST } from './tune.ts';
-import type { DragConditions, Runner } from './types.ts';
+import type { DragConditions, Runner, StagePhase } from './types.ts';
 import { IDLE_INPUT, type DriverInput } from '../input/controls.ts';
 
 /** the leaderboard category of a run: autopilot runs are never mixed with manual runs */
 export type RunCategory = 'manual' | 'autopilot';
 export const AUTOPILOT_CATEGORY: RunCategory = 'autopilot';
 
-/**
- * The staging sequence from the physics (waterBoxApproach -> burnout -> runOut -> backup -> preStage -> staged / deepStaged -> rolling -> launched). The staging sequence is being built in
- * parallel; until the engine reports its phase the autopilot works it out from the car (see `stagePhaseOf`).
- */
-export type StagePhase = 'waterBoxApproach' | 'burnout' | 'runOut' | 'backup' | 'preStage' | 'staged' | 'deepStaged' | 'rolling' | 'launched';
-
 /** what the autopilot may look at: the same things a driver sees. Nothing here is the green time (the tree is read light by light). */
 export interface AutopilotView {
   /** race clock, seconds */ t: number;
   /** ambers lit so far (0 to 3) and whether the light is green */ ambers: number; green: boolean;
   /** the car */ runner: Runner;
-  /** where the car is in the staging sequence, when the engine tells us (undefined: work it out) */ stagePhase?: StagePhase;
-  /** the rollout position: metres to the stage beam (negative while short of it). Defaults to the runner's `x`. */ rollout?: number;
+  /** where the car is in the staging sequence: the engine's own phase (waterBoxApproach, burnout, runOut, backup, preStage, staged, deepStaged, rolling, launched) */ stagePhase: StagePhase;
   /** the day's air, for the burnout length */ conditions?: Pick<DragConditions, 'airC'>;
 }
 /** the autopilot's numbers. Turn `reaction` first: it is how long after green the car leaves. */
 export const AUTOPILOT = {
   /** seconds after the green that the launch happens: a steady, clean, near-perfect driver, never a red light */ reaction: 0.12,
   /** the longest burnout (seconds) and the tire temperature (C) at which it stops: the tires are in their window */ burnoutMax: 1.5, burnoutTireTemp: 80,
+  /** the gas while rolling to the water box, between the water box and the burnout, and after it (fractions of the pedal) */ approachGas: 0.6, runOutGas: 0.75,
+  /** the gas that creeps the car into the beams (slow enough for the stage to hold it), and the longest the burnout may run past the end of the water box (metres) */ creepGas: 0.06, burnoutPastWater: 4,
   /** a throttle lift when the tires spin or the limiter is hit comes from the physics's own `autoThrottle` (what a driver would do) */
   /** the gear the nitro is pressed in when the tune leaves it to the driver */ nitroGear: 2,
-  /** before the car is staged it creeps with this much gas, and backing up uses this much */ creepGas: 0.35, backUpGas: 0.5,
-  /** how long the stage press is held to roll in (seconds) is the engine's own rollout time; this is the margin added before green so the car is on the beam at the right moment */ marginS: 0,
+  /** how far behind the final beam the back up stops (metres) */ backUpStop: 0.6,
 } as const;
 
-/** the staging phase from what the car shows, for an engine that does not report one yet */
-export function stagePhaseOf(r: Pick<Runner, 'launched' | 'rolling' | 'deepStage' | 'x' | 'burnout'>): StagePhase {
-  if (r.launched) return 'launched'; if (r.rolling) return 'rolling'; if (r.burnout) return 'burnout'; return r.deepStage ? 'deepStaged' : 'staged';
-}
 /** steering: aim the heading back toward the lane's middle (the same control law the engine's own driver uses, from the car's own sensors) */
 export function steerFor(r: Pick<Runner, 'v' | 'y' | 'psi' | 'yawRate' | 'gripLeft'>): number {
   if (r.v < 0.3) return 0;
@@ -49,36 +39,43 @@ export function steerFor(r: Pick<Runner, 'v' | 'y' | 'psi' | 'yawRate' | 'gripLe
 }
 
 export function createAutopilot() {
-  let ambersSeen = 0, greenPredicted = Infinity, burnoutDone = false, burnoutStart = -1, prevNitro = false, prevShift = false;
-  /** the autopilot's whole decision for one tick */
+  let ambersSeen = 0, greenPredicted = Infinity, burnoutStart = -1, burnoutDone = false, prevNitro = false, prevShift = false;
+  /** the autopilot's whole decision for one tick. It drives the staging with the same inputs a player has: gas, burnout, brake, back up and the launch (roll-out) press. */
   function decide(view: AutopilotView): DriverInput {
-    const r = view.runner, t = view.t, out: DriverInput = { ...IDLE_INPUT };
-    const phase = view.stagePhase ?? stagePhaseOf(r);
+    const r = view.runner, t = view.t, out: DriverInput = { ...IDLE_INPUT }, phase = view.stagePhase;
     // reading the tree: each amber lights half a second apart and green follows the third by the same gap, so after any amber the green's time is known
     if (view.ambers > ambersSeen) { ambersSeen = view.ambers; greenPredicted = t + (4 - view.ambers) * DRAG.amberGap; }
     out.steer = steerFor(r);
     if (phase === 'launched') return drive(r, out);
-    // ---- before the launch ----
-    const deep = false;      // (deep staging: the engine's `deepStage` input creeps closer to the line; the autopilot stages normally, which is always legal)
-    out.deepStage = deep;
+    const brakeDistance = r.v * r.v / (2 * STAGE.brakeDecel);
     switch (phase) {
-      case 'waterBoxApproach': case 'runOut': out.throttle = AUTOPILOT.creepGas; return out;
-      case 'backup': out.backUp = true; out.throttle = AUTOPILOT.backUpGas; return out;
-      case 'preStage': out.throttle = AUTOPILOT.creepGas; out.launch = true; return out;      // roll in to the pre-stage beam (the engine's first launch/roll-in press)
-      case 'burnout': case 'staged': case 'deepStaged': case 'rolling': break;
+      case 'waterBoxApproach': case 'burnout': {
+        // roll to the water box, burn out (shorter when the engine is hot, and until the tires are in their window), then roll on
+        if (r.x < STAGE.waterBoxStart + 1) { out.throttle = AUTOPILOT.approachGas; return out; }
+        if (!burnoutDone) {
+          if (burnoutStart < 0) burnoutStart = t;
+          const hot = engineHotShare(r.engineTemp), limit = AUTOPILOT.burnoutMax * (1 - BOOST.aiSense * BOOST.aiBurnTrim * hot);
+          if (t - burnoutStart >= limit || r.tireTemp >= AUTOPILOT.burnoutTireTemp || r.x >= STAGE.waterBoxEnd + AUTOPILOT.burnoutPastWater) burnoutDone = true;
+          else { out.throttle = 1; out.burnout = true; return out; }
+        }
+        out.throttle = AUTOPILOT.runOutGas; return out;
+      }
+      case 'runOut':
+        // run out past the tree, stop, then reverse
+        if (r.x + brakeDistance < STAGE.runOutPastTree) out.throttle = AUTOPILOT.runOutGas; else if (r.v > STAGE.stopSpeed) out.brake = true; else out.backUp = true;
+        return out;
+      case 'backup':
+        // reverse until just behind the pre-stage beam, stop, then creep forward into the beams
+        if (r.v < -STAGE.stopSpeed) { if (r.x - brakeDistance > -AUTOPILOT.backUpStop - 0.05) out.backUp = true; else out.brake = true; }
+        else if (r.x > -AUTOPILOT.backUpStop) out.backUp = true; else out.throttle = AUTOPILOT.creepGas;
+        return out;
+      case 'preStage': out.throttle = AUTOPILOT.creepGas; return out;      // creep into the stage beam: the engine holds a slow car there
+      case 'staged': case 'deepStaged': case 'rolling': break;
     }
-    // a burnout warms the tires (shorter when the engine is hot), then the car stages and waits for the tree
-    if (!burnoutDone && phase !== 'rolling') {
-      if (burnoutStart < 0) burnoutStart = t;
-      const hot = engineHotShare(r.engineTemp), limit = AUTOPILOT.burnoutMax * (1 - BOOST.aiSense * BOOST.aiBurnTrim * hot);
-      if (view.ambers > 0 || t - burnoutStart >= limit || r.tireTemp >= AUTOPILOT.burnoutTireTemp) burnoutDone = true;
-      else { out.throttle = 1; out.burnout = true; return out; }
-    }
-    out.throttle = 1;      // on the gas at the launch revs
-    // roll in at the right moment: the car reaches the line `reaction` seconds after the predicted green
-    const rollTime = stageRolloutTime(deep), leaveAt = greenPredicted + AUTOPILOT.reaction - rollTime + AUTOPILOT.marginS;
+    // staged: gas on the launch revs, then press launch (roll out) at the moment that puts the car on the final beam `reaction` seconds after the green
+    out.throttle = 1;
+    const rollTime = stageRolloutTime(phase === 'deepStaged' || r.deepStage), leaveAt = greenPredicted + AUTOPILOT.reaction - rollTime;
     out.launch = phase === 'rolling' || (view.ambers > 0 && t >= leaveAt);
-    out.shiftUp = false;
     return out;
   }
   /** after the launch: gas with a lift for spin and the limiter, shifts, nitro, and the stop (brake then chute) after the line */
@@ -98,8 +95,8 @@ export function createAutopilot() {
   return { decide, category: AUTOPILOT_CATEGORY };
 }
 export type Autopilot = ReturnType<typeof createAutopilot>;
-/** the view from a running engine (what the page passes each tick) */
-export function viewOf(race: { state: { t: number; ambers: number; green: boolean; conditions: DragConditions; runners: Runner[] } }, car = 0, stagePhase?: StagePhase): AutopilotView {
+/** the view from a running engine (what the page passes each tick): the engine's own staging phase comes in as `stagePhase` */
+export function viewOf(race: { state: { t: number; ambers: number; green: boolean; conditions: DragConditions; runners: Runner[] } }, car: number, stagePhase: StagePhase): AutopilotView {
   const s = race.state, runner = s.runners[car] as Runner;
-  return { t: s.t, ambers: s.ambers, green: s.green, runner, stagePhase, rollout: runner.x, conditions: s.conditions };
+  return { t: s.t, ambers: s.ambers, green: s.green, runner, stagePhase, conditions: s.conditions };
 }

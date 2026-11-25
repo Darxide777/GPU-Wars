@@ -7,11 +7,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { memoryStore } from '../src/browser-store.ts';
-import { DRAG, cleanDragGhost, createDrag, predictDrag, rubberShare, timeslip } from '../src/drag/physics.ts';
+import { DRAG, STAGE, cleanDragGhost, createDrag, predictDrag, rubberShare, timeslip } from '../src/drag/physics.ts';
 import { specForBenchmark } from '../src/drag/spec-source.ts';
 import { defaultTune } from '../src/drag/tune.ts';
 import { DRAG_CARS } from '../src/drag/data.ts';
-import { CLASS_BOUNDS, CLASS_IDS } from '../src/leaderboard/classes.ts';
+import { CLASS_BOUNDS, CLASS_IDS } from '../src/classes.ts';
 import { createLeaderboardClient } from '../src/leaderboard/client.ts';
 import { markDeltas, deltaText } from '../src/leaderboard/delta.ts';
 import { LEADERBOARD_GHOST, buildLeaderGhost, completeSplits, monotoneCurve } from '../src/leaderboard/ghost.ts';
@@ -44,7 +44,10 @@ const cleanSlip = (over = {}) => ({ name: 'YOU', reaction: 0.12, foul: false, ft
 const benchmark = { score: 4200, class: 'discrete-nvidia-modern', benchmarkVersion: 1, gpuId: 'NVIDIA GeForce RTX 3070', date: 1 };
 const tune = defaultTune(DRAG_CARS[0]);
 
-test('class ids and bounds agree with the backend copy', needBackend, () => {
+test('the game and the backend use the SAME class list: src/classes.ts re-exports backend/src/classes.ts, there is no copy', needBackend, () => {
+  const src = readFileSync(new URL('../src/classes.ts', import.meta.url), 'utf8');
+  assert.match(src, /export \* from '\.\.\/backend\/src\/classes\.ts'/); assert.ok(!/ERA_BOUNDS\s*[:=]/.test(src) && !/CLASS_IDS\s*[:=]/.test(src), 'no second list of ids or bounds');
+  assert.ok(!existsSync(new URL('../src/leaderboard/classes.ts', import.meta.url)), 'the old leaderboard copy is gone');
   assert.deepEqual(CLASS_IDS, backend.classes.CLASS_IDS);
   assert.deepEqual(CLASS_BOUNDS, backend.classes.CLASS_BOUNDS);
 });
@@ -97,7 +100,7 @@ test('bad leader data is cleaned or refused, never trusted', () => {
 
 test('the ghost works as an entrant in the real race: it launches, finishes at the leader time and beats nobody by cheating', () => {
   const spec = specForBenchmark(null), g = buildLeaderGhost(fallbackLeader('discrete-amd-classic'));
-  const race = createDrag({ seed: RANKED.seed, conditions: RANKED.conditions, strip: rankedStrip(), entrants: [{ name: 'YOU', spec, tune, ai: null, ...rankedStart() }, { name: 'LEADER', spec, tune, ghost: g }] });
+  const race = createDrag({ seed: RANKED.seed, conditions: RANKED.conditions, strip: rankedStrip(), quickStart: true, entrants: [{ name: 'YOU', spec, tune, ai: null, ...rankedStart() }, { name: 'LEADER', spec, tune, ghost: g }] });
   for (let i = 0; i < 240 * 14 && race.state.phase !== 'over'; i++) race.step();
   const them = timeslip(race.state.runners[1]);
   assert.equal(them.quarter, g.marks.quarter); assert.equal(them.reaction, g.reaction); assert.ok(race.state.runners[1].x > DRAG.marks.quarter - 1);
@@ -233,10 +236,11 @@ test('the letter picker: cycle wraps, add and delete edit the name, short names 
 test('rubber from your own burnout raises grip: a run on a strip with burnout rubber beats the same run on a fresh strip', () => {
   const spec = specForBenchmark(null), fresh = rankedStrip(), burnt = rankedStrip();
   const d = createDrag({ seed: RANKED.seed, conditions: RANKED.conditions, strip: burnt, entrants: [{ name: 'YOU', spec, tune, ai: null, ...rankedStart() }] });
-  d.setInput(0, { throttle: 1, launch: false, shiftUp: false, nitro: false, burnout: true, brake: true, chute: false, deepStage: false, steer: 0 });
-  for (let i = 0; i < 240 * 4; i++) d.step();
+  const r = d.state.runners[0];      // roll to the water box, then burn out down the strip: the rubber is laid past the line (x > 0)
+  for (let i = 0; i < 240 * 14 && r.x < 9; i++) { const burn = r.x >= STAGE.waterBoxStart; d.setInput(0, { throttle: burn ? 1 : 0.6, launch: false, shiftUp: false, nitro: false, burnout: burn, brake: false, backUp: false, chute: false, deepStage: false, steer: 0 }); d.step(); }
   assert.ok(rubberShare(burnt, 0) > 0 && rubberShare(fresh, 0) === 0, 'the burnout laid rubber');
-  const run = strip => predictDrag(spec, tune, RANKED.seed, RANKED.conditions, rankedStart().fuel, rankedStart().engineTemp, strip).slip;
+  const spinny = { ...tune, launchRpm: 7000, pressure: 12 };      // (the stock tune hooks up without spin, where rubber changes nothing: a soft, high-revving launch does spin)
+  const run = strip => predictDrag(spec, spinny, RANKED.seed, RANKED.conditions, rankedStart().fuel, rankedStart().engineTemp, strip).slip;
   const a = run(fresh), b = run(burnt);
   assert.ok(b.ft60 < a.ft60 && b.quarter <= a.quarter, `60 ft ${b.ft60} vs ${a.ft60}, quarter ${b.quarter} vs ${a.quarter}`);
 });

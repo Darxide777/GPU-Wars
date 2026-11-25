@@ -1,4 +1,4 @@
-// On-screen touch controls for phones and tablets: gas pedal (analog), brake, steering slider (analog), shift up and down, launch, nitro, chute, burnout and back up, plus a MENU button.
+// On-screen touch controls for phones and tablets: gas pedal (analog), brake, steering slider (analog), shift up and down, launch, nitro, chute, burnout, back up and deep stage, plus a MENU button.
 // The layout is a pure function (testable); the pointer handling turns touches into queue events with the browser's own timestamps.
 import { INPUT } from './constants.ts';
 import type { InputQueue } from './queue.ts';
@@ -16,13 +16,14 @@ export function touchLayout(w: number, h: number, size = 1): TouchRect[] {
   const gas = add('gas', 'GAS', w - m - 1.5 * u, floor - 3 * u, 1.5 * u, 3 * u, 'pedal');
   const brake = add('brake', 'BRAKE', gas.x - m - 1.4 * u, floor - 1.5 * u, 1.4 * u, 1.5 * u);
   const nitro = add('nitro', 'NITRO', brake.x, brake.y - m - u, 1.4 * u, u);
-  add('chute', 'CHUTE', nitro.x, nitro.y - m - u, 1.4 * u, u);
+  const chute = add('chute', 'CHUTE', nitro.x, nitro.y - m - u, 1.4 * u, u);
+  if (portrait) add('deepStage', 'DEEP', chute.x, chute.y - m - u, 1.4 * u, u);      // (hold: creep from stage to the deep beam; landscape has it on the left, by the shift buttons)
   const col3 = brake.x - m - 1.4 * u;
   add('launch', 'GO', col3, floor - 1.5 * u, 1.4 * u, 1.5 * u);
   add('burnout', 'BURN', col3, floor - 1.5 * u - m - u, 1.4 * u, u);
   add('backUp', 'BACK UP', col3, floor - 1.5 * u - 2 * (m + u), 1.4 * u, u);
   if (portrait) { add('shiftUp', 'UP', col3, floor - 1.5 * u - 3 * (m + u), 1.4 * u, u); add('shiftDown', 'DOWN', col3, floor - 1.5 * u - 4 * (m + u), 1.4 * u, u); }      // (no room on the left in portrait: they continue the third column)
-  else { const shiftY = h - 2 * m - 1.2 * u - u; add('shiftDown', 'DOWN', m, shiftY, 1.3 * u, u); add('shiftUp', 'UP', m + 1.3 * u + m, shiftY, 1.3 * u, u); }
+  else { const shiftY = h - 2 * m - 1.2 * u - u; add('shiftDown', 'DOWN', m, shiftY, 1.3 * u, u); add('shiftUp', 'UP', m + 1.3 * u + m, shiftY, 1.3 * u, u); add('deepStage', 'DEEP', m + 2 * (1.3 * u + m), shiftY, 1.3 * u, u); }
   add(TOUCH_MENU, 'MENU', m, m, 1.1 * u, 0.6 * u);
   return out;
 }

@@ -24,7 +24,7 @@ build.mjs                   esbuild: src/drag/page.ts -> dist/gpuwars.js (one ii
 tools/music-tags.mjs        reads the song titles and artists for assets/music/library.json
 assets/music/               the two versions of "Simulation Theory" by Chromium Halo (and the generated library.json)
 types/globals.d.ts          the debug hook the page leaves on window (window.__drag)
-src/classes.ts              the class ids (COPY of backend/src/classes.ts: keep them identical) and their labels
+src/classes.ts              re-exports the ONE class list (backend/src/classes.ts, shared with the server) and adds the names shown on screen
 src/benchmark/              constants.ts (BENCHMARK tunables), workload.ts (WebGL2 / WebGL1 / 2D canvas), runner.ts (warm-up, passes), score.ts (discard throttled passes, plausibility, caps),
                             gpu.ts (what the card is, and the class only when the text says it plainly), rules.ts (re-run and class-lock rules), menu.ts (BENCHMARK and CLASS rows),
                             screen.ts (the running screen), dyno.ts (torque/hp curve and the SVG graph)
@@ -113,7 +113,7 @@ One small versioned record under the key `gpuwars.save`, repaired on load (`sani
 
 ## The leaderboard (`src/leaderboard/`)
 
-- `classes.ts` is a **copy** of `backend/src/classes.ts` (class ids and bounds); a test compares the two when the backend is present. `config.ts` holds the one placeholder `baseUrl` (empty: offline) and the timeout. Nothing is requested at load: the leader is fetched after the first key or tap, the boards when RECORDS opens, a score when a ranked run ends.
+- The class list is ONE file, `backend/src/classes.ts`, re-exported by `src/classes.ts` (no copy; a test checks it). `config.ts` holds the one placeholder `baseUrl` (empty: offline) and the timeout. Nothing is requested at load: the leader is fetched after the first key or tap, the boards when RECORDS opens, a score when a ranked run ends.
 - `client.ts` never throws: no URL, no network, CORS, timeout, 4xx/5xx all become `{ ok: false, kind, message }`; `leader()` always returns a record (the server's, or `fallbackLeader` from `leader.ts`, whose bundled times are placeholders in `FALLBACK_LEADERS`). `X-Client-Id` is generated once (`profile.ts`, stored apart from the save with your name and ONE unsent run that is retried later).
 - `payload.ts` builds the `POST /scores` body (feet, mph, tune flattened to numbers, optional compact ghost). `tests/leaderboard.test.mjs` runs it through the backend's own `validateSubmission`. A run is ranked only if it is clean and a benchmark gave a valid class; `category` is `manual` unless the autopilot phase calls `ui.setCategory('autopilot')`.
 - `ghost.ts`: the class-leader ghost is a smooth monotone curve through the leader's marks to the trap speed, not a physics car and not a replay. Missing splits come from the class envelope (`LEADERBOARD_GHOST.powerByEra`, mixed with the trap speed); lane drift is seeded; the staging path is canned. It goes through `cleanDragGhost` and plays in `physics.ts` as any ghost.

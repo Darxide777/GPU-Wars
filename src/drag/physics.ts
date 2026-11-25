@@ -242,12 +242,6 @@ export function ghostFromRunner(r: Runner, greenAt: number, car: string): DragGh
   }
   return cleanDragGhost({ car, name: 'BEST PASS', reaction: r.reaction, marks: r.marks, trap: r.trap, total: r.reaction + q, samples, deepStage: r.deepStage });
 }
-export const betterDragGhost = (a: DragGhost | null, b: DragGhost | null): boolean => {
-  if (!b) return false; if (!a) return true;
-  if (b.total < a.total - 1e-6) return true;
-  if (b.total > a.total + 1e-6) return false;
-  return (b.marks.quarter ?? Infinity) < (a.marks.quarter ?? Infinity);
-};
 
 /** the pressure a tire really runs once it is hot: the cold pressure you set plus `TIRE.psiPerC` for every degree C above the day's air */
 export const hotPressure = (coldPsi: number, tireC: number, airC: number = DRAG.tire.ambient): number => coldPsi + Math.max(0, (Number.isFinite(tireC) ? tireC : airC) - airC) * TIRE.psiPerC;
@@ -340,7 +334,7 @@ export function createDrag(o: { seed: number; entrants: Entrant[]; conditions?: 
     r.reaction = g.reaction; r.marks = { ...g.marks }; r.trap = g.trap; r.foul = g.reaction < 0; r.crossed = false; r.aborted = false; r.crashed = false;
     r.rolling = t >= g.reaction - stageRolloutTime(g.deepStage) && t < g.reaction; if (t >= 0) r.deepStage = !!g.deepStage && (r.rolling || t < g.reaction); r.launched = t >= g.reaction; r.launchT = s.greenAt + g.reaction; if (t >= 0) r.stage = r.launched ? 'launched' : r.rolling ? 'rolling' : r.deepStage ? 'deepStaged' : 'staged';
     r.chute = false; r.chuteOpen = 0; r.nitroOn = false; r.nitroUsed = 0; r.nitroTemp = s.conditions.airC; r.nitroPressure = 0; r.nitroGain = 0; r.nitroPeakGain = 0; r.boost = 0; r.retard = 0; r.yawRate = 0; r.steer = 0; r.gripLeft = 1; r.drift = 0; r.fuel = FUEL.capacity; r.fuelUsed = 0;
-    if (q !== undefined && t >= q) { if (!r.finished) events.push({ t: 'finish', car: i }); r.finished = true; r.shutdown = true; r.brake = true; r.chute = true; r.chuteOpen = 1; }
+    /* the marks are timed from the launch and `t` from the green: the finish is the reaction plus the quarter */ if (q !== undefined && t >= g.reaction + q) { if (!r.finished) events.push({ t: 'finish', car: i }); r.finished = true; r.shutdown = true; r.brake = true; r.chute = true; r.chuteOpen = 1; }
     const last = g.samples[g.samples.length - 1] as GhostSample | undefined; if (last && t >= last.t) { r.v = 0; r.stopped = true; }
   }
   const recordTrace = (r: Runner): void => { if (r.ghost) return; const prev = r.trace[r.trace.length - 1]; if (!prev || s.t - prev.t + DRAG.dt / 2 >= GHOST.step) r.trace.push({ t: s.t, x: r.x, y: r.y, psi: r.psi, v: r.v }); };

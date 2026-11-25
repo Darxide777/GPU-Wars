@@ -1,7 +1,7 @@
 // The leaderboard client: talks to the Cloudflare Worker (backend/src/index.ts). It NEVER throws and never blocks play: no URL, no network, a blocked request (CORS), a slow
 // server or an error answer all come back as `{ ok: false, kind, message }` with a message for the screen. The fetch function and the clock are passed in, so tests need no network.
 import { LEADERBOARD_API } from './config.ts';
-import { isCategory, isClassId, type Category, type ClassId } from './classes.ts';
+import { isCategory, isClassId, type Category, type ClassId } from '../classes.ts';
 import { fallbackLeader, parseLeader, type LeaderRecord } from './leader.ts';
 import type { ScorePayload } from './payload.ts';
 

@@ -67,7 +67,7 @@ test('analog gas and steering: the biggest of key and analog, steering sums and 
   q.push({ t: 5, kind: 'analog', control: 'gasTouch', source: 't:1', value: NaN }); assert.equal(tick(q, s, 6).throttle, 0, 'NaN lets go of the analog value');
 });
 test('touch layout: every control present, on screen, none overlapping, in landscape and portrait and at every size', () => {
-  const ids = ['steer', 'gas', 'brake', 'nitro', 'chute', 'launch', 'burnout', 'backUp', 'shiftUp', 'shiftDown', 'menu'];
+  const ids = ['steer', 'gas', 'brake', 'nitro', 'chute', 'launch', 'burnout', 'backUp', 'deepStage', 'shiftUp', 'shiftDown', 'menu'];
   for (const [w, h] of [[844, 390], [1280, 720], [390, 844], [360, 640]]) for (const size of [0.7, 1, 1.5]) {
     const L = touchLayout(w, h, size); assert.deepEqual(L.map(r => r.id).sort(), [...ids].sort());
     for (const r of L) assert.ok(r.x >= 0 && r.y >= 0 && r.x + r.w <= w + 0.5 && r.y + r.h <= h + 0.5, `${r.id} on screen at ${w}x${h} x${size}`);
