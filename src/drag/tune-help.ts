@@ -14,7 +14,7 @@ export const TUNE_HINTS: Record<string, string> = {
   nitroGear: '0 means press the nitro key yourself; a gear number fires the bottle automatically from that gear. The auto driver fires in second when set to BY HAND.',
   statsTab: 'Your car numbers, clutch condition and a predicted timeslip for this tune in the current conditions.',
   tuningTab: 'Change the car setup. Every change is saved at once.',
-  test: 'A race that pays nothing and saves no ghost: use it to try the tune.',
+  test: 'A free-play race that records nothing: use it to try the tune.',
   reset: 'Put the tune back to its stock settings.',
   back: 'Return to the menu you came from.',
 };

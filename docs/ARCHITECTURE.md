@@ -29,13 +29,13 @@ src/benchmark/              constants.ts (BENCHMARK tunables), workload.ts (WebG
                             gpu.ts (what the card is, and the class only when the text says it plainly), rules.ts (re-run and class-lock rules), menu.ts (BENCHMARK and CLASS rows),
                             screen.ts (the running screen), dyno.ts (torque/hp curve and the SVG graph)
 src/beat/, src/neon/building-eq.ts  the beat clock and the equalizer from Chromium Halo: Neon (building-eq without Three.js); assets/music/analysis.json is trimmed to the two songs
-src/save.ts                 the ONE save: benchmark result, class lock, tune, tune slots, records, your best-pass ghost
+src/save.ts                 the ONE save: benchmark result, class lock, tune, tune slots and records (no ghost of your own: the only ghost is the class leader's)
 src/browser-store.ts        localStorage that never throws, with a memory fallback (blocked itch iframes)
 src/options/model.ts        settings: music volume, rebindable key binds and gamepad binds (assignKeySlot, assignPadButton), touch options, input delay, driver (manual/autopilot)
 src/options/screen.ts       the OPTIONS rows and the rebinding flow (no page in it, tested)
 src/input/                  the input layer: queue.ts (timestamped events), controls.ts (held/edge state -> DriverInput), keyboard.ts, pad.ts, touch.ts (layout, analog pedal and steering, pointer events), haptics.ts, constants.ts (INPUT), index.ts (createInput)
 src/platform.ts             fullscreen, audio unlock on first gesture, viewport change watcher
-src/drag/autopilot.ts       the deterministic driver AI (createAutopilot), category 'autopilot'
+src/drag/autopilot.ts       the deterministic driver AI (createAutopilot), category 'autopilot'; drives the engine's own staging phases with player inputs
 tools/package.mjs, zip.mjs  npm run package: the itch.io zip (no dependencies)
 src/sound.ts                music only, from the two songs
 src/tune-slots.ts           the six named tune slots (pure functions)
@@ -109,7 +109,7 @@ With no result it is the WEAKEST spec (integrated, score 0), so skipping the ben
 
 ## The save (`src/save.ts`)
 
-One small versioned record under the key `gpuwars.save`, repaired on load (`sanitizeSave`): `benchmark` (`{ score, class, benchmarkVersion, gpuId, date, sustain? }` or null), `classLock` (`{ class, gpuId, date }` or null: the hand-picked class), `tune`, `slots` (six), `records` (totals, bests, the last ten runs) and `ghost`. Settings are kept apart (`gpuwars.options`) so erasing a save never loses your controls. All storage goes through `src/browser-store.ts`, which never throws and falls back to memory when localStorage is blocked.
+One small versioned record under the key `gpuwars.save`, repaired on load (`sanitizeSave`): `benchmark` (`{ score, class, benchmarkVersion, gpuId, date, sustain? }` or null), `classLock` (`{ class, gpuId, date }` or null: the hand-picked class), `tune`, `slots` (six) and `records` (totals, bests, the last ten runs; plain records, no ghost of your own). Settings are kept apart (`gpuwars.options`) so erasing a save never loses your controls. All storage goes through `src/browser-store.ts`, which never throws and falls back to memory when localStorage is blocked.
 
 ## The leaderboard (`src/leaderboard/`)
 
@@ -125,7 +125,7 @@ One small versioned record under the key `gpuwars.save`, repaired on load (`sani
 ## Extension points for the next phases
 
 - **Input:** `readInput()` in `page.ts` is one line: `race.setInput(0, options.driver === 'autopilot' ? autopilot.decide(viewOf(race, 0, phase)) : input.read())`. Keys, touch pointers and pad polls are pushed as timestamped events (`src/input/queue.ts`); each fixed tick drains the events due by that tick's time and builds a `DriverInput`. Touch controls are drawn on the canvas by `input.draw()` (`touch.ts`). Haptics buzz on launch, shift, nitro, wheelspin, wheelie, chute, foul, wall and crash.
-- **Autopilot:** see the autopilot section above.
+- **Autopilot** (`src/drag/autopilot.ts`): `decide(viewOf(race, 0, runner.stage))` returns a `DriverInput`. It never works out the staging itself: the page passes the engine's `StagePhase`, and each phase gets what a player would press. `waterBoxApproach` and `burnout`: gas to the water box, then gas + burnout (shorter when the engine is hot, until the tires reach `burnoutTireTemp`), then gas on. `runOut`: gas until the car would stop past the tree, brake, then back up. `backup`: back up to just behind the pre-stage beam, brake, then creep (`creepGas`). `preStage`: creep into stage (the engine holds a slow car there). `staged`: full gas, and `launch` (roll out) at the moment that puts the car on the final beam `AUTOPILOT.reaction` seconds after the predicted green, read from the ambers. After `launched`: `autoThrottle`, shifts, nitro and the chute. It pays the full staging (about 30 s of the race clock) but the ET starts at the launch, so that does not change it. `page.ts` sets the leaderboard category with `lb.setCategory` (`syncCategory`), so autopilot runs race the autopilot leader on the same ranked class day, and they skip local records.
 - **Leaderboard server:** `backend/` (Cloudflare Workers and D1); set `LEADERBOARD_API.baseUrl` after deploying it.
 
 ## Conventions
@@ -134,7 +134,8 @@ See `CLAUDE.md`. The ones that matter most: plain-English names, a deterministic
 
 ## Known gaps
 
-- The tune screen's STATS tab does not show the density altitude, the hot tire pressure or the staging (the prediction starts staged, with warm tires and no burnout); the timeslip screen does not show `hotPsi`.
+- The tune screen's STATS tab shows the density altitude and the hot tire pressure, but the prediction still starts staged, with warm tires and no burnout.
+- The race screen draws a readout under every car; with two cars close together (the ranked race) the two readouts overlap.
 - Staging uses the speed model in `stagingStep`, not the drivetrain: the clutch and engine temperature only see the revs and the heat from the gas, as before.
 - `topdown.ts` uses `Math.random` for the look of tire smoke puffs (drawing only, not the simulation); it should move to a seeded source so replays look identical.
 - The input delay only delays delivery of presses; it cannot move a press earlier than the frame it arrived in.
