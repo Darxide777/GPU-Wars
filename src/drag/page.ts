@@ -222,7 +222,7 @@ function readInput(): void {
   const pad = padToInput(firstPad()), go = held('launch') || keys.has('enter') || !!pad?.fire || taps.launch;
   const steer = (held('steerRight') ? 1 : 0) - (held('steerLeft') ? 1 : 0) + (pad ? pad.steer : 0);
   const gas = Math.max(held('gas') ? 1 : 0, pad ? Math.max(0, pad.throttle) : 0), braking = held('brake') || (!!pad && pad.throttle < -0.3);
-  race.setInput(0, { throttle: gas, launch: go, shiftUp: go || held('shiftUp'), nitro: held('nitro') || !!pad?.nitro || taps.nitro, burnout: held('burnout') || (gas > 0 && braking), brake: braking, chute: held('chute') || !!pad?.special || taps.chute, deepStage: held('deepStage'), steer: Math.max(-1, Math.min(1, steer)) });
+  race.setInput(0, { throttle: gas, launch: go, shiftUp: go || held('shiftUp'), shiftDown: held('shiftDown'), backUp: held('backUp'), nitro: held('nitro') || !!pad?.nitro || taps.nitro, burnout: held('burnout') || (gas > 0 && braking), brake: braking, chute: held('chute') || !!pad?.special || taps.chute, deepStage: held('deepStage'), steer: Math.max(-1, Math.min(1, steer)) });
 }
 addEventListener('keydown', e => {
   const k = e.key.toLowerCase(); if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', 'tab'].includes(k)) e.preventDefault();
@@ -255,7 +255,7 @@ function frame(now: number): void {
   if (screen === 'race') {
     drawTach(ctx, W, H, me, S, now / 1000, s.weather); drawLane(ctx, W, H, me, 0, S);
     const label = (id: string, fallback: string): string => keyLabel((binds[id] ?? [])[0] ?? fallback);
-    drawProgress(ctx, W, H, s, 0, S, { launch: label('launch', ' '), nitro: label('nitro', 'Shift'), manual: me.tune.shift === 'manual', auto: !!me.ai, burnout: label('burnout', 'j'), gas: label('gas', 'w'), brake: label('brake', 's'), chute: label('chute', 'n'), deepStage: label('deepStage', 'h') });
+    drawProgress(ctx, W, H, s, 0, S, { launch: label('launch', ' '), nitro: label('nitro', 'Shift'), manual: me.tune.shift === 'manual', auto: !!me.ai, burnout: label('burnout', 'j'), gas: label('gas', 'w'), brake: label('brake', 's'), chute: label('chute', 'n'), deepStage: label('deepStage', 'h'), backUp: label('backUp', 'r') });
   }
   requestAnimationFrame(frame);
 }

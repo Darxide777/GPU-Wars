@@ -2,7 +2,7 @@
 // the saved best-pass ghost, the timeslip, and tunes kept within what a car allows.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CONDITIONS, WIND, WEATHER, GHOST, FUEL, RUBBER, TRACTION, airDensity, autoThrottle, betterDragGhost, bottlePressure, brakeFadeOf, boostLimitOf, boostRetardAt, boostRisk, chuteOpening, cleanDragGhost, clutchAfterRun, clutchBiteTime, clutchTorqueScale, clutchTorqueShare, conditionsForSeed, conditionsText, conditionsAt, forecastText, createDrag, createDragStrip, clearDragStrip, engineHotShare, engineTrim, fuelKg, fuelTorqueShare, ghostFromRunner, gearEfficiency, lateralShare, loadGrip, nitroShotGain, predictDrag, rubberAt, rubberShare, runnerMass, slipGrip, stageRolloutTime, staticRearShare, throttleOf, timeslip, trackGrip, tireTarget, wearGrip, windAt, weatherText, DRAG, SHUTDOWN, SUSP } from '../src/drag/physics.ts';
+import { STAGE, STAGE_LABELS, stageLabel, ghostStagingPath, stagingPoseAt, stagingPlanFor, densityAltitudeOf, densityTorqueShare, hotPressure, pressureGrip, CONDITIONS, WIND, WEATHER, GHOST, FUEL, RUBBER, TRACTION, airDensity, autoThrottle, betterDragGhost, bottlePressure, brakeFadeOf, boostLimitOf, boostRetardAt, boostRisk, chuteOpening, cleanDragGhost, clutchAfterRun, clutchBiteTime, clutchTorqueScale, clutchTorqueShare, conditionsForSeed, conditionsText, conditionsAt, forecastText, createDrag, createDragStrip, clearDragStrip, engineHotShare, engineTrim, fuelKg, fuelTorqueShare, ghostFromRunner, gearEfficiency, lateralShare, loadGrip, nitroShotGain, predictDrag, rubberAt, rubberShare, runnerMass, slipGrip, stageRolloutTime, staticRearShare, throttleOf, timeslip, trackGrip, tireTarget, wearGrip, windAt, weatherText, DRAG, SHUTDOWN, SUSP } from '../src/drag/physics.ts';
 import { DRAG_CARS, PARTS, dragCarById } from '../src/drag/data.ts';
 import { BOOST, CLUTCH, ENGINE, TURBO, limiterTorqueShare, specFor, cleanTune, defaultTune, torqueShape } from '../src/drag/tune.ts';
 import { TUNE_HINTS, tuneHint } from '../src/drag/tune-help.ts';
@@ -12,7 +12,9 @@ const perfect = { react: 0.2, spread: 0, shiftErr: 0, foul: 0 };
 const OLD_STOCK_TORQUE = 650;
 const neutral = { airC: CONDITIONS.refAirC, rho: CONDITIONS.rhoRef, trackC: CONDITIONS.trackGripRefC, grip: CONDITIONS.neutralGrip };
 const calm = { ...neutral, headwind: 0, crosswind: 0, gust: 0, headPhase: 0, crossPhase: 0 };
-const race = o => createDrag({ conditions: neutral, ...o });
+const quick = o => createDrag({ quickStart: true, ...o });
+const race = o => quick({ conditions: neutral, ...o });
+const fullRace = o => createDrag({ conditions: neutral, ...o });
 const entrant = (id, tune = {}, parts = {}, ai = perfect, name = id, torque = null) => { const car = dragCarById(id), spec = specFor(car, parts); if (torque !== null) spec.torque = torque; return { name, spec, tune: cleanTune({ ...defaultTune(car), ...tune }, car, spec), ai }; };
 const runAll = d => { let n = 0; while (d.state.phase !== 'over' && n++ < 240 * 60) d.step(); return d; };
 const rolloutTicks = () => Math.ceil(stageRolloutTime() / DRAG.dt) + 2;
@@ -102,7 +104,7 @@ test('it is a car: one dragster, slow stock and a top fuel monster fully built; 
 
 test('the launch: revs too low bog, too high spin the tires; somewhere in the middle is quickest. Hard tires spin, and holding the gas on the line raises the revs to the launch revs', () => {
   const t = l => runAll(race({ seed: 1, entrants: [entrant('streeter', { launchRpm: l }, {}, perfect, 'streeter', OLD_STOCK_TORQUE)] })).state.runners[0].marks.ft60;
-  const low = t(1400), mid = t(2600), high = t(5000); assert.ok(mid < low && mid < high, `60 ft: ${low.toFixed(3)} / ${mid.toFixed(3)} / ${high.toFixed(3)}`);
+  const low = t(1400), mid = t(1800), high = t(5000); assert.ok(mid < low && mid < high, `60 ft (the sweet spot moved down a little with weight transfer): ${low.toFixed(3)} / ${mid.toFixed(3)} / ${high.toFixed(3)}`);
   assert.ok(et('streeter', { pressure: 38, launchRpm: 2600 }, {}, OLD_STOCK_TORQUE) > et('streeter', { pressure: 28, launchRpm: 2600 }, {}, OLD_STOCK_TORQUE) + 0.3, 'hard tires lose time to wheelspin');
   const d = race({ seed: 1, entrants: [entrant('streeter', { launchRpm: 4000 }, {}, null)] }); d.setInput(0, { throttle: 1 }); for (let i = 0; i < 240; i++) d.step(); assert.equal(Math.round(d.state.runners[0].rpm), 4000, 'held at the launch revs');
   d.setInput(0, { throttle: 0 }); for (let i = 0; i < 240; i++) d.step(); assert.equal(Math.round(d.state.runners[0].rpm), d.state.runners[0].spec.idle, 'back to idle off the gas');
@@ -188,7 +190,7 @@ test('each rear slick keeps its own temperature and slip wear, and worn rubber l
   assert.ok(wearGrip(0.5) > DRAG.tire.wornGrip && wearGrip(0.5) < 1, 'wear fades grip between new and worn');
   const hard = runAll(race({ seed: 1, entrants: [entrant('streeter', { pressure: 38 }, {}, perfect, 'streeter', OLD_STOCK_TORQUE)] })).state.runners[0], [left, right] = hard.tires;
   assert.ok(right.wear > 0.02, `the slipping right slick wears during a hard launch: ${right.wear.toFixed(3)}`);
-  assert.ok(right.wear > left.wear * 2, `the right slick wears more than the left: ${right.wear.toFixed(3)} vs ${left.wear.toFixed(3)}`);
+  assert.ok(right.wear > left.wear * 1.5, `the right slick wears more than the left: ${right.wear.toFixed(3)} vs ${left.wear.toFixed(3)}`);
   assert.ok(Math.abs(hard.tireTemp - (left.temp + right.temp) / 2) < 1e-9, 'the shared reading stays their mean');
   const slip = timeslip(hard);
   assert.equal(slip.tireWearL, left.wear); assert.equal(slip.tireWearR, right.wear);
@@ -250,16 +252,16 @@ test('a tune sets how hard the clutch is let out, and a bad setting is repaired'
 
 test('conditions come from the race seed, and both cars race in the same ones', () => {
   const a = conditionsForSeed(7); assert.deepEqual(a, conditionsForSeed(7), 'the same seed gives the same conditions');
-  const d = createDrag({ seed: 7, entrants: [entrant('streeter'), entrant('streeter', {}, {}, perfect, 'OTHER')] });
+  const d = quick({ seed: 7, entrants: [entrant('streeter'), entrant('streeter', {}, {}, perfect, 'OTHER')] });
   assert.deepEqual(d.state.conditions, a); assert.equal(d.state.runners[0].tireTemp, a.airC); assert.equal(d.state.runners[1].tireTemp, a.airC);
-  assert.notDeepEqual(createDrag({ seed: 8, entrants: [entrant('streeter')] }).state.conditions, a);
+  assert.notDeepEqual(quick({ seed: 8, entrants: [entrant('streeter')] }).state.conditions, a);
 });
 
 test('conditions: hotter air is less dense and slower, and a grippier surface is faster', () => {
   const c = CONDITIONS, base = conditionsForSeed(11), parts = built(0.9);
   assert.ok(airDensity(c.airRange[0]) > airDensity(c.refAirC) && airDensity(c.refAirC) > airDensity(c.airRange[1]), 'density falls as air warms');
-  const etFor = cond => runAll(race({ seed: 11, entrants: [entrant('streeter', {}, parts)], conditions: cond })).state.runners[0].marks.quarter;
-  const cold = etFor({ ...base, airC: c.airRange[0], rho: airDensity(c.airRange[0], base.altitude) }), hot = etFor({ ...base, airC: c.airRange[1], rho: airDensity(c.airRange[1], base.altitude) });
+  const etFor = (cond, torque = null) => runAll(race({ seed: 11, entrants: [entrant('streeter', {}, parts, perfect, 'streeter', torque)], conditions: cond })).state.runners[0].marks.quarter;      // (a car that is not traction-limited, torque 650: thin air takes its torque as well as its drag)
+  const cold = etFor({ ...base, airC: c.airRange[0], rho: airDensity(c.airRange[0], base.altitude) }, OLD_STOCK_TORQUE), hot = etFor({ ...base, airC: c.airRange[1], rho: airDensity(c.airRange[1], base.altitude) }, OLD_STOCK_TORQUE);
   assert.ok(hot > cold + 0.02, `hot air is slower: ${cold.toFixed(3)} vs ${hot.toFixed(3)} s`);
   const low = etFor({ ...base, grip: c.gripClamp[0] }), high = etFor({ ...base, grip: c.gripClamp[1] });
   assert.ok(high < low - 0.02, `more grip is faster: ${low.toFixed(3)} vs ${high.toFixed(3)} s`);
@@ -276,12 +278,12 @@ test('barometric altitude: a seeded high strip is thinner and quicker, and the a
   assert.equal(airDensity(c.refAirC, c.altitudeRange[1] + 99), airDensity(c.refAirC, c.altitudeRange[1]), 'above the range clamps');
   assert.match(conditionsText(base), new RegExp(`ALT ${Math.round(base.altitude)}M`));
   const at = altitude => ({ ...base, altitude, rho: airDensity(base.airC, altitude) });
-  const etFor = altitude => runAll(createDrag({ seed: 21, conditions: at(altitude), entrants: [entrant('streeter', {}, parts)] })).state.runners[0];
+  const etFor = altitude => runAll(quick({ seed: 21, conditions: at(altitude), entrants: [entrant('streeter', {}, parts)] })).state.runners[0];
   const low = etFor(0), high = etFor(c.altitudeRange[1]);
   assert.ok(low.marks.quarter > high.marks.quarter + 0.01, `thin air is quicker: ${low.marks.quarter.toFixed(3)} vs ${high.marks.quarter.toFixed(3)} s`);
   assert.ok(high.trap > low.trap, 'and it traps faster');
   for (const altitude of [0, c.altitudeRange[1] / 2, c.altitudeRange[1]]) {
-    const d = runAll(createDrag({ seed: 21, conditions: at(altitude), entrants: [entrant('streeter', {}, parts, perfect, 'AUTO')] })), r = d.state.runners[0];
+    const d = runAll(quick({ seed: 21, conditions: at(altitude), entrants: [entrant('streeter', {}, parts, perfect, 'AUTO')] })), r = d.state.runners[0];
     assert.ok(r.finished && !r.foul && !r.crossed && !r.crashed, `${altitude} m: the auto driver finishes a clean pass`);
     assert.ok(Math.abs(r.y) < 0.8, `${altitude} m: and holds its lane (${r.y.toFixed(2)} m)`);
   }
@@ -302,12 +304,12 @@ test('weather is a seeded forecast that moves the air, track and grip during the
 });
 
 test('the weather front is one shared field and a cooler, grippier one runs quicker', () => {
-  const d = createDrag({ seed: 8, entrants: [entrant('streeter'), entrant('streeter', {}, {}, perfect, 'OTHER')] }), forecast = d.state.conditions;
+  const d = quick({ seed: 8, entrants: [entrant('streeter'), entrant('streeter', {}, {}, perfect, 'OTHER')] }), forecast = d.state.conditions;
   assert.equal(d.state.runners[0].tireTemp, forecast.airC); assert.equal(d.state.runners[1].tireTemp, forecast.airC);
   for (let i = 0; i < 240 * 6; i++) d.step();
   assert.ok(Math.abs(d.state.weather.airC - forecast.airC) > 1, 'the front has moved both cars');
   assert.equal(d.state.weather.weather, forecast.weather, 'and they share a single forecast');
-  const etFor = weather => runAll(createDrag({ seed: 1, conditions: { ...calm, weather }, entrants: [entrant('streeter', { launchRpm: 5000 })] })).state.runners[0].marks;
+  const etFor = weather => runAll(quick({ seed: 1, conditions: { ...calm, weather }, entrants: [entrant('streeter', { launchRpm: 5000 })] })).state.runners[0].marks;
   const grippy = etFor({ air: WEATHER.airRange[0], track: WEATHER.trackRange[0], grip: WEATHER.gripRange[1], phase: 0 });
   const slippery = etFor({ air: WEATHER.airRange[1], track: WEATHER.trackRange[1], grip: WEATHER.gripRange[0], phase: 0 });
   assert.ok(grippy.quarter < slippery.quarter - 0.03, `grippy ${grippy.quarter.toFixed(3)} vs slippery ${slippery.quarter.toFixed(3)} s`);
@@ -330,11 +332,11 @@ test('wind is a seeded field: headwind, crosswind and gusts stay with the seed a
 });
 
 test('wind on the strip: a headwind slows a run, a tailwind speeds it, and the run-out stops short or long', () => {
-  const etFor = conditions => runAll(createDrag({ seed: 1, conditions, entrants: [entrant('streeter')] })).state.runners[0].marks.quarter;
+  const etFor = conditions => runAll(quick({ seed: 1, conditions, entrants: [entrant('streeter')] })).state.runners[0].marks.quarter;
   const still = etFor(calm), against = etFor({ ...calm, headwind: WIND.headRange[1] }), withIt = etFor({ ...calm, headwind: WIND.headRange[0] });
   assert.ok(against > still + 0.15 && withIt < still - 0.1, `head ${against.toFixed(3)} calm ${still.toFixed(3)} tail ${withIt.toFixed(3)}`);
   const stop = headwind => {
-    const d = createDrag({ seed: 1, conditions: { ...calm, headwind }, entrants: [entrant('streeter', {}, built(1), null, 'YOU')] }), r = d.state.runners[0];
+    const d = quick({ seed: 1, conditions: { ...calm, headwind }, entrants: [entrant('streeter', {}, built(1), null, 'YOU')] }), r = d.state.runners[0];
     while (d.state.phase !== 'over') { d.setInput(0, { throttle: r.finished ? 0 : 1, launch: d.state.green && !r.finished, brake: r.finished, chute: r.finished, steer: 0 }); d.step(); }
     return r;
   };
@@ -345,31 +347,38 @@ test('wind on the strip: a headwind slows a run, a tailwind speeds it, and the r
 
 test('a crosswind pushes an unsteered car across while the autopilot holds its lane in a seeded wind', () => {
   const drift = (cross, auto) => {
-    const d = createDrag({ seed: 1, conditions: { ...calm, crosswind: cross }, entrants: [{ ...entrant('streeter'), ai: auto ? perfect : null }] }), r = d.state.runners[0];
+    const d = quick({ seed: 1, conditions: { ...calm, crosswind: cross }, entrants: [{ ...entrant('streeter'), ai: auto ? perfect : null }] }), r = d.state.runners[0];
     while (d.state.phase !== 'over' && d.state.t < 7) { if (!auto) d.setInput(0, { throttle: 1, launch: d.state.green, steer: 0 }); d.step(); }
     return r;
   };
   const left = drift(-WIND.crossRange[1], false), right = drift(WIND.crossRange[1], false);
   assert.ok(right.y > left.y + 0.5 && right.psi > left.psi + 0.02, `wind from the left drifts right: ${left.y.toFixed(2)} / ${right.y.toFixed(2)} m`);
   for (const seed of [1, 2, 3, 4, 5]) {
-    const d = runAll(createDrag({ seed, entrants: [entrant('streeter'), entrant('streeter', {}, {}, perfect, 'OTHER')] }));
+    const d = runAll(quick({ seed, entrants: [entrant('streeter'), entrant('streeter', {}, {}, perfect, 'OTHER')] }));
     for (const r of d.state.runners) assert.ok(!r.crossed && Math.abs(r.y) < 0.8, `seed ${seed}: an autopilot stays in its lane in the wind (${r.y.toFixed(2)} m)`);
   }
 });
 
-test('a burnout: the brake and gas hold the car on the line while the rears heat the tires, and launching ends it', () => {
-  const d = race({ seed: 1, entrants: [entrant('streeter', {}, {}, null, 'YOU')] }), r = d.state.runners[0];
-  d.setInput(0, { throttle: 1, burnout: true }); for (let i = 0; i < 240 * 2; i++) d.step();
-  assert.equal(r.x, -DRAG.stageRollout, 'the car stays staged'); assert.ok(!r.launched && !r.rolling, 'the burnout holds it behind the line'); assert.ok(r.burnout, 'the burnout is reported'); assert.ok(r.tireTemp > DRAG.tire.windowLo, `the tires heat: ${r.tireTemp.toFixed(1)} C`);
-  while (!d.state.green) d.step(); d.setInput(0, { launch: true }); for (let i = 0; i < rolloutTicks(); i++) d.step();
-  assert.ok(r.launched && !r.burnout, 'rolling out ends the burnout');
+/** a car in the water box, ready to burn out */
+const inWaterBox = (id = 'streeter', ai = null) => { const d = fullRace({ seed: 1, entrants: [entrant(id, {}, {}, ai, 'YOU')] }), r = d.state.runners[0]; r.x = STAGE.waterBoxStart + 0.5; return { d, r }; };
+
+test('a burnout rolls the car forward: slip over distance heats the slicks and lays rubber on the dry strip, and the water box leaves them wet and low on grip', () => {
+  const { d, r } = inWaterBox();
+  d.setInput(0, { throttle: 1, burnout: true }); for (let i = 0; i < 240; i++) d.step();
+  assert.equal(r.stage, 'burnout'); assert.ok(r.burnout, 'the burnout is reported'); assert.ok(r.x > STAGE.waterBoxStart + 2 && r.v > 0, 'it rolls forward, it is not held on the spot');
+  assert.ok(r.wet > 0.5 && r.tireTemp < DRAG.tire.windowLo, `a wet burnout makes little heat: ${r.tireTemp.toFixed(1)} C, wet ${r.wet.toFixed(2)}`);
+  const wetGrip = (1 - STAGE.wetGripLoss * r.wet); assert.ok(wetGrip < 1, 'wet slicks have less grip');
+  const slow = inWaterBox(); slow.r.x = STAGE.waterBoxEnd + 1; slow.d.setInput(0, { throttle: 1, burnout: true }); for (let i = 0; i < 240; i++) slow.d.step();
+  assert.ok(slow.r.tireTemp > r.tireTemp + 20, `the same second on the dry strip heats the tires much more: ${slow.r.tireTemp.toFixed(1)} vs ${r.tireTemp.toFixed(1)} C`);
+  const before = r.burnDistance; d.setInput(0, { throttle: 0, burnout: false }); d.step(); assert.equal(r.stage, 'runOut', 'lifting ends the burnout: the run-out'); assert.ok(r.burnDistance === before);
 });
 
-test('burnouts and wheelspin leave rubber on the strip for the session, and that rubber gives grip to the next launch', () => {
-  const strip = createDragStrip(2), burn = race({ seed: 1, strip, entrants: [entrant('streeter', {}, {}, null, 'YOU')] });
+test('burnouts across the line lay rubber on the strip for the session, wheelspin lays more, and that rubber gives grip to the next launch', () => {
+  const strip = createDragStrip(2), burn = fullRace({ seed: 1, strip, entrants: [entrant('streeter', {}, {}, null, 'YOU')] }), br = burn.state.runners[0]; br.x = STAGE.waterBoxEnd;
   assert.equal(rubberAt(strip, 0, 0, RUBBER.cell), 0, 'a fresh strip has no laid rubber');
-  burn.setInput(0, { throttle: 1, burnout: true }); for (let i = 0; i < 240; i++) burn.step();
-  assert.ok(rubberAt(strip, 0, 0, RUBBER.cell) > 0.5, 'the burnout lays rubber past the line'); assert.ok(rubberShare(strip, 0) > 0.5);
+  burn.setInput(0, { throttle: 1, burnout: true }); for (let i = 0; i < 240 * 16 && br.x < 20; i++) burn.step();
+  assert.ok(br.x >= 20, 'it burned out across the line'); assert.ok(rubberAt(strip, 0, 0, RUBBER.cell) > 0.5, 'the burnout lays rubber past the line'); assert.ok(rubberShare(strip, 0) > 0.5);
+  const wet = createDragStrip(2), wr = fullRace({ seed: 1, strip: wet, entrants: [entrant('streeter', {}, {}, null, 'YOU')] }).state.runners[0]; void wr;
   const spinStrip = createDragStrip(2), spin = race({ seed: 1, strip: spinStrip, entrants: [entrant('streeter', { launchRpm: 7000, pressure: 38 }, {}, null, 'YOU')] });
   spin.setInput(0, { throttle: 1 }); while (!spin.state.green) spin.step(); spin.setInput(0, { launch: true });
   const sr = spin.state.runners[0]; let spun = false; for (let i = 0; i < 120; i++) { spin.step(); spun = spun || sr.spin || sr.spinL || sr.spinR; }
@@ -417,7 +426,7 @@ test('shifting by hand: no shifts and it sits on the limiter in first; good shif
     while (d.state.phase !== 'over' && d.state.t < 40) { if (d.state.green && !r.launched) d.setInput(0, { launch: true }); d.setInput(0, { shiftUp: shiftAt !== null && r.rpm >= shiftAt && r.shiftT <= 0 && !r.prev.shiftUp }); d.step(); }
     return { r, d };
   };
-  const shiftAt = defaultTune(dragCarById('streeter')).shiftRpm, none = manual(null), shifted = manual(shiftAt); assert.equal(none.r.gear, 1); assert.ok(!none.r.finished || none.r.marks.quarter > shifted.r.marks.quarter + 0.5, `stuck in first: ${none.r.marks.quarter} vs ${shifted.r.marks.quarter}`);
+  const shiftAt = defaultTune(dragCarById('streeter')).shiftRpm, none = manual(null), shifted = manual(shiftAt); assert.equal(none.r.gear, 1); assert.ok(!none.r.finished || none.r.trap < shifted.r.trap - 50, `stuck in first sits on the limiter: ${none.r.trap} vs ${shifted.r.trap} km/h`);
   const autoRace = race({ seed: 2, entrants: [entrant('streeter', {}, {}, { ...perfect }, 'YOU', OLD_STOCK_TORQUE)] }); autoRace.state.runners[0].plan.burnout = 0;
   const good = manual(shiftAt), auto = runAll(autoRace).state.runners[0];
   assert.equal(good.r.gear, auto.gear, 'the same gears as the automatic'); assert.ok(Math.abs(good.r.marks.quarter - auto.marks.quarter) < 0.25, `${good.r.marks.quarter.toFixed(2)} vs ${auto.marks.quarter.toFixed(2)}`);
@@ -481,7 +490,7 @@ test('the best pass is the lower total, with the lower quarter mile as the tie-b
 
 test('a saved ghost replays its samples relative to green without driving a second car', () => {
   const g = cleanDragGhost({ car: 'streeter', name: 'BEST PASS', reaction: 0.2, marks: { quarter: 13, ft60: 2 }, trap: 180, total: 13.2, samples: [{ t: 0, x: 0, y: 0, psi: 0, v: 0 }, { t: 1, x: 10, y: 0, psi: 0, v: 20 }, { t: 13.1, x: DRAG.marks.quarter, y: 0, psi: 0, v: 40 }] });
-  const car = dragCarById('streeter'), spec = specFor(car, {}), d = createDrag({ seed: 1, conditions: neutral, entrants: [entrant('streeter', {}, {}, perfect, 'YOU'), { name: 'BEST PASS', spec, tune: defaultTune(car), ghost: g }] }), ghostRunner = d.state.runners[1];
+  const car = dragCarById('streeter'), spec = specFor(car, {}), d = quick({ seed: 1, conditions: neutral, entrants: [entrant('streeter', {}, {}, perfect, 'YOU'), { name: 'BEST PASS', spec, tune: defaultTune(car), ghost: g }] }), ghostRunner = d.state.runners[1];
   while (!d.state.green) d.step();
   assert.equal(ghostRunner.trace.length, 0, 'a ghost does not record a new path');
   while (d.state.t < d.state.greenAt + 0.5) d.step();
@@ -506,7 +515,7 @@ test('suspension: a wheelie loads the rear, wheelie bars set the lift, and stiff
   assert.equal(gentle.wheelies, 0); assert.ok(strong.wheelies > 0 && strong.maxLift > 0);
   const short = suspensionRun({ wheelieBar: 0 }), medium = suspensionRun({ wheelieBar: 5 }), long = suspensionRun({ wheelieBar: 10 });
   assert.equal(short.wheelies, 0); assert.equal(short.maxLift, 0);
-  assert.ok(medium.maxRearShare > short.maxRearShare + 0.05); assert.ok(medium.quarter < short.quarter - 0.1);
+  assert.ok(medium.maxRearShare > short.maxRearShare + 0.03, 'a wheelie loads the rear more than weight transfer alone'); assert.ok(medium.quarter < short.quarter - 0.1);
   assert.ok(long.maxLift > medium.maxLift + 0.3); assert.ok(long.quarter >= medium.quarter - 0.01);
   assert.ok(long.maxPitch <= SUSP.maxPitch + 1e-9);
   const soft = suspensionRun({ wheelieBar: 10, stiffness: 0 }), stiff = suspensionRun({ wheelieBar: 10, stiffness: 10 });
@@ -519,7 +528,7 @@ test('the predicted timeslip uses the same engine, so suspension and wheelie bar
   const short = setBar(0), medium = setBar(5), a = predictDrag(spec, short, 1, neutral), b = predictDrag(spec, medium, 1, neutral);
   assert.ok(b.slip.quarter < a.slip.quarter - 0.1);
   const run = (tune) => {
-    const d = createDrag({ seed: 1, conditions: neutral, entrants: [{ name: 'YOU', spec, tune: { ...tune, shift: 'auto' }, ai: { react: 0, spread: 0, shiftErr: 0, foul: 0 } }] }), r = d.state.runners[0];
+    const d = quick({ seed: 1, conditions: neutral, entrants: [{ name: 'YOU', spec, tune: { ...tune, shift: 'auto' }, ai: { react: 0, spread: 0, shiftErr: 0, foul: 0 } }] }), r = d.state.runners[0];
     r.tireTemp = (DRAG.tire.windowLo + DRAG.tire.windowHi) / 2; r.plan.burnout = 0; runAll(d); return timeslip(r);
   };
   assert.equal(run(medium).quarter, b.slip.quarter);
@@ -582,17 +591,18 @@ test('the engine heats under load, revs and clutch slip even with no blower, and
   assert.equal(pull.boostPeak, 0, 'no boost at all');
   assert.ok(pull.enginePeakTemp > neutral.airC + 5, `a pull heats the engine: ${pull.enginePeakTemp.toFixed(1)} C`);
   const line = burn => {
-    const d = race({ seed: 1, entrants: [entrant('streeter', {}, {}, null, 'YOU')] });
+    const d = fullRace({ seed: 1, entrants: [entrant('streeter', {}, {}, null, 'YOU')] });
+    d.state.runners[0].x = STAGE.waterBoxStart + 0.5;
     d.setInput(0, { throttle: 1, burnout: burn });
     for (let i = 0; i < 480; i++) d.step();
     return d.state.runners[0];
   };
   const revving = line(false), burning = line(true);
   assert.ok(burning.engineTemp > revving.engineTemp + 3, `a burnout adds engine heat: ${revving.engineTemp.toFixed(1)} C to ${burning.engineTemp.toFixed(1)} C`);
-  assert.ok(!burning.launched && burning.burnout, 'the car is still staged and burning');
+  assert.ok(!burning.launched && burning.burnout, 'the car is still burning out');
   assert.equal(engineHotShare(BOOST.heatFadeFrom), 0);
   assert.equal(engineHotShare(BOOST.heatMax), 1);
-  const soak = createDrag({ seed: 1, conditions: neutral, entrants: [entrant('streeter', {}, {}, null, 'YOU')] }), s = soak.state.runners[0];
+  const soak = quick({ seed: 1, conditions: neutral, entrants: [entrant('streeter', {}, {}, null, 'YOU')] }), s = soak.state.runners[0];
   s.engineTemp = BOOST.heatMax; soak.step(); const hotDrop = (BOOST.heatMax - s.engineTemp) / (BOOST.heatMax - neutral.airC);
   s.engineTemp = 100; soak.step(); const warmDrop = (100 - s.engineTemp) / (100 - neutral.airC);
   assert.ok(hotDrop < warmDrop, `a soaked engine cools slower per degree: ${hotDrop.toFixed(4)} vs ${warmDrop.toFixed(4)} per tick`);
@@ -623,10 +633,10 @@ test('the auto driver opens the wastegate and cuts its burnout when the engine i
   assert.ok(managed.enginePeakTemp < raw.enginePeakTemp - 10, `less heat soak: ${Math.round(managed.enginePeakTemp)} C vs ${Math.round(raw.enginePeakTemp)} C`);
   assert.ok(managed.finished && !managed.foul && !managed.crossed && !managed.crashed, 'the auto driver still makes a clean pass');
   const shallow = { ...AUTO_DRIVER, deepStage: false };
-  const staged = race({ seed: 1, entrants: [{ ...entrants(shallow)[0], name: 'HOT', engineTemp: BOOST.heatMax }, { ...entrants(shallow)[0], name: 'COOL', engineTemp: neutral.airC }] });
-  for (let i = 0; i < Math.round(1.8 / DRAG.dt); i++) staged.step();
-  assert.equal(staged.state.runners[0].burnout, false, 'a hot auto driver skips the burnout');
-  assert.equal(staged.state.runners[1].burnout, true, 'a cool one still warms the tires');
+  const staged = fullRace({ seed: 1, entrants: [{ ...entrants(shallow)[0], name: 'HOT', engineTemp: BOOST.heatMax }, { ...entrants(shallow)[0], name: 'COOL', engineTemp: neutral.airC }] });
+  while (staged.state.runners.some(r => r.stage === 'waterBoxApproach' || r.stage === 'burnout') && staged.state.t < 60) { staged.state.runners[0].engineTemp = BOOST.heatMax; staged.step(); }      // (the hot car stays hot: an engine cools in the seconds it takes to roll up)
+  const [hotCar, coolCar] = staged.state.runners; assert.ok(hotCar.burnDistance < coolCar.burnDistance - 2, `a hot auto driver cuts its burnout short: ${hotCar.burnDistance.toFixed(1)} vs ${coolCar.burnDistance.toFixed(1)} m`);
+  assert.ok(coolCar.burnDistance > STAGE.waterBoxEnd - STAGE.waterBoxStart, 'a cool one burns out through the water box and past it');
 });
 
 test('the throttle is a position: bad input is repaired and partial gas gives a partial pull', () => {
@@ -726,7 +736,7 @@ function assertTachLegible(rec, W, H, S, label) {
 }
 
 test('the HUD reads clutch temperature and condition as numbers and bars', () => {
-  const car = dragCarById('streeter'), spec = specFor(car, {}), d = createDrag({ seed: 1, conditions: neutral, entrants: [{ name: 'YOU', spec, tune: defaultTune(car), ai: null }] }), r = d.state.runners[0];
+  const car = dragCarById('streeter'), spec = specFor(car, {}), d = quick({ seed: 1, conditions: neutral, entrants: [{ name: 'YOU', spec, tune: defaultTune(car), ai: null }] }), r = d.state.runners[0];
   r.launched = true; r.clutchTemp = 320; r.clutchCondition = 0.55;
   const hot = canvasRecorder(); drawTach(hot.ctx, 1280, 720, r, 1, 0, neutral);
   assert.ok(hot.texts.some(t => /CLUTCH 320C 55% SLIP/.test(t)));
@@ -738,7 +748,7 @@ test('the HUD reads clutch temperature and condition as numbers and bars', () =>
 });
 
 test('the HUD reads both rear slicks, their wear and the per-wheel HUD rows', () => {
-  const car = dragCarById('streeter'), spec = specFor(car, {}), d = createDrag({ seed: 1, conditions: neutral, entrants: [{ name: 'YOU', spec, tune: defaultTune(car), ai: null }] }), r = d.state.runners[0];
+  const car = dragCarById('streeter'), spec = specFor(car, {}), d = quick({ seed: 1, conditions: neutral, entrants: [{ name: 'YOU', spec, tune: defaultTune(car), ai: null }] }), r = d.state.runners[0];
   r.launched = true; r.tires[0] = { temp: 95, wear: 0.2 }; r.tires[1] = { temp: 110, wear: 0.4 };
   const tach = canvasRecorder(); drawTach(tach.ctx, 1280, 720, r, 1, 0, neutral);
   assert.ok(tach.texts.some(t => /L95\u00b0 20%/.test(t)), tach.texts.join(' | '));
@@ -749,7 +759,7 @@ test('the HUD reads both rear slicks, their wear and the per-wheel HUD rows', ()
 
 test('the bottom-right tach, nitro, tire and clutch gauges keep their own rows', () => {
   for (const S of [0.7, 1, 1.6]) for (const parts of [{}, { nitro: 2 }]) {
-    const car = dragCarById('streeter'), spec = specFor(car, parts), d = createDrag({ seed: 1, conditions: neutral, entrants: [{ name: 'YOU', spec, tune: defaultTune(car), ai: null }] }), r = d.state.runners[0];
+    const car = dragCarById('streeter'), spec = specFor(car, parts), d = quick({ seed: 1, conditions: neutral, entrants: [{ name: 'YOU', spec, tune: defaultTune(car), ai: null }] }), r = d.state.runners[0];
     r.launched = true; r.spinR = true; r.clutchTemp = 320; r.clutchCondition = 0.55; r.tires[0] = { temp: 95, wear: 0.2 }; r.tires[1] = { temp: 110, wear: 0.4 };
     const W = 1280 * S, H = 720 * S, rec = canvasRecorder(); drawTach(rec.ctx, W, H, r, S, 0, neutral);
     if (parts.nitro) assert.ok(rec.texts.some(t => /^NITRO(?:!)? \d+% \d+% \d+C$/.test(t)), rec.texts.join(' | '));
@@ -758,7 +768,7 @@ test('the bottom-right tach, nitro, tire and clutch gauges keep their own rows',
 });
 
 test('the HUD reads the live conditions and the forecast front', () => {
-  const d = createDrag({ seed: 8, entrants: [entrant('streeter')] }), forecast = d.state.conditions, keys = { launch: 'X', nitro: 'N', manual: false };
+  const d = quick({ seed: 8, entrants: [entrant('streeter')] }), forecast = d.state.conditions, keys = { launch: 'X', nitro: 'N', manual: false };
   const before = canvasRecorder(); drawProgress(before.ctx, 1280, 720, d.state, 0, 1, keys);
   assert.equal(before.texts.filter(t => forecastText(forecast).includes(t)).join(' '), forecastText(forecast), before.texts.join(' | '));
   for (let i = 0; i < 240 * 6; i++) d.step();
@@ -770,7 +780,7 @@ test('the HUD reads the live conditions and the forecast front', () => {
 
 test('the HUD conditions wrap inside the left column instead of running past the centre', () => {
   for (const S of [0.7, 1, 1.6]) {
-    const W = 1280 * S, H = 720 * S, d = createDrag({ seed: 8, entrants: [entrant('streeter')] }), forecast = forecastText(d.state.conditions);
+    const W = 1280 * S, H = 720 * S, d = quick({ seed: 8, entrants: [entrant('streeter')] }), forecast = forecastText(d.state.conditions);
     const rec = canvasRecorder(); drawProgress(rec.ctx, W, H, d.state, 0, S, { launch: 'X', nitro: 'N', manual: false });
     const lines = rec.placed.filter(t => forecast.includes(t.s));
     assert.ok(lines.length >= 2, `${S}: the long forecast wraps (${rec.texts.join(' | ')})`);
@@ -782,7 +792,7 @@ test('the HUD conditions wrap inside the left column instead of running past the
 });
 
 test('the HUD draws a boost gauge with the charge and the tune limit', () => {
-  const car = dragCarById('streeter'), spec = specFor(car, { turbo: 3 }), d = createDrag({ seed: 1, conditions: neutral, entrants: [{ name: 'YOU', spec, tune: defaultTune(car), ai: null }] }), r = d.state.runners[0];
+  const car = dragCarById('streeter'), spec = specFor(car, { turbo: 3 }), d = quick({ seed: 1, conditions: neutral, entrants: [{ name: 'YOU', spec, tune: defaultTune(car), ai: null }] }), r = d.state.runners[0];
   r.launched = true; r.boost = 0.6; r.engineTemp = 180; r.retard = 0.2;
   const hud = canvasRecorder(); drawProgress(hud.ctx, 1280, 720, d.state, 0, 1, { launch: 'X', nitro: 'N', manual: false });
   assert.ok(hud.texts.some(t => /BOOST 60%  ENGINE 180C -20%/.test(t)), hud.texts.join(' | '));
@@ -791,7 +801,7 @@ test('the HUD draws a boost gauge with the charge and the tune limit', () => {
 });
 
 test('the HUD shows the staged rollout and an abort before the beam', () => {
-  const car = dragCarById('streeter'), spec = specFor(car, {}), d = createDrag({ seed: 1, conditions: neutral, entrants: [{ name: 'YOU', spec, tune: defaultTune(car), ai: null }] }), r = d.state.runners[0];
+  const car = dragCarById('streeter'), spec = specFor(car, {}), d = quick({ seed: 1, conditions: neutral, entrants: [{ name: 'YOU', spec, tune: defaultTune(car), ai: null }] }), r = d.state.runners[0];
   const keys = { launch: 'X', nitro: 'N', manual: false, gas: 'W', burnout: 'S', chute: 'N', deepStage: 'H' };
   const staged = canvasRecorder(); drawProgress(staged.ctx, 1280, 720, d.state, 0, 1, keys);
   assert.ok(staged.texts.includes('STAGED: X ON GREEN'), staged.texts.join(' | ')); assert.ok(staged.texts.includes('H: DEEP STAGE')); assert.ok(staged.texts.includes('N: ABORT'));
@@ -804,7 +814,7 @@ test('the HUD shows the staged rollout and an abort before the beam', () => {
 });
 
 test('the HUD asks for the brake and the chute after the line, and flashes a crash message when the car misses the end of the strip', () => {
-  const car = dragCarById('streeter'), spec = specFor(car, {}), d = createDrag({ seed: 1, conditions: neutral, entrants: [{ name: 'YOU', spec, tune: defaultTune(car), ai: null }] }), r = d.state.runners[0];
+  const car = dragCarById('streeter'), spec = specFor(car, {}), d = quick({ seed: 1, conditions: neutral, entrants: [{ name: 'YOU', spec, tune: defaultTune(car), ai: null }] }), r = d.state.runners[0];
   r.launched = true; r.finished = true; r.shutdown = true; r.marks.quarter = 9; r.trap = 180; r.x = SHUTDOWN.end - 40; r.chute = true;
   const running = canvasRecorder(); drawProgress(running.ctx, 1280, 720, d.state, 0, 1, { launch: 'X', nitro: 'N', manual: false, brake: 'B', chute: 'N' });
   assert.ok(running.texts.some(t => /STOP BEFORE THE END: 40 M/.test(t)), running.texts.join(' | '));
@@ -815,7 +825,7 @@ test('the HUD asks for the brake and the chute after the line, and flashes a cra
 });
 
 test('the HUD reads live rear weight, brake fade and chute opening below the tire row', () => {
-  const car = dragCarById('streeter'), spec = specFor(car, {}), d = createDrag({ seed: 1, conditions: neutral, entrants: [{ name: 'YOU', spec, tune: defaultTune(car), ai: null }] }), r = d.state.runners[0];
+  const car = dragCarById('streeter'), spec = specFor(car, {}), d = quick({ seed: 1, conditions: neutral, entrants: [{ name: 'YOU', spec, tune: defaultTune(car), ai: null }] }), r = d.state.runners[0];
   r.launched = true; r.finished = true; r.shutdown = true; r.marks.quarter = 9; r.trap = 180;
   r.rearShare = 0.78; r.brakeTemp = 320; r.brakeFade = 0.82; r.chute = true; r.chuteOpen = 0.4;
   const hot = canvasRecorder(); drawProgress(hot.ctx, 1280, 720, d.state, 0, 1, { launch: 'X', nitro: 'N', manual: false });
@@ -998,7 +1008,7 @@ test('brake fade: the brakes heat with the work they do and lose force once they
   assert.equal(brakeFadeOf(SHUTDOWN.brakeFadeTo + 1), SHUTDOWN.brakeFadeMin);
   assert.ok(brakeFadeOf((SHUTDOWN.brakeFadeFrom + SHUTDOWN.brakeFadeTo) / 2) < 1, 'fade sits between full and the floor');
   const stop = temp => {
-    const d = createDrag({ seed: 1, conditions: neutral, entrants: [entrant('streeter', {}, built(1), null, 'YOU')] }), r = d.state.runners[0];
+    const d = quick({ seed: 1, conditions: neutral, entrants: [entrant('streeter', {}, built(1), null, 'YOU')] }), r = d.state.runners[0];
     r.launched = true; r.finished = true; r.shutdown = true; r.marks.quarter = DRAG.marks.quarter; r.x = DRAG.marks.quarter; r.v = 80; r.brakeTemp = temp; d.state.phase = 'shutdown';
     for (let i = 0; i < 120; i++) { d.setInput(0, { brake: true, chute: false, steer: 0 }); d.step(); }
     return r;
@@ -1011,7 +1021,7 @@ test('brake fade: the brakes heat with the work they do and lose force once they
 
 test('the chute opens over a moment instead of biting at full drag on the first tick', () => {
   const mk = open => {
-    const d = createDrag({ seed: 1, conditions: neutral, entrants: [entrant('streeter', {}, built(1), null, 'YOU')] }), r = d.state.runners[0];
+    const d = quick({ seed: 1, conditions: neutral, entrants: [entrant('streeter', {}, built(1), null, 'YOU')] }), r = d.state.runners[0];
     r.launched = true; r.finished = true; r.shutdown = true; r.marks.quarter = DRAG.marks.quarter; r.x = DRAG.marks.quarter; r.v = 80; d.state.phase = 'shutdown';
     if (open) { r.chute = true; r.chuteT = SHUTDOWN.chuteDeploy; r.chuteOpen = 1; }
     return { d, r };

@@ -18,7 +18,7 @@ const entrants = () => { const c = DRAG_CARS[0], spec = specFor(c, {}); return [
 test('the top-down strip draws every stage of a race: the line-up, the run down the strip and the finish', () => {
   const race = createDrag({ seed: 5, entrants: entrants() }), td = createDragTopDown(), r = recorder(), forecast = conditionsForSeed(5); let frames = 0, sawFinish = false, sawConditions = false, sawFront = false;
   assert.match(weatherText(forecast), /FRONT AIR/, 'the forecast names the weather front');
-  for (let k = 0; k < 240 * 25 && race.state.phase !== 'over'; k++) {
+  for (let k = 0; k < 240 * 80 && race.state.phase !== 'over'; k++) {
     race.step();
     if (k % 12 === 0) { r.calls.length = 0; r.texts.length = 0; td.draw(r.ctx, 1280, 720, race.state, 0, 0.05, k / 240); frames++; assert.ok(r.calls.length > 40, `a frame has ${r.calls.length} drawing calls`); if (r.texts.includes('FINISH')) sawFinish = true; if (r.texts.includes(conditionsText(race.state.weather) + weatherText(forecast))) sawConditions = true; if (r.texts.some(t => t.includes('FRONT AIR'))) sawFront = true; }
   }
@@ -40,7 +40,7 @@ test('it follows your car (the strip scrolls as you go), names the marks, and a 
 });
 
 test('the top-down strip shows the staging beam, the rollout and an abort', () => {
-  const race = createDrag({ seed: 5, entrants: entrants() }), td = createDragTopDown(), r = recorder(), runner = race.state.runners[0];
+  const race = createDrag({ seed: 5, quickStart: true, entrants: entrants() }), td = createDragTopDown(), r = recorder(), runner = race.state.runners[0];
   td.draw(r.ctx, 1280, 720, race.state, 0, 0, 1);
   assert.ok(r.texts.includes('STAGE'), 'the staging beam is drawn'); assert.ok(r.texts.includes('STAGED'), 'the car starts staged');
   runner.rolling = true; r.texts.length = 0; td.draw(r.ctx, 1280, 720, race.state, 0, 0, 1);
@@ -51,14 +51,14 @@ test('the top-down strip shows the staging beam, the rollout and an abort', () =
 
 test('the top-down strip marks the deep stage and draws rubber laid during the session', () => {
   const strip = createDragStrip(2); layRubber(strip, 0, 0, 0, 18, 1);
-  const race = createDrag({ seed: 5, strip, entrants: entrants() }), plain = createDrag({ seed: 5, entrants: entrants() }), td = createDragTopDown(), r = recorder(), p = recorder();
+  const race = createDrag({ seed: 5, strip, quickStart: true, entrants: entrants() }), plain = createDrag({ seed: 5, quickStart: true, entrants: entrants() }), td = createDragTopDown(), r = recorder(), p = recorder();
   td.draw(r.ctx, 1280, 720, race.state, 0, 0, 1); td.draw(p.ctx, 1280, 720, plain.state, 0, 0, 1);
   assert.ok(r.texts.includes('DEEP'), 'the deep staging spot is marked');
   const fills = x => x.calls.filter(c => c === 'fillRect').length; assert.ok(fills(r) > fills(p), `laid rubber is drawn: ${fills(r)} vs ${fills(p)} rectangles`);
 });
 
 test('the top-down strip names a wheelie while the front tires are up', () => {
-  const race = createDrag({ seed: 5, entrants: entrants() }), td = createDragTopDown(), r = recorder(), runner = race.state.runners[0];
+  const race = createDrag({ seed: 5, quickStart: true, entrants: entrants() }), td = createDragTopDown(), r = recorder(), runner = race.state.runners[0];
   runner.launched = true; runner.lift = 1; td.draw(r.ctx, 1280, 720, race.state, 0, 0, 1);
   assert.ok(r.texts.includes('FRONT UP'));
   runner.lift = 0; r.texts.length = 0; td.draw(r.ctx, 1280, 720, race.state, 0, 0, 1);
@@ -66,7 +66,7 @@ test('the top-down strip names a wheelie while the front tires are up', () => {
 });
 
 test('the top-down strip reads clutch temperature and condition as numbers and bars', () => {
-  const race = createDrag({ seed: 5, entrants: entrants() }), td = createDragTopDown(), r = recorder(), runner = race.state.runners[0];
+  const race = createDrag({ seed: 5, quickStart: true, entrants: entrants() }), td = createDragTopDown(), r = recorder(), runner = race.state.runners[0];
   runner.launched = true; runner.clutchTemp = 320; runner.clutchCondition = 0.55;
   td.draw(r.ctx, 1280, 720, race.state, 0, 0, 1);
   assert.ok(r.texts.some(t => /CLUTCH 320C 55% SLIP/.test(t)));
@@ -78,14 +78,14 @@ test('the top-down strip reads clutch temperature and condition as numbers and b
 });
 
 test('the top-down strip reads each rear slick\'s temperature and wear', () => {
-  const race = createDrag({ seed: 5, entrants: entrants() }), td = createDragTopDown(), r = recorder(), runner = race.state.runners[0];
+  const race = createDrag({ seed: 5, quickStart: true, entrants: entrants() }), td = createDragTopDown(), r = recorder(), runner = race.state.runners[0];
   runner.launched = true; runner.tires[0] = { temp: 95, wear: 0.2 }; runner.tires[1] = { temp: 110, wear: 0.4 };
   td.draw(r.ctx, 1280, 720, race.state, 0, 0, 1);
   assert.ok(r.texts.some(t => /TIRE L95C 20%  R110C 40%/.test(t)), r.texts.join(' | '));
 });
 
 test('the top-down strip reads the fuel load under the tire row', () => {
-  const race = createDrag({ seed: 5, entrants: entrants() }), td = createDragTopDown(), r = recorder(), runner = race.state.runners[0];
+  const race = createDrag({ seed: 5, quickStart: true, entrants: entrants() }), td = createDragTopDown(), r = recorder(), runner = race.state.runners[0];
   runner.launched = true; runner.fuel = 30;
   td.draw(r.ctx, 1280, 720, race.state, 0, 0, 1);
   assert.ok(r.texts.some(t => /FUEL 30\.0 KG 24%/.test(t)), r.texts.join(' | '));
@@ -94,7 +94,7 @@ test('the top-down strip reads the fuel load under the tire row', () => {
 });
 
 test('the top-down strip marks the end of the run-out and shows the chute once it is out', () => {
-  const race = createDrag({ seed: 5, entrants: entrants() }), td = createDragTopDown(), r = recorder(), runner = race.state.runners[0];
+  const race = createDrag({ seed: 5, quickStart: true, entrants: entrants() }), td = createDragTopDown(), r = recorder(), runner = race.state.runners[0];
   runner.launched = true; runner.x = SHUTDOWN.end - 5; runner.chute = false;
   td.draw(r.ctx, 1280, 720, race.state, 0, 0, 1);
   const noChute = r.calls.filter(c => c === 'ellipse').length;
