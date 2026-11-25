@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>GPU Wars</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #05010f; overflow: hidden; overscroll-behavior: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; font-family: 'DejaVu Sans Mono', Consolas, monospace; color: #bdf7ff; user-select: none; }
+    canvas { position: fixed; inset: 0; display: block; touch-action: none; }
+    #fs { display: none; position: fixed; top: 8px; right: 8px; z-index: 5; width: 38px; height: 34px; padding: 0; font-size: 18px; line-height: 1; opacity: .75; }
+    #fs:hover { opacity: 1; }
+    h1 { margin: 0 0 6px; font-size: 20px; letter-spacing: .2em; color: #ff2bd6; text-shadow: 0 0 12px #ff2bd6; }
+    h2 { margin: 16px 0 6px; font-size: 13px; letter-spacing: .25em; color: #21e6ff; }
+    p { margin: 4px 0; font-size: 12px; color: #8a9ac0; } p.help { margin-top: 14px; color: #6a7aa0; line-height: 1.5; }
+    .row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 5px 0; font-size: 12px; } .row > span { min-width: 190px; color: #8a9ac0; }
+    .row input[type=range] { flex: 1; min-width: 120px; accent-color: #ff2bd6; } .row b { min-width: 42px; text-align: right; color: #ffe14d; }
+    #screen { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(5,1,15,.62); }
+    .card { touch-action: pan-y; width: min(560px, 92vw); max-height: 92vh; overflow: auto; padding: 26px 30px; background: rgba(8,3,22,.95); border: 2px solid #ff2bd6; box-shadow: 0 0 30px rgba(255,43,214,.45); }
+    .card h1 { font-size: clamp(22px, 3vw, 34px); letter-spacing: .28em; margin: 0 0 4px; } .card .sub { font-size: 13px; letter-spacing: .1em; color: #8a9ac0; margin: 0 0 18px; min-height: 1.3em; }
+    .opt { display: flex; justify-content: space-between; align-items: baseline; padding: 11px 16px; margin: 7px 0; border: 2px solid #3a1a5a; background: rgba(10,4,26,.7); cursor: pointer; font-size: clamp(15px, 1.7vw, 21px); letter-spacing: .2em; color: #8a7aaa; transition: border-color .1s, box-shadow .1s; }
+    .opt em b { padding: 0 8px; cursor: pointer; } .opt em b:hover { color: #21e6ff; } .opt em { font-style: normal; color: #ffe14d; letter-spacing: .12em; } .opt.off { opacity: .4; cursor: default; }
+    .opt.sel { border-color: #21e6ff; color: #21e6ff; box-shadow: 0 0 16px #21e6ff, inset 0 0 14px rgba(255,255,255,.05); text-shadow: 0 0 10px #21e6ff; }
+    #hint { min-height: 2.6em; margin: 12px 2px 0; font-size: 12px; letter-spacing: .08em; color: #bdf7ff; opacity: .85; line-height: 1.4; }
+    table { width: 100%; border-collapse: collapse; margin: 6px 0 12px; font-size: 14px; letter-spacing: .08em; } th { text-align: right; color: #21e6ff; font-weight: normal; padding: 4px 8px; font-size: 12px; letter-spacing: .2em; } th:first-child, td:first-child { text-align: left; }
+    td { text-align: right; padding: 5px 8px; color: #8a9ac0; border-top: 1px solid #2a1a4a; } tr.me td { color: #ffe14d; } tr.win td:first-child::after { content: '  WINNER'; color: #34ff7a; font-size: 11px; }
+    .stats { color: #bdf7ff; font-size: 13px; letter-spacing: .08em; line-height: 1.7; margin: 4px 0 10px; }
+    button { font: inherit; font-size: 12px; letter-spacing: .08em; color: #bdf7ff; background: #120838; border: 1px solid #3a1a5a; padding: 6px 10px; cursor: pointer; }
+    button:hover { border-color: #21e6ff; } button.on { color: #05010f; background: #21e6ff; border-color: #21e6ff; } button.go { margin-left: auto; color: #05010f; background: #ffe14d; border-color: #ffe14d; font-weight: bold; }
+    .tabs { display: flex; gap: 8px; margin: 0 0 12px; } .tabs:empty { display: none; }
+    .info p { margin: 4px 0 8px; font-size: 13px; color: #bdf7ff; line-height: 1.5; } .info .taunt { color: #ff2bd6; font-style: italic; font-size: 15px; margin: 6px 0 14px; }
+    .card.wide { width: min(920px, 94vw); } .rows-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; } .opt small { color: #8a9ac0; font-size: 12px; margin-left: 10px; }
+    .slips { display: flex; gap: 16px; } .slips table { flex: 1; } .slips th { text-align: left; } .slips td:first-child { text-align: left; color: #8a9ac0; }
+    .pts { color: #ffe14d; font-size: 13px; letter-spacing: .1em; }
+  </style>
+</head>
+<body>
+  <canvas id="cv"></canvas>
+  <button id="fs" type="button" title="Fullscreen" aria-label="Fullscreen">&#x26F6;</button>
+  <div id="screen"><div class="card"><h1 id="title"></h1><p class="sub" id="sub"></p><div id="tabs"></div><div id="extra"></div><div id="rows"></div><p class="hint" id="hint"></p></div></div>
+  <script src="dist/gpuwars.js"></script>
+</body>
+</html>

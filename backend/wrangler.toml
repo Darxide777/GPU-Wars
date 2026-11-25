@@ -1,0 +1,25 @@
+# GPU Wars leaderboard Worker. This repo is PUBLIC: never put secrets or real ids here.
+name = "gpu-wars-leaderboard"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+[vars]
+# Comma separated list of exact origins allowed by CORS. itch.io serves HTML5 games from
+# https://<hash>.itch.zone (and https://html-classic.itch.zone). Add your itch.io page origin too.
+ALLOWED_ORIGINS = "https://itch.io,https://html-classic.itch.zone,https://darxide777.itch.io"
+# Also allow any https://*.itch.zone origin ("true"/"false").
+ALLOW_ITCH_ZONE_WILDCARD = "true"
+# Max score submissions per client per minute.
+RATE_LIMIT_PER_MINUTE = "6"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "gpu-wars-leaderboard"
+# Placeholder: run `wrangler d1 create gpu-wars-leaderboard` and paste the printed id here
+# (or keep it out of git with a local wrangler.local.toml / --config).
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+# Optional secrets (set with `wrangler secret put NAME`, never commit):
+#   HASH_SALT      salt used to hash client ids / IPs before they are stored
+#   BLOCKED_WORDS  comma separated extra words for the name filter

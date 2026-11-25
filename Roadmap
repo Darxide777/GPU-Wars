@@ -1,14 +1,15 @@
 changes to drag mode for GPU Wars
 
-refer to the following link for itch.io requirements. https://itch.io/docs/creators/html5
-add touch support for mobile.
-gpu benchmark needs to work for anything that can play this game.
+DONE (see the pull request "Integration: the full standalone GPU Wars"):
+refer to the following link for itch.io requirements. https://itch.io/docs/creators/html5   [npm run package, docs/ITCH.md]
+add touch support for mobile.   [on-screen controls, analog gas, pointer events; needs testing on a real phone]
+gpu benchmark needs to work for anything that can play this game.   [WebGL2, WebGL1 and 2D fallbacks, and pick your class by hand]
 no currency or upgrade options, only tuning. horsepower and torque will be determined from gpu benchmark. use the current top upgrades as the simulations stock parts.
-no rivals. players will race a ghost of the top player on the leaderboard for their class.
+no rivals. players will race a ghost of the top player on the leaderboard for their class.   [the only ghost is the class leader's]
 the ghost doesnt need to follow the games simulation. just simulate the top leaderboard time and make it look like it.
 the ghost doesnt have to be an exact copy of the current leaders exact run.
 Benchmark should not run automatically, it should be selectable from the title screen.
-Save the benchmark score, player only needs to re run the benchmark if they make changes to the gpu.
+Save the benchmark score, player only needs to re run the benchmark if they make changes to the gpu.   [an overclock cannot be detected: the benchmark screen says to re run it by hand]
 classes should be split between integrated and discreet GPU. also split the discreet GPU classes between both generations and amd, nvidia, etc.
 players race against the leader from their own class but are added to the overall leaderboard and their class leaderboard
 Do not add all the songs from drag mode. Only the 2 versions of simulation theory should play.
@@ -16,4 +17,13 @@ only use top down mode.
 make sure the code is human readable in english language.
 the city hub from chromium halo: neon should not be included. only the drag mode stuff
 keep the same menu style but change it to work for a standalone GPU Wars release.
-we need a seperate database for the leaderboard.
+we need a seperate database for the leaderboard.   [backend/: Cloudflare Workers and D1, written and tested but NOT deployed]
+the full staging sequence (water box, burnout, run out, back up, pre stage, stage, deep stage, roll out) with a reverse input.
+autopilot, with its own leaderboard category.
+rebindable controls and an options menu.
+
+STILL TO DO:
+deploy the leaderboard (wrangler, D1 migration, set the url in src/leaderboard/config.ts), then replace the bundled placeholder leader times.
+try it on real phones, real GPUs of every class and in an itch.io iframe. Calibrate the class score caps and the leaderboard time bounds with real benchmark scores and real times.
+a fixed "ghost vs the same car" check: the leader ghost is a time, so a player with the same car should be able to beat it with a clean pass.
+priority 2 physics from drag-mode.txt (not started).

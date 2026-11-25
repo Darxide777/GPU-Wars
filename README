@@ -1,27 +1,58 @@
 WHAT THIS IS:
 
-A 3D drag racing simulator and GPU benchmark.
+A top-down drag racing simulator and GPU benchmark.
 
 Players benchmark their GPU and are provided with a score. That score is then used as your base horsepower for the drag car.
 The car must then be tuned and adjusted for maximum performance.
 Players are competing against ghost versions of the top leaderboard spots.
 The car may be driven manually or use the ingame autopilot.
 
+Run it: npm install, npm run build, then open index.html in a browser (or npm run package for the itch.io zip).
+The game works with no leaderboard server: it then races a bundled class leader time and keeps your score to send later.
+
 CONTROLS:
-(rebindable in the options menu)
+(rebindable in the options menu: keyboard and gamepad. On a phone the on-screen buttons appear on their own.)
 
-gas
-brake
-turn left
-turn right
-chute
-shift up
-shift down
-burnout - hold gas and brake
+gas (W or Up arrow) - the pedal. Hold it to roll through the staging, and to rev the engine on the line.
+brake (S or Down arrow)
+turn left (A or Left arrow)
+turn right (D or Right arrow)
+chute (N) - after the finish line it stops the car. Before the launch it ABORTS the start, so do not press it early.
+shift up (E) - for MANUAL shifting. AUTO shifts at the shift point in your tune.
+shift down (Q) - MANUAL shifting only. Refused if the lower gear would over rev the engine.
+burnout (J) - or hold gas and brake together. Only works in the water box on the way in.
+nitro (Shift) - fire the bottle by hand. A tune can also fire it by itself from a chosen gear.
+back up (R) - hold it to reverse slowly after the burnout, back to the pre-stage beam.
+launch / roll out (Space or U) - once you are staged, press it when the tree is lit to roll in and launch.
+deep stage (H) - hold it from stage to creep closer to the line. Closer means a quicker reaction but a red light is easier to get.
 
-
+There is no clutch button. A top fuel car has no manual clutch: the clutch engages by itself and wears out.
+REPLACE CLUTCH in the tune screen puts in a new one (free).
 
 TUNING:
 
+TUNE on the title screen. There is no money and there are no parts to buy: every car has the best parts and you only set it up.
+Horsepower and torque come from your benchmark score, so a faster GPU makes a stronger car. Everything else is yours to tune:
+shifting (AUTO or MANUAL, the shift rpm), launch rpm and how hard the clutch bites, boost, every gear and the final drive,
+tire pressure, ballast over the rear, fuel load, suspension stiffness, the wheelie bar and nitro (how big a shot, and in which gear).
+Every row has a short description on screen. The STATS tab shows the car's numbers, the dyno graph, the air (density altitude and hot tire pressure)
+and a predicted timeslip from a perfect driver. There are six tune slots to save setups for different weather, and TEST RUN for a free-play race that records nothing.
+Tires and the engine care about heat: a hot engine pulls timing, a hot clutch fades, the tire pressure climbs as the tires warm up, and thin hot air costs power.
+COOL ENGINE and CLEAR STRIP put the engine temperature and the rubber on the strip back to a fresh start.
 
 THE FLOW OF THE RACE:
+
+1. BENCHMARK from the title screen (never automatic). It scores your GPU, then your class is set from it (integrated or discrete,
+   split by generation and by maker: AMD, NVIDIA, Intel and others). Run it again only if you change your GPU or overclock it: the game cannot see an overclock.
+   If the game cannot tell what your card is, CLASS lets you pick your class by hand. Skip the benchmark and you race with the weakest car.
+2. RACE CLASS LEADER. You race a ghost of the fastest player in your class. Everyone races the same ranked class day (same weather, a fresh strip).
+   The ghost follows the leader's time, not the physics, so it is the time to beat.
+3. The staging, like the real thing: drive to the water box, do a BURNOUT to heat the tires, run out past the tree, STOP, BACK UP to the pre-stage beam,
+   then creep into the beams: pre-stage, stage (and deep stage if you want it). The tree only lights after the final stage.
+   Press launch to roll in and breaking the beam is the launch. Leave on the green: the amber lights count down, and leaving before the green is a red light.
+4. Drive the pass: steer to stay in your lane, shift, fire the nitro, lift if the tires spin. Your reaction time starts at the green and the 1/4 mile time starts at the launch.
+5. After the line pull the CHUTE and brake. If you do not stop before the end of the strip you crash.
+6. The timeslip shows 60 ft, 330 ft, 1/8 mile, 1000 ft, 1/4 mile, trap speed, the air, the tires, clutch, engine and fuel, and how far you are ahead or behind the leader at each mark.
+   A clean pass in a class is sent to the leaderboard: you are on the overall board and on your class board.
+7. DRIVER can be switched to AUTOPILOT: the car does the whole staging and the pass for you with the same controls. Autopilot runs are their own leaderboard category.
+8. RECORDS keeps your own best times on this computer, and the boards.

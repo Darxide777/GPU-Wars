@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "target": "es2022", "module": "es2022", "moduleResolution": "bundler", "lib": ["es2022", "dom"],
+    "strict": true, "resolveJsonModule": true, "noUnusedLocals": true, "noImplicitOverride": true, "noFallthroughCasesInSwitch": true, "noUncheckedIndexedAccess": false,
+    "allowImportingTsExtensions": true, "noEmit": true, "skipLibCheck": true, "isolatedModules": true, "verbatimModuleSyntax": true,
+    "allowJs": false
+  },
+  "include": ["src/**/*.ts", "types/**/*.d.ts"]
+}

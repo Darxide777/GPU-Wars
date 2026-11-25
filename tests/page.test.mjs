@@ -1,0 +1,78 @@
+// The shape of the standalone game: one itch.io-friendly index.html, a title menu with the GPU Wars rows, and nothing left over from Chromium Halo: Neon's hub, shop, 3D view or other games.
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { createBrowserStore, memoryStore } from '../src/browser-store.ts';
+import { DEFAULT_BINDS, BIND_ROWS, assignKey, sanitizeOptions } from '../src/options/model.ts';
+import { tuneHint, TUNE_HINTS } from '../src/drag/tune-help.ts';
+const read = p => readFileSync(new URL('../' + p, import.meta.url), 'utf8');
+const walk = dir => readdirSync(new URL('../' + dir, import.meta.url)).flatMap(f => { const p = dir + '/' + f; return statSync(new URL('../' + p, import.meta.url)).isDirectory() ? walk(p) : [p]; });
+
+test('index.html is the one itch.io page: relative paths, no external requests, one bundle', () => {
+  const html = read('index.html');
+  assert.ok(!/https?:\/\//.test(html), 'no external requests at load');
+  assert.ok(!/(src|href)="\//.test(html), 'no absolute paths');
+  assert.deepEqual([...html.matchAll(/<script[^>]*\ssrc="([^"]+)"/g)].map(m => m[1]), ['dist/gpuwars.js'], 'one script, by a relative path');
+  assert.match(html, /<title>GPU Wars<\/title>/); assert.match(html, /touch-action: none/, 'the canvas is ready for touch');
+  assert.ok(/<p class="hint" id="hint"><\/p>/.test(html), 'the card has a hint line');
+  assert.ok(existsSync(new URL('../dist/gpuwars.js', import.meta.url)), 'npm test builds first');
+});
+
+test('the title menu is BENCHMARK, CLASS, TUNE, RACE CLASS LEADER, DRIVER, RECORDS, OPTIONS, and every row is a real row', () => {
+  const page = read('src/drag/page.ts'), start = page.indexOf("title('GPU WARS')"), block = page.slice(start, page.indexOf('], sel.title', start));
+  const order = ['benchmarkItem(', 'classItem(', "id: 'tune'", 'raceItem()', "id: 'records'", "'options'"].map(k => block.indexOf(k));
+  assert.ok(order.every(i => i >= 0) && order.every((i, n) => n === 0 || i > order[n - 1]), 'the six rows are there, in order');
+  assert.ok(page.includes("label: 'RACE CLASS LEADER'") && block.includes("label: 'RECORDS'") && block.includes("'OPTIONS'"));
+  assert.ok(block.includes('benchmarkItem(') && block.includes('classItem('), 'the BENCHMARK and CLASS rows are real rows now');
+  assert.ok(block.includes("id: 'options'") && block.includes('driverItem()'), 'OPTIONS and DRIVER are built');
+});
+
+test('the tune screen keeps its TUNING and STATS tabs and every number row has a description', () => {
+  const page = read('src/drag/page.ts');
+  assert.ok(page.includes("data-tab=\"tuning\"") && page.includes("data-tab=\"stats\""));
+  const start = page.indexOf('function tuneItems()'), tune = page.slice(start, page.indexOf('\n}', start));
+  for (const [, id] of tune.matchAll(/\bnum\('([^']+)'/g)) assert.ok(tuneHint(id).length > 30, `${id} has a description`);
+  for (const id of Object.keys(TUNE_HINTS)) assert.ok(tuneHint(id).length > 20, id);
+  assert.doesNotMatch(Object.values(TUNE_HINTS).join(' '), /CLUTCH action|points|shop/i, 'no hint talks about a clutch key, points or a shop');
+});
+
+test('the game plays only music, and has no 3D, hub, shop, rivals, points or profile left in it', () => {
+  const banned = /from 'three'|view3d|hub-return|CITY_URL|buyPart|loadProfile|sim\/profile|rivals\//;
+  for (const f of walk('src').filter(f => f.endsWith('.ts'))) assert.doesNotMatch(read(f), banned, `${f} has nothing from the removed parts`);
+  for (const f of ['physics', 'tune', 'model', 'types', 'data']) assert.doesNotMatch(read(`src/drag/${f}.ts`), /Math\.random/, `src/drag/${f}.ts: no Math.random in the simulation`);
+  assert.doesNotMatch(read('src/sound.ts'), /assets\/audio|play\(name/, 'no sound effect files');
+  assert.ok(!existsSync(new URL('../src/drag/view3d.ts', import.meta.url)) && !existsSync(new URL('../assets/audio', import.meta.url)));
+});
+
+test('the song list is just the two versions of Simulation Theory by Chromium Halo', () => {
+  const library = JSON.parse(read('assets/music/library.json')), files = readdirSync(new URL('../assets/music/', import.meta.url)).filter(f => /\.(ogg|mp3|opus|wav|flac|m4a)$/.test(f));
+  assert.deepEqual(library.tracks.map(t => t.id).sort(), ['simulation-theory', 'simulation-theory-vipers-remix']); assert.equal(files.length, 2);
+  for (const t of library.tracks) { assert.equal(t.artist, 'Chromium Halo'); assert.match(t.title, /^Simulation Theory/); assert.ok(files.includes(t.file)); }
+});
+
+test('the save store never throws: with no localStorage it keeps things in memory for the visit', () => {
+  const s = createBrowserStore(); assert.equal(s.get('x'), null); s.set('x', '1'); assert.equal(s.get('x'), '1'); s.remove('x'); assert.equal(s.get('x'), null);
+  const m = memoryStore(); m.set('a', 'b'); assert.equal(m.get('a'), 'b');
+  const broken = { getItem() { throw new Error('blocked'); }, setItem() { throw new Error('blocked'); }, removeItem() { throw new Error('blocked'); } };
+  globalThis.localStorage = broken; try { const t = createBrowserStore(); t.set('k', 'v'); assert.equal(t.get('k'), 'v', 'the memory copy answers when storage is blocked'); t.remove('k'); assert.equal(t.get('k'), null); } finally { delete globalThis.localStorage; }
+});
+
+test('the controls: every action in the spec is rebindable, no two actions share a default key, and a key does one thing', () => {
+  for (const id of ['gas', 'brake', 'steerLeft', 'steerRight', 'chute', 'shiftUp', 'shiftDown', 'burnout', 'nitro']) assert.ok(id in DEFAULT_BINDS, id);
+  assert.ok(!('clutch' in DEFAULT_BINDS) && !Object.keys(DEFAULT_BINDS).some(k => /clutch/i.test(k)), 'there is no clutch button');
+  const seen = new Map(); for (const [id, keys] of Object.entries(DEFAULT_BINDS)) for (const k of keys.filter(Boolean)) { assert.ok(!seen.has(k.toLowerCase()), `${k} is used by ${seen.get(k.toLowerCase())} and ${id}`); seen.set(k.toLowerCase(), id); }
+  assert.deepEqual(BIND_ROWS.map(r => r[0]).sort(), Object.keys(DEFAULT_BINDS).sort(), 'every action has a row on the options screen');
+  const moved = assignKey(DEFAULT_BINDS, 'burnout', 'x'); assert.ok(moved.ok); assert.equal(moved.binds.burnout[0], 'x'); assert.equal(DEFAULT_BINDS.burnout[0], 'j', 'the defaults are left alone');
+  assert.equal(assignKey(DEFAULT_BINDS, 'nitro', 'Escape').ok, false);
+  assert.deepEqual(sanitizeOptions('junk').binds, DEFAULT_BINDS);
+});
+
+test('the screens show density altitude and the hot tire pressure, window.__drag has the stage, and no race against your own pass is left', () => {
+  const page = read('src/drag/page.ts'), bench = read('src/benchmark/screen.ts');
+  assert.match(page, /\['DENSITY ALT'/, 'the STATS tab shows density altitude'); assert.match(page, /\['TIRES HOT'/, 'the STATS tab shows the hot pressure');
+  assert.match(page, /DENSITY ALT \$\{R\.da\} FT/, 'the timeslip shows density altitude'); assert.match(page, /line\('HOT PSI'/, 'the timeslip shows Timeslip.hotPsi');
+  assert.match(page, /stage: \(s\.runners\[0\] as Runner\)\.stage/, 'window.__drag reports the staging phase');
+  assert.match(bench, /CANNOT SEE AN OVERCLOCK[\s\S]*RUN THE BENCHMARK AGAIN/, 'the benchmark screen says to re-run it by hand after an overclock or a GPU change');
+  assert.ok(!/NEW BEST PASS|improved/.test(page), 'no race against your own best pass');
+  assert.doesNotMatch(page, /save\.ghost|BEST PASS/);
+});

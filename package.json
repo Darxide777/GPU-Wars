@@ -1,0 +1,18 @@
+{
+  "name": "gpu-wars",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "GPU Wars: a top-down drag racing simulator and GPU benchmark",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node build.mjs && node --test \"tests/*.test.mjs\"",
+    "package": "node tools/package.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2"
+  }
+}
