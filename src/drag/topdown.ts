@@ -3,14 +3,14 @@
 // across their lanes where they are. A spinning rear tire smokes and leaves a mark on the strip, the nitro burns out of the stacks, a car over the centre line is flagged. The camera is behind the middle of your car
 // and pulls back as you go faster. It only reads the race and draws; the HUD (the tachometer, the progress) is drawn over it by hud.ts, as in the 3D view.
 import { C } from '../sim/constants.ts';
-import { DRAG, RUBBER, SHUTDOWN, boostLimitOf, chuteOpening, conditionsText, fuelShare, rubberAt, weatherText, windAt } from './physics.ts';
+import { DRAG, RUBBER, SHUTDOWN, STAGE, boostLimitOf, chuteOpening, conditionsText, fuelShare, rubberAt, stageLabel, weatherText, windAt } from './physics.ts';
 import { BOOST, CLUTCH } from './tune.ts';
 import type { DragHudState } from './hud.ts';
 import type { Mark, Runner } from './types.ts';
 
 /** each lane's middle is this far either side of the centre line (the 3D strip's number) */
 export const LANE_M = 2.4;
-const MARK_NAMES: Record<Mark, string> = { ft60: '60 FT', ft330: '330 FT', eighth: '1/8 MILE', ft1000: '1000 FT', quarter: 'FINISH' };
+const MARK_NAMES: Record<Mark, string> = { ft60: '60 FT', ft330: '330 FT', eighth: '1/8 MILE', ft1000: '1000 FT', trapStart: '66 FT TRAP', quarter: 'FINISH' };
 const LIFT = { frontFade: 0.75, labelLine: 5.8 } as const;
 const CLUTCH_LABEL = { line: 4.2, barY: 4.8, barH: 0.28, halfW: 1.1 } as const;
 const BOOST_LABEL = { line: 5.8, barY: 6.4, barH: 0.28, halfW: 1.1 } as const;
@@ -19,11 +19,13 @@ const FUEL_LABEL = { line: 8.1, low: 0.25 } as const;
 const SMOKE_TOP = { windDrift: 0.8 } as const;
 const CHUTE_TOP = { minWidth: 0.5, maxWidth: 1.8, minHeight: 0.3, maxHeight: 0.8, back: 3.6, lift: 1.0, minAlpha: 0.25, alphaSpan: 0.6 } as const;
 const TIRE_SPIN = { stripes: 3, gap: 0.75, skew: 0.18, hz: 14, line: 0.09 } as const;
+/** a repeatable number from 0 to 1 for the nth puff of smoke (a hash, so the same race draws the same smoke: the drawing never asks for a random number) */
+export const puffNoise = (n: number, salt: number): number => { let h = (Math.imul(n + 1, 0x9e3779b1) ^ Math.imul(salt + 1, 0x85ebca6b)) >>> 0; h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d) >>> 0; h = Math.imul(h ^ (h >>> 12), 0x297a2d39) >>> 0; return ((h ^ (h >>> 15)) >>> 0) / 4294967296; };
 interface Puff { x: number; y: number; vx: number; vy: number; t: number; max: number }
 interface Skid { x0: number; y0: number; x1: number; y1: number }
 
 export function createDragTopDown() {
-  let puffs: Puff[] = [], skids: Skid[] = [], last: DragHudState | null = null; const prev = new Map<string, { x: number; lat: number }>();
+  let puffs: Puff[] = [], skids: Skid[] = [], puffCount = 0, last: DragHudState | null = null; const prev = new Map<string, { x: number; lat: number }>();
   const laneX = (i: number): number => (i === 0 ? -LANE_M : LANE_M);
   /** the car's four wheel positions, in metres along the strip (x) and across it (lat): the rear slicks and the front wheels, turned by the car's heading */
   function wheelsOf(r: Runner, i: number): { rl: { x: number; lat: number }; rr: { x: number; lat: number } } {
@@ -31,7 +33,7 @@ export function createDragTopDown() {
     return { rl: put(-1.6, -1.0), rr: put(-1.6, 1.0) };      // (fx forward, rt to the right)
   }
   function draw(ctx: CanvasRenderingContext2D, W: number, H: number, s: DragHudState, mine: number, dt: number, time: number): void {
-    if (last && last.runners !== s.runners) { puffs = []; skids = []; prev.clear(); } last = s;
+    if (last && last.runners !== s.runners) { puffs = []; skids = []; prev.clear(); puffCount = 0; } last = s;
     const me = (s.runners[mine] ?? s.runners[0]) as Runner | undefined, camX = me ? me.x : 0, v = me ? me.v : 0, scale = H / (28 + v * 0.55), cx = W / 2, yBase = H * 0.68;
     const sx = (lat: number): number => cx + lat * scale, sy = (x: number): number => yBase - (x - camX) * scale, xTop = camX + yBase / scale + 4, xBot = camX - (H - yBase) / scale - 4, half = LANE_M * 2;
     ctx.fillStyle = '#05010f'; ctx.fillRect(0, 0, W, H);
@@ -53,6 +55,9 @@ export function createDragTopDown() {
     // the start line (white), the marks and the chequered finish, with their names on the right
     ctx.fillStyle = '#ffffff'; ctx.fillRect(sx(-half), sy(0) - 0.3 * scale, half * 2 * scale, 0.6 * scale);
     ctx.font = `bold ${Math.max(10, 1.1 * scale)}px monospace`; ctx.textAlign = 'left';
+    // the staging area behind the line: the water box (wet, low grip), the pre-stage beam, and the run-out past the tree
+    const boxTop = sy(STAGE.waterBoxEnd), boxBottom = sy(STAGE.waterBoxStart); if (boxBottom > -20 && boxTop < H + 20) { ctx.fillStyle = 'rgba(33,140,255,0.22)'; ctx.fillRect(sx(-half), boxTop, half * 2 * scale, boxBottom - boxTop); ctx.fillStyle = C.cyan; ctx.fillText('WATER BOX', sx(half) + 1.2 * scale, boxTop + 14); }
+    const preY = sy(-STAGE.preStageRollout); if (preY > -20 && preY < H + 20) { ctx.fillStyle = 'rgba(255,225,77,0.7)'; ctx.fillRect(sx(-half), preY - 0.15 * scale, half * 2 * scale, 0.3 * scale); ctx.fillStyle = C.yel; ctx.fillText('PRE-STAGE', sx(half) + 1.2 * scale, preY + 4); }
     const stageY = sy(-DRAG.stageRollout); if (stageY > -20 && stageY < H + 20) { ctx.fillStyle = 'rgba(33,230,255,0.7)'; ctx.fillRect(sx(-half), stageY - 0.25 * scale, half * 2 * scale, 0.5 * scale); ctx.fillStyle = C.cyan; ctx.fillText('STAGE', sx(half) + 1.2 * scale, stageY + 4); }
     const deepY = sy(-DRAG.deepStageRollout); if (deepY > -20 && deepY < H + 20) { ctx.fillStyle = 'rgba(255,138,31,0.8)'; ctx.fillRect(sx(-half), deepY - 0.15 * scale, half * 2 * scale, 0.3 * scale); ctx.fillStyle = C.org; ctx.fillText('DEEP', sx(half) + 1.2 * scale, deepY + 4); }
     for (const [k, x] of Object.entries(DRAG.marks) as [Mark, number][]) {
@@ -70,7 +75,7 @@ export function createDragTopDown() {
       const w = wheelsOf(r, i), sides: [string, { x: number; lat: number }, boolean][] = [['l', w.rl, r.spin || r.spinL || r.burnout], ['r', w.rr, r.spin || r.spinR || r.burnout]];
       for (const [side, p, spinning] of sides) {
         const key = `${i}${side}`, was = prev.get(key);
-        if (spinning && (r.launched || r.burnout) && was) { if (r.launched) { skids.push({ x0: was.x, y0: was.lat, x1: p.x, y1: p.lat }); if (skids.length > 1600) skids.splice(0, 200); } if (dt > 0) puffs.push({ x: p.x, y: p.lat, vx: -r.v * 0.2 - 2, vy: (Math.random() - 0.5) * 3, t: 0, max: 0.8 + Math.random() * 0.5 }); }
+        if (spinning && (r.launched || r.burnout) && was) { if (r.launched) { skids.push({ x0: was.x, y0: was.lat, x1: p.x, y1: p.lat }); if (skids.length > 1600) skids.splice(0, 200); } if (dt > 0) puffs.push({ x: p.x, y: p.lat, vx: -r.v * 0.2 - 2, vy: (puffNoise(puffCount, 1) - 0.5) * 3, t: 0, max: 0.8 + puffNoise(puffCount++, 2) * 0.5 }); }
         prev.set(key, p);
       }
     });
@@ -107,6 +112,7 @@ export function createDragTopDown() {
     ctx.strokeStyle = col; ctx.fillStyle = '#10062e'; ctx.beginPath(); ctx.moveTo(0, -2.7 * m); ctx.lineTo(0.28 * m, -1.8 * m); ctx.lineTo(0.42 * m, 0.4 * m); ctx.lineTo(0.55 * m, 2.1 * m); ctx.lineTo(-0.55 * m, 2.1 * m); ctx.lineTo(-0.42 * m, 0.4 * m); ctx.lineTo(-0.28 * m, -1.8 * m); ctx.closePath(); ctx.fill(); ctx.stroke();      // the body
     ctx.strokeStyle = trim; ctx.fillStyle = '#10062e'; ctx.strokeRect(-1.1 * m, 2.1 * m, 2.2 * m, 0.34 * m); ctx.fillRect(-1.1 * m, 2.1 * m, 2.2 * m, 0.34 * m);      // the rear wing
     ctx.shadowBlur = 0; ctx.fillStyle = col; ctx.beginPath(); ctx.ellipse(0, 0.35 * m, 0.22 * m, 0.4 * m, 0, 0, 6.283); ctx.fill(); ctx.fillStyle = trim; ctx.fillRect(-0.3 * m, 1.1 * m, 0.6 * m, 0.7 * m);      // (the driver, and the engine)
+    if (r.reversing) { ctx.fillStyle = '#ffffff'; ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 10; for (const off of [-0.45, 0.45]) ctx.fillRect((off - 0.12) * m, 2.5 * m, 0.24 * m, 0.2 * m); ctx.shadowBlur = 0; }      // the reverse lights
     ctx.restore();
     ctx.font = `bold ${Math.max(10, 0.95 * m)}px monospace`; ctx.textAlign = 'center'; ctx.fillStyle = mineCar ? C.cyan : C.mag; ctx.fillText(i === 0 && mineCar ? 'YOU' : r.name, x, y - 3.4 * m);
     const cc = CLUTCH_LABEL, temp = Number.isFinite(r.clutchTemp) ? r.clutchTemp : CLUTCH.ambient, condition = Number.isFinite(r.clutchCondition) ? Math.max(CLUTCH.minCondition, Math.min(1, r.clutchCondition)) : 1, heat = Math.max(0, Math.min(1, (temp - CLUTCH.ambient) / Math.max(1, CLUTCH.maxTemp - CLUTCH.ambient))), heatCol = temp >= CLUTCH.wearHotTemp ? C.red : temp >= CLUTCH.fadeFrom ? C.org : C.cyan;
@@ -120,7 +126,7 @@ export function createDragTopDown() {
     if (r.lift > 0) { ctx.fillStyle = C.yel; ctx.fillText('FRONT UP', x, y - LIFT.labelLine * m); }
     if (r.aborted) { ctx.fillStyle = C.red; ctx.fillText('ABORT', x, y - 4.6 * m); }
     else if (r.rolling) { ctx.fillStyle = '#34ff7a'; ctx.fillText('ROLLING', x, y - 4.6 * m); }
-    else if (!r.launched) { ctx.fillStyle = C.yel; ctx.fillText('STAGED', x, y - 4.6 * m); }
+    else if (!r.launched) { ctx.fillStyle = r.overstaged ? C.red : r.stage === 'staged' || r.stage === 'deepStaged' ? C.yel : C.cyan; ctx.fillText(stageLabel(r) || 'STAGED', x, y - 4.6 * m); }
     else if (r.crossed || r.foul) { ctx.fillStyle = C.red; ctx.fillText(r.crossed ? 'OVER THE LINE' : 'RED LIGHT', x, y - 4.6 * m); }
     else if (r.wall) { ctx.fillStyle = C.org; ctx.fillText('WALL', x, y - 4.6 * m); }
   }

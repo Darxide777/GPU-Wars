@@ -11,12 +11,12 @@ export const DEFAULT_BINDS: Binds = {
   gas: ['w', 'ArrowUp'], brake: ['s', 'ArrowDown'], steerLeft: ['a', 'ArrowLeft'], steerRight: ['d', 'ArrowRight'],
   chute: ['n', ''], shiftUp: ['e', ''], shiftDown: ['q', ''], burnout: ['j', ''], nitro: ['Shift', ''],
   launch: ['u', ' '], deepStage: ['h', ''],
-  // coming with the full staging sequence: backUp (reverse out of the beam)
+  /** reverse slowly after the burnout run-out, back to the pre-stage beam */ backUp: ['r', ''],
 };
 /** the actions the OPTIONS screen will let you rebind, in order, with their names */
 export const BIND_ROWS: [string, string][] = [
   ['gas', 'GAS'], ['brake', 'BRAKE'], ['steerLeft', 'TURN LEFT'], ['steerRight', 'TURN RIGHT'], ['chute', 'CHUTE (AFTER THE LINE) / ABORT (BEFORE)'], ['shiftUp', 'SHIFT UP (MANUAL)'], ['shiftDown', 'SHIFT DOWN (MANUAL)'],
-  ['burnout', 'BURNOUT (OR HOLD GAS + BRAKE)'], ['nitro', 'NITRO'], ['launch', 'LAUNCH / ROLL OUT'], ['deepStage', 'DEEP STAGE (HOLD)'],
+  ['burnout', 'BURNOUT (OR HOLD GAS + BRAKE)'], ['nitro', 'NITRO'], ['launch', 'LAUNCH / ROLL OUT'], ['deepStage', 'DEEP STAGE (HOLD)'], ['backUp', 'BACK UP (HOLD)'],
 ];
 /** keys the menus need, so they cannot be given to an action */
 export const RESERVED_KEYS: string[] = ['Escape', 'Enter', 'Tab'];

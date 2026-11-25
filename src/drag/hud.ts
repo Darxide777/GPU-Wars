@@ -1,11 +1,11 @@
 // What is drawn over the drag strip: a tachometer with a shift light and the limiter, the gear and speed, the nitro left,
 // both cars' progress down the quarter mile, your reaction time and, at the end, your elapsed time and trap speed. It only reads the race; drawing is all it does.
 import { C } from '../sim/constants.ts';
-import { DRAG, LANE, SHUTDOWN, SUSP, boostLimitOf, conditionsText, fuelShare, weatherText } from './physics.ts';
+import { DRAG, LANE, SHUTDOWN, STAGE, SUSP, boostLimitOf, conditionsText, fuelShare, stageLabel, weatherText } from './physics.ts';
 import { BOOST, CLUTCH } from './tune.ts';
 import type { DragConditions, DragStrip, Runner } from './types.ts';
 
-export interface DragHudState { t: number; greenAt: number; ambers: number; green: boolean; phase: string; conditions: DragConditions; weather?: DragConditions; strip?: DragStrip; runners: Runner[] }
+export interface DragHudState { t: number; greenAt: number; /** the tree is armed once every live car is in final stage (missing on old states: counts as armed) */ armed?: boolean; ambers: number; green: boolean; phase: string; conditions: DragConditions; weather?: DragConditions; strip?: DragStrip; runners: Runner[] }
 const glow = (ctx: CanvasRenderingContext2D, col: string | null, b: number): void => { ctx.shadowColor = col ?? 'transparent'; ctx.shadowBlur = col ? b : 0; };
 const text = (ctx: CanvasRenderingContext2D, s: string, x: number, y: number, size: number, col: string, align: CanvasTextAlign = 'left', a = 1): void => { ctx.globalAlpha = a; ctx.font = `bold ${Math.round(size)}px monospace`; ctx.textAlign = align; glow(ctx, col, 8); ctx.fillStyle = col; ctx.fillText(s, x, y); glow(ctx, null, 0); ctx.globalAlpha = 1; };
 const ordinalGear = (g: number): string => String(g);
@@ -59,8 +59,42 @@ export function drawTach(ctx: CanvasRenderingContext2D, W: number, H: number, me
   ctx.restore();
 }
 
+/** the names of the keys the HUD tells the player to press */
+export interface DragKeyLabels { launch: string; nitro: string; manual: boolean; auto?: boolean; burnout?: string; gas?: string; brake?: string; chute?: string; deepStage?: string; clutch?: string; backUp?: string }
+/** the Christmas tree from above, top middle: each lane's pre-stage and stage bulbs, the three ambers (dark until the tree is armed by final stage), the green, and the red for a red light */
+export function drawTree(ctx: CanvasRenderingContext2D, W: number, s: DragHudState, S: number): void {
+  const radius = 6 * S, gap = 15 * S, x0 = W / 2, y0 = 74 * S, lanes = s.runners.length, colX = (i: number): number => x0 + (i - (lanes - 1) / 2) * 26 * S;
+  ctx.save(); ctx.fillStyle = 'rgba(5,1,15,0.72)'; ctx.fillRect(x0 - (lanes * 13 + 6) * S, y0 - 14 * S, (lanes * 26 + 12) * S, gap * 7 + 12 * S);
+  const bulb = (x: number, row: number, on: boolean, col: string): void => { const y = y0 + row * gap; ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI * 2); ctx.fillStyle = on ? col : 'rgba(255,255,255,0.1)'; glow(ctx, on ? col : null, 10); ctx.fill(); glow(ctx, null, 0); };
+  s.runners.forEach((r, i) => {
+    const x = colX(i); bulb(x, 0, r.preBulb && !r.launched, '#ffe14d'); bulb(x, 1, r.stageBulb && !r.launched, '#ffe14d');
+    for (let a = 0; a < 3; a++) bulb(x, 2 + a, s.ambers > a && !s.green, '#ff8a1f');
+    bulb(x, 5, s.green && !r.foul, '#34ff7a'); bulb(x, 6, r.foul, C.red);
+  });
+  ctx.restore();
+}
+/** what the staging HUD says now: the stage's name, a colour, and the lines under it (rollback speed and distance, what to press) */
+export function stagingPrompt(me: Runner, s: DragHudState, keys: DragKeyLabels): { title: string; col: string; lines: [string, string, number][] } {
+  const label = stageLabel(me), lines: [string, string, number][] = [], toPre = me.x + STAGE.preStageRollout, toStage = me.x + DRAG.stageRollout;
+  const k = (v: string | undefined, fallback: string): string => v ?? fallback;
+  if (me.rolling) return { title: 'ROLLING TO THE BEAM', col: '#34ff7a', lines };
+  if (label === 'STAGED' || label === 'DEEP STAGED') {
+    const deepRow = !!keys.deepStage && !me.deepStage;
+    if (deepRow) lines.push([`${keys.deepStage}: DEEP STAGE`, C.yel, 0.7]);
+    if (keys.chute) lines.push([`${keys.chute}: ABORT`, C.red, 0.8]);
+    return { title: s.green ? `${keys.launch}: ROLL OUT NOW` : `${label}: ${keys.launch} ON GREEN`, col: s.green ? '#34ff7a' : C.yel, lines };
+  }
+  if (label === 'WATER BOX') { lines.push([`${k(keys.gas, 'GAS')}: ROLL IN   ${k(keys.burnout, 'BURNOUT')} + ${k(keys.gas, 'GAS')}: BURNOUT`, C.cyan, 0.8]); return { title: me.wet > 0.05 ? 'WATER BOX: WET SLICKS' : 'WATER BOX', col: C.cyan, lines }; }
+  if (label === 'BURNOUT') { lines.push([`${me.burnDistance.toFixed(0)} M   TIRES ${Math.round(me.tireTemp)}C${me.wet > 0.05 ? '   WET' : ''}`, C.org, 0.9], [`RELEASE ${k(keys.burnout, 'BURNOUT')} TO RUN OUT`, C.cyan, 0.7]); return { title: 'BURNOUT', col: C.org, lines }; }
+  if (label === 'RUN OUT') { lines.push([`${k(keys.brake, 'BRAKE')}: STOP   THEN ${k(keys.backUp, 'BACK UP')}: BACK UP`, C.cyan, 0.8]); return { title: 'RUN OUT', col: C.yel, lines }; }
+  if (label === 'BACK UP') { lines.push([`ROLLBACK ${Math.abs(me.v).toFixed(1)} M/S   ${toPre.toFixed(2)} M TO PRE-STAGE`, toPre > 0 ? C.yel : C.org, 0.9], [`${k(keys.backUp, 'BACK UP')}: REVERSE   ${k(keys.brake, 'BRAKE')}: STOP   ${k(keys.gas, 'GAS')}: CREEP FORWARD`, C.cyan, 0.7]); return { title: 'BACK UP', col: C.yel, lines }; }
+  if (label === 'OVER-STAGED') { lines.push([`THE STAGE BULB IS OUT: ${k(keys.backUp, 'BACK UP')} PAST THE STAGE BEAM`, C.red, 0.9]); return { title: 'OVER-STAGED', col: C.red, lines }; }
+  if (label === 'PRE-STAGE') { lines.push([`${toStage.toFixed(2)} M TO STAGE   TAP ${k(keys.gas, 'GAS')} TO CREEP, ${k(keys.brake, 'BRAKE')} TO STOP`, C.cyan, 0.8]); if (keys.deepStage) lines.push([`${keys.deepStage}: DEEP STAGE`, C.yel, 0.7]); return { title: 'PRE-STAGE', col: C.yel, lines }; }
+  return { title: '', col: C.white, lines };
+}
+
 /** both cars' progress down the strip, the lines of the timeslip as they come, and the banners */
-export function drawProgress(ctx: CanvasRenderingContext2D, W: number, H: number, s: DragHudState, mine: number, S: number, keys: { launch: string; nitro: string; manual: boolean; auto?: boolean; burnout?: string; gas?: string; brake?: string; chute?: string; deepStage?: string; clutch?: string }): void {
+export function drawProgress(ctx: CanvasRenderingContext2D, W: number, H: number, s: DragHudState, mine: number, S: number, keys: DragKeyLabels): void {
   const x0 = 24 * S, w = Math.min(420 * S, W * 0.32), y0 = 30 * S;
   s.runners.forEach((r, i) => {
     const y = y0 + i * 30 * S, f = Math.max(0, Math.min(1, r.x / DRAG.marks.quarter)), col = i === mine ? C.cyan : C.mag;
@@ -69,17 +103,14 @@ export function drawProgress(ctx: CanvasRenderingContext2D, W: number, H: number
     else if (r.reaction !== null) text(ctx, r.foul ? 'RED LIGHT' : `R/T ${r.reaction.toFixed(3)}`, x0 + w + 10 * S, y + 8 * S, 12 * S, r.foul ? C.red : C.white);
   });
   const me = s.runners[mine] as Runner, y = y0 + s.runners.length * 30 * S + 10 * S;
-  if (keys.auto) { if (!me.launched) text(ctx, 'AUTO DRIVER', W / 2, H * 0.62, 20 * S, C.vio, 'center', 0.85); }
+  drawTree(ctx, W, s, S);
+  if (keys.auto) { if (!me.launched) text(ctx, `AUTO DRIVER: ${stageLabel(me) || 'READY'}`, W / 2, H * 0.62, 20 * S, C.vio, 'center', 0.85); }
   else if (!me.launched && !me.aborted) {
-    if (me.rolling) text(ctx, 'ROLLING TO THE BEAM', W / 2, H * 0.62, 22 * S, '#34ff7a', 'center');
-    else {
-      const deepRow = keys.deepStage && !me.deepStage && !me.burnout;
-      text(ctx, s.green ? `${keys.launch}: ROLL OUT NOW` : `${me.deepStage ? 'DEEP STAGED' : 'STAGED'}: ${keys.launch} ON GREEN`, W / 2, H * 0.62, 22 * S, s.green ? '#34ff7a' : C.yel, 'center', s.green ? 1 : 0.85);
-      if (deepRow) text(ctx, `${keys.deepStage}: DEEP STAGE`, W / 2, H * 0.62 + 25 * S, 14 * S, C.yel, 'center', 0.7);
-      if (keys.burnout && keys.gas) text(ctx, me.burnout ? 'TIRES BURNING' : `${keys.burnout} + ${keys.gas}: BURNOUT`, W / 2, H * 0.62 + (deepRow ? 50 : 25) * S, 14 * S, me.burnout ? C.org : C.cyan, 'center', me.burnout ? 1 : 0.7);
-      if (keys.clutch) text(ctx, `${keys.clutch}: CLUTCH`, W / 2, H * 0.62 + (deepRow ? 75 : 50) * S, 13 * S, C.mag, 'center', 0.75);
-      if (keys.chute) text(ctx, `${keys.chute}: ABORT`, W / 2, H * 0.62 + (deepRow ? 100 : 75) * S, 13 * S, C.red, 'center', 0.8);
-    }
+    const prompt = stagingPrompt(me, s, keys);
+    text(ctx, prompt.title, W / 2, H * 0.62, 22 * S, prompt.col, 'center', s.green || !prompt.title.includes('GREEN') ? 1 : 0.85);
+    prompt.lines.forEach(([line, col, alpha], i) => text(ctx, line, W / 2, H * 0.62 + (25 + i * 25) * S, 14 * S, col, 'center', alpha));
+    if (me.stage === 'staged' || me.stage === 'deepStaged') { if (keys.clutch) text(ctx, `${keys.clutch}: CLUTCH`, W / 2, H * 0.62 + (25 + prompt.lines.length * 25) * S, 13 * S, C.mag, 'center', 0.75); }
+    if (!s.green && s.armed === false) text(ctx, 'THE TREE ARMS WHEN YOU ARE STAGED', W / 2, H * 0.62 - 28 * S, 12 * S, C.white, 'center', 0.6);
   }
   else if (keys.manual && !me.finished && me.gear < me.tune.ratios.length && me.rpm >= me.tune.shiftRpm - 80) text(ctx, `${keys.launch}: SHIFT`, W / 2, H * 0.62, 20 * S, C.red, 'center', 0.9);
   if (me.marks.ft60 !== undefined) text(ctx, `60 FT ${me.marks.ft60.toFixed(3)}`, x0, y + 6 * S, 13 * S, C.white, 'left', 0.85);
@@ -104,6 +135,7 @@ export function drawProgress(ctx: CanvasRenderingContext2D, W: number, H: number
   let stopRow = STOP_HUD.firstRow;
   const stop = (label: string, col: string): void => { text(ctx, label, x0, y + stopRow * S + infoShift, STOP_HUD.font * S, col, 'left', STOP_HUD.alpha); stopRow += STOP_HUD.gap; };
   stop(`FUEL ${(Math.round(me.fuel * 10) / 10).toFixed(1)} KG ${Math.round(fuelShare(me) * 100)}%`, fuelShare(me) < FUEL_HUD.low ? C.red : C.cyan);
+  stop(`TIRES ${me.hotPsi.toFixed(1)} PSI HOT / ${Math.round(me.tune.pressure)} COLD`, C.cyan);
   if (me.launched) stop(`REAR WEIGHT ${Math.round(me.rearShare * 100)}%`, me.lift > 0 ? C.yel : C.cyan);
   if (me.finished || me.aborted) {
     stop(`BRAKE ${Math.round(me.brakeTemp)}C ${Math.round(me.brakeFade * 100)}%`, me.brakeFade < 1 ? C.red : C.cyan);

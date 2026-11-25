@@ -39,6 +39,8 @@ export const BOOST = {
   heatLoad: 4, heatLoadMax: 2, heatSlip: 6, slipRef: 200, heatLine: 5, heatBurnout: 12, heatSoakCool: 0.45, heatAirGain: 0.012,
   /** the auto driver opens the wastegate when hot and cuts its burnout short: `aiTrim` is the most boost it gives up at full soak, after `aiTrimFrom` */
   aiSense: 1, aiTrimFrom: 0.1, aiTrim: 0.35, aiBurnTrim: 0.8,
+  /** thin air: the blower makes up this share (0 to 1, times the charge it has) of the torque a thin day takes away, and each unit of density it makes up soaks `chargeHeatPerComp` C/s into the engine (a hot, thin day taxes a boosted car). Turn `densityCompensation` first. */
+  densityCompensation: 0.7, chargeHeatPerComp: 40,
 } as const;
 /** the bottle: the shot is full while it is above `taperFrom` pressure, then fades to `taperShare` of the tune's shot as it empties. Firing warms the bottle, which raises its pressure; cooling pulls it back toward the day. Turn `LIMITS.nitroShot` first (how big the asked-for shot is), then `taperFrom`, then `pressurePerC`. */
 export const NITRO = {
@@ -52,11 +54,16 @@ export const ENGINE = {
   },
   limiter: { span: 250, cut: 1 },
   brake: { share: 0.06 },
+  /** a naturally aspirated engine makes torque in proportion to the air it breathes: torque x (density / reference density) to this power. 1 is a straight proportion; turn it first to make a thin or hot day matter more or less. */
+  densityTorqueExp: 1,
   /** below this pedal position a staged car is not burning the tires */
   burnMin: 0.5,
   /** the auto driver lifts for wheelspin and over-revs rather than fighting them, then goes back to full gas */
   ai: { spinLift: 0.98, limitLift: 0.95, min: 0.9 },
 } as const;
+/** tires: the contact patch likes one hot pressure. Below it the tire squirms and overheats (grip falls `underSlope` per psi), above it the patch shrinks (grip falls `overSlope` per psi). Pressure climbs `psiPerC` for every degree C the tire is above the day's air, so the cold pressure you set is lower than the hot one that matters.
+ * `refHotPsi` is the hot pressure that gives a grip of exactly 1. Turn `optimalHotPsi` first (where the peak is), then `psiWindow` (the flat top), then `heatFromUnderInflation` (C/s per psi under the optimum, while rolling fast). */
+export const TIRE = { optimalHotPsi: 24, psiWindow: 1.5, refHotPsi: 29, underSlope: 0.03, psiPerC: 0.035, heatFromUnderInflation: 0.35, heatMinSpeed: 5 } as const;
 /** the car with its parts on: what the physics drives */
 export function specFor(car: DragCarDef, parts: Parts, clutchCondition = 1): DragSpec {
   const L = (id: PartId): number => level(parts, id), n = L('nitro'), gearsMax = car.gears.length + (L('gearbox') >= 2 ? 1 : 0);
