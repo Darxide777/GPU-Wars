@@ -331,11 +331,25 @@ export function createDrag(o: { seed: number; entrants: Entrant[]; conditions?: 
     const a = samples[lo] as GhostSample, b = samples[hi] as GhostSample, f = (t - a.t) / Math.max(1e-9, b.t - a.t);
     return { t, x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, psi: a.psi + (b.psi - a.psi) * f, v: a.v + (b.v - a.v) * f };
   };
+  /** how much harder than the player's brakes a ghost must brake to stop inside the run-out (1 when its own speed is no problem): a fast ghost on the stock car's brakes would drive off the end of the strip. It is estimated with the same forces, a little pessimistically (brake fade), and the answer only depends on the ghost's speed at the line. */
+  function ghostBrakeScale(r: Runner): number {
+    const room = (SHUTDOWN.end - r.x) * 0.8, mass = runnerMass(r), fade = (SHUTDOWN.brakeFadeMin + 1) / 2;
+    for (let scale = 1; scale < 8; scale *= 1.1) {
+      let v = r.v, x = 0, t = 0;
+      while (v > SHUTDOWN.stopSpeed && t < 60) { const drag = 0.5 * weather.rho * (r.spec.cda + SHUTDOWN.chuteCda) * v * v, brakes = SHUTDOWN.brakeG * fade * mass * DRAG.g * weather.grip * scale; const v0 = v; v = Math.max(0, v - (drag + brakes) / mass * 0.02); x += (v0 + v) / 2 * 0.02; t += 0.02; }
+      if (x <= room) return scale;
+    }
+    return 8;
+  }
+  const ghostBrake = new Map<number, number>();
   const ghostPaths = new Map<number, StagingPath>();
+  /** the ghosts that have crossed the finish line and are now braking on the run-out */
+  const ghostRunOut = new Set<number>();
   /** the ghost's canned staging path (burnout, run-out, back up, stage): it is only for the eye, its time starts at the green */
   const pathOf = (i: number, deep: boolean): StagingPath => { let p = ghostPaths.get(i); if (!p) { p = ghostStagingPath(o.seed, i, deep); ghostPaths.set(i, p); } return p; };
   function playGhost(i: number, r: Runner, g: DragGhost): void {
     const t = s.armed ? s.t - s.greenAt : -1, q = g.marks.quarter, at = ghostAt(g.samples, t);
+    if (ghostRunOut.has(i) && t >= 0) { if (!r.stopped) shutdownStep(i, r, { ...NO_INPUT, brake: true, chute: true }, ghostBrake.get(i)); r.psi *= 0.98; return; }
     if (t < 0) {      // before the green the ghost does the staging procedure along its canned path (the leaderboard ghost only has samples from the green)
       const pose = stagingPoseAt(pathOf(i, !!g.deepStage), s.t);
       r.x = pose.x; r.y = pose.y; r.psi = 0; r.v = pose.v; r.stage = pose.stage; r.burnout = pose.burnout; r.reversing = pose.reversing; r.deepStage = pose.stage === 'deepStaged'; r.preBulb = pose.x >= -STAGE.preStageRollout && pose.x < 0; r.stageBulb = pose.stage === 'staged' || pose.stage === 'deepStaged';
@@ -344,7 +358,16 @@ export function createDrag(o: { seed: number; entrants: Entrant[]; conditions?: 
     r.reaction = g.reaction; r.marks = { ...g.marks }; r.trap = g.trap; r.foul = g.reaction < 0; r.crossed = false; r.aborted = false; r.crashed = false;
     r.rolling = t >= g.reaction - stageRolloutTime(g.deepStage) && t < g.reaction; if (t >= 0) r.deepStage = !!g.deepStage && (r.rolling || t < g.reaction); r.launched = t >= g.reaction; r.launchT = s.greenAt + g.reaction; if (t >= 0) r.stage = r.launched ? 'launched' : r.rolling ? 'rolling' : r.deepStage ? 'deepStaged' : 'staged';
     r.chute = false; r.chuteOpen = 0; r.nitroOn = false; r.nitroUsed = 0; r.nitroTemp = s.conditions.airC; r.nitroPressure = 0; r.nitroGain = 0; r.nitroPeakGain = 0; r.boost = 0; r.retard = 0; r.yawRate = 0; r.steer = 0; r.gripLeft = 1; r.drift = 0; r.fuel = FUEL.capacity; r.fuelUsed = 0;
-    /* the marks are timed from the launch and `t` from the green: the finish is the reaction plus the quarter */ if (q !== undefined && t >= g.reaction + q) { if (!r.finished) events.push({ t: 'finish', car: i }); r.finished = true; r.shutdown = true; r.brake = true; r.chute = true; r.chuteOpen = 1; }
+    /* the marks are timed from the launch and `t` from the green: the finish is the reaction plus the quarter */
+    if (q !== undefined && t >= g.reaction + q) {
+      if (!r.finished) events.push({ t: 'finish', car: i });
+      r.finished = true; r.shutdown = true;
+      // from the line the ghost is a car on the run-out: it takes the position and speed it had at the line, then brakes and opens its chute through the same shutdown physics the player's car uses
+      if (!ghostRunOut.has(i)) { const atLine = ghostAt(g.samples, g.reaction + q) ?? { t, x: DRAG.marks.quarter, y: 0, psi: 0, v: g.trap / 3.6 }; ghostRunOut.add(i); r.x = atLine.x; r.v = Math.max(0, atLine.v); r.y = atLine.y; r.psi = atLine.psi; ghostBrake.set(i, ghostBrakeScale(r)); }
+      if (!r.stopped) shutdownStep(i, r, { ...NO_INPUT, brake: true, chute: true }, ghostBrake.get(i));
+      r.psi *= 0.98;
+      return;
+    }
     const last = g.samples[g.samples.length - 1] as GhostSample | undefined; if (last && t >= last.t) { r.v = 0; r.stopped = true; }
   }
   const recordTrace = (r: Runner): void => { if (r.ghost) return; const prev = r.trace[r.trace.length - 1]; if (!prev || s.t - prev.t + DRAG.dt / 2 >= GHOST.step) r.trace.push({ t: s.t, x: r.x, y: r.y, psi: r.psi, v: r.v }); };
@@ -598,7 +621,8 @@ export function createDrag(o: { seed: number; entrants: Entrant[]; conditions?: 
     }
   }
   /** the run-out after the line: no engine, no nitro, just aero, brakes that heat and fade, and a chute that opens over a moment. Missing the end of the strip is a crash. */
-  function shutdownStep(i: number, r: Runner, inp: DragInput): void {
+  /** `brakeScale` is only for ghosts (see `ghostBrakeScale`): the player's car always brakes with 1 */
+  function shutdownStep(i: number, r: Runner, inp: DragInput, brakeScale = 1): void {
     if (r.stopped) return;
     coolEngine(r, DRAG.dt); r.retard = boostRetardAt(r.engineTemp);
     if (!r.chute && inp.chute) { r.chute = true; events.push({ t: 'chute', car: i }); }
@@ -615,7 +639,7 @@ export function createDrag(o: { seed: number; entrants: Entrant[]; conditions?: 
     if (r.brake) brakeTemp += brakes / mass * Math.abs(r.v) * DRAG.dt * SHUTDOWN.brakeHeat;
     brakeTemp = clamp(brakeTemp - (SHUTDOWN.brakeCool + SHUTDOWN.brakeAirCool * Math.abs(r.v)) * DRAG.dt, weather.airC, SHUTDOWN.brakeMaxTemp);
     r.brakeTemp = brakeTemp; r.brakeFade = brakeFadeOf(brakeTemp);
-    const v0 = r.v; r.v = Math.max(0, r.v - (aero + chute + brakes) / mass * DRAG.dt); r.x += (v0 + r.v) / 2 * DRAG.dt;
+    const v0 = r.v; r.v = Math.max(0, r.v - (aero + chute + brakes * brakeScale) / mass * DRAG.dt); r.x += (v0 + r.v) / 2 * DRAG.dt;
     if (r.v <= SHUTDOWN.stopSpeed) { r.v = 0; r.stopped = true; }
     else if (r.x >= SHUTDOWN.end) { r.x = SHUTDOWN.end; r.v = 0; r.stopped = true; r.crashed = true; r.crashT = s.t; events.push({ t: 'crash', car: i }); }
   }

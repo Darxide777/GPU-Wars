@@ -8,7 +8,7 @@ import { defaultTune, specFor } from '../src/drag/tune.ts';
 
 /** a canvas context that records what it is asked to draw (text and the calls) and accepts everything else */
 function recorder() {
-  const calls = [], texts = [], ellipses = [], lines = []; const fns = new Set(['fillRect', 'strokeRect', 'moveTo', 'arc', 'fill', 'stroke', 'beginPath', 'closePath', 'save', 'restore', 'translate', 'rotate', 'setLineDash', 'clearRect']);
+  const calls = [], texts = [], ellipses = [], lines = []; const fns = new Set(['strokeText', 'fillRect', 'strokeRect', 'moveTo', 'arc', 'fill', 'stroke', 'beginPath', 'closePath', 'save', 'restore', 'translate', 'rotate', 'setLineDash', 'clearRect']);
   const ctx = new Proxy({}, { get: (t, k) => { if (k === 'fillText') return (s, x, y) => { texts.push(String(s)); calls.push('fillText'); }; if (k === 'ellipse') return (...args) => { ellipses.push(args); calls.push('ellipse'); }; if (k === 'lineTo') return (...args) => { lines.push(args); calls.push('lineTo'); }; if (fns.has(k)) return () => { calls.push(k); }; return t[k]; }, set: (t, k, v) => { t[k] = v; return true; } });
   return { ctx, calls, texts, ellipses, lines };
 }
