@@ -857,7 +857,7 @@ const slip = (o = {}) => ({ name: 'YOU', reaction: 0.2, foul: false, ft60: 2.3, 
 
 test('the car runs the TOP level of every part as stock, whatever the benchmark said, and the spec has one place to come from', () => {
   for (const part of PARTS) assert.equal(STOCK_PARTS[part.id], part.max, `${part.id} is at its top level`);
-  assert.deepEqual(stockSpec(), specFor(STOCK_CAR, built(1)), 'the stock spec is the car with every part at its top');
+  { const plain = specFor(STOCK_CAR, built(1)), top = stockSpec(); assert.equal(top.topFuel, true); assert.deepEqual({ ...top, topFuel: undefined, grip: 0, cda: 0 }, { ...plain, topFuel: undefined, grip: 0, cda: 0 }, 'the stock spec is the car with every part at its top (and the top-fuel grip and drag)'); }
   assert.ok(stockSpec().torque > specFor(STOCK_CAR, {}).torque * 1.25, 'the stock parts make it much stronger than the bare chassis');
   const save = emptySave(); assert.equal(save.benchmark, null);
   // (owner decision: with no benchmark the car gets the WEAKEST spec, never the stock parts' full power, so skipping the benchmark never pays)

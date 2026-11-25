@@ -12,13 +12,13 @@ Class = `integrated` or `discrete-<vendor>-<era>`. 17 classes total.
 
 | Class id | Min plausible quarter ET (s) | Max trap speed (mph) |
 |---|---|---|
-| `integrated` | 5.6 | 250 |
-| `discrete-<vendor>-retro` | 5.2 | 260 |
-| `discrete-<vendor>-classic` | 4.8 | 280 |
-| `discrete-<vendor>-modern` | 4.4 | 300 |
-| `discrete-<vendor>-current` | 3.6 | 340 |
+| `integrated` | 8.5 | 170 |
+| `discrete-<vendor>-retro` | 5.3 | 245 |
+| `discrete-<vendor>-classic` | 4.6 | 280 |
+| `discrete-<vendor>-modern` | 4.1 | 320 |
+| `discrete-<vendor>-current` | 3.6 | 370 |
 
-Max ET to rank is 30 s, min trap speed 60 mph for all. These bounds are placeholders to retune once real benchmark-to-ET numbers exist. Categories: `manual`, `autopilot` (separate boards).
+Max ET to rank is 30 s, min trap speed 60 mph for all. These bounds follow the simulation (see `docs/CALIBRATION.md`) and are retuned there. Categories: `manual`, `autopilot` (separate boards).
 
 ## Free-tier limits (checked 2026-11-25, developers.cloudflare.com)
 Workers Free: 100,000 requests/day (resets 00:00 UTC), **10 ms CPU per request**, 50 subrequests, 128 MB memory.

@@ -2,7 +2,7 @@
 // Every function returns a new save and leaves the one it was given alone.
 import { clearSlot, emptySlots, putSlot, type TuneSlots } from '../tune-slots.ts';
 import type { Save } from '../save.ts';
-import { specForBenchmark, STOCK_CAR } from './spec-source.ts';
+import { finalDriveFor, LAUNCH_RPM_SHARE, specForBenchmark, STOCK_CAR } from './spec-source.ts';
 import { cleanTune } from './tune.ts';
 import type { DragCarDef, DragRaceKind, DragSpec, Timeslip, Tune } from './types.ts';
 
@@ -11,8 +11,8 @@ const HISTORY_MAX = 10;
 export function readyCar(save: Save, clutchCondition = 1): { car: DragCarDef; spec: DragSpec; tune: Tune } {
   const spec = specForBenchmark(save.benchmark, clutchCondition);
   // (the default tune is built for this engine's revs, so a lower limiter does not start with a shift point above it)
-  const car = { ...STOCK_CAR, peakRpm: spec.peakRpm, redline: spec.redline };
-  return { car: STOCK_CAR, spec, tune: cleanTune(save.tune, car, spec) };
+  const car = { ...STOCK_CAR, peakRpm: spec.peakRpm, redline: spec.redline, final: finalDriveFor(spec.torque), launchRpm: Math.round(spec.peakRpm * LAUNCH_RPM_SHARE / 100) * 100 };
+  return { car, spec, tune: cleanTune(save.tune, car, spec) };
 }
 /** keep a tune (made safe for the car first) */
 export function saveTune(save: Save, tune: Partial<Tune>): Save { const { car, spec } = readyCar(save); return { ...save, tune: cleanTune(tune, car, spec) }; }

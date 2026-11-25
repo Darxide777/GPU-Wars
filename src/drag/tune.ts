@@ -102,7 +102,7 @@ export const limiterTorqueShare = (spec: Pick<DragSpec, 'redline'>, rpm: number)
 
 /** a car's first tune: its own gearing, a gentle launch and shifts near the limiter, normal tires, no ballast, nitro by hand */
 export function defaultTune(car: DragCarDef): Tune {
-  return { shift: 'auto', ratios: [...car.gears], final: car.final, launchRpm: Math.round((car.idle + car.peakRpm) / 2 / 100) * 100, launchAggression: CLUTCH.aggressionDefault, shiftRpm: Math.round((car.redline - 300) / 100) * 100, pressure: 28, ballast: 0, stiffness: SUSPENSION_TUNE.stiffness.def, wheelieBar: SUSPENSION_TUNE.wheelieBar.def, nitroShot: 0.25, nitroGear: 0, boostLimit: BOOST.defaultLimit };
+  return { shift: 'auto', ratios: [...car.gears], final: car.final, launchRpm: car.launchRpm ?? Math.round((car.idle + car.peakRpm) / 2 / 100) * 100, launchAggression: CLUTCH.aggressionDefault, shiftRpm: Math.round((car.redline - 300) / 100) * 100, pressure: 28, ballast: 0, stiffness: SUSPENSION_TUNE.stiffness.def, wheelieBar: SUSPENSION_TUNE.wheelieBar.def, nitroShot: 0.25, nitroGear: 0, boostLimit: BOOST.defaultLimit };
 }
 export const LIMITS = { ratio: [0.5, 5], final: [2.2, 5.5], pressure: [12, 40], ballast: [0, 120], nitroShot: [0.05, 0.6], launchAggression: [CLUTCH.aggressionMin, CLUTCH.aggressionMax], stiffness: [SUSPENSION_TUNE.stiffness.min, SUSPENSION_TUNE.stiffness.max], wheelieBar: [SUSPENSION_TUNE.wheelieBar.min, SUSPENSION_TUNE.wheelieBar.max], boostLimit: [BOOST.minLimit, BOOST.maxLimit] } as const;
 /** a tune made safe for this car and its parts: as many gears as it has, every number in its range */

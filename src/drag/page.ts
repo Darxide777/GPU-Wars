@@ -15,6 +15,7 @@ import { createPadMenu } from '../gamepad.ts';
 import { firstPad } from '../arena/view/pad.ts';
 import { newSlotState, slotRows } from '../tune-slots-menu.ts';
 import { STOCK_CAR } from './spec-source.ts';
+import { calibrationLine } from '../benchmark/score.ts';
 import { clearSaveSlot, loadFromSlot, readyCar, recordRace, saveToSlot, saveTune, tuneSlots } from './model.ts';
 import { DRAG, FUEL, boostLimitOf, clutchAfterRun, conditionsForSeed, forecastText, createDrag, createDragStrip, clearDragStrip, fuelKg, fuelShareOf, ghostFromRunner, predictDrag, rubberShare, timeslip, type Drag, type Entrant } from './physics.ts';
 import { BOOST, defaultTune } from './tune.ts';
@@ -105,8 +106,9 @@ function finishBenchmark(cls: ClassId, r: Parameters<Parameters<typeof openBench
   benchScreen?.close(); benchScreen = null;
   if (r.status === 'done') {
     commit({ ...save, benchmark: resultFromRun({ score: r.outcome.score, sustain: r.outcome.sustain, cls, gpuId: gpu.gpuId, now: Date.now() }) });
-    const spec = readyCar(save).spec, peaks = dynoPeaks(spec);
-    soon = { title: 'BENCHMARK DONE', help: `SCORE ${r.outcome.score}${r.outcome.capped ? ' (CAPPED FOR YOUR CLASS)' : ''}`, text: `Your car now makes ${Math.round(peaks.hp)} hp at ${peaks.hpRpm} rpm and ${Math.round(peaks.torqueNm)} Nm of torque. ${r.outcome.discarded.length ? `${r.outcome.discarded.length} unsteady pass(es) were thrown away. ` : ''}Drawn with ${r.outcome.backend}. The game cannot see an overclock: run the benchmark again yourself after overclocking or changing your GPU.` };
+    const spec = readyCar(save).spec, peaks = dynoPeaks(spec), line = calibrationLine(r.outcome, cls);
+    console.log(`[GPU Wars benchmark] ${line} | gpu ${gpu.gpuId} | class ${cls}`);
+    soon = { title: 'BENCHMARK DONE', help: `SCORE ${r.outcome.score} (RAW ${r.outcome.rawScore})${r.outcome.capped ? ' (CAPPED FOR YOUR CLASS)' : ''}`, text: `${line}. Your car now makes ${Math.round(peaks.hp)} hp at ${peaks.hpRpm} rpm and ${Math.round(peaks.torqueNm)} Nm of torque. ${r.outcome.discarded.length ? `${r.outcome.discarded.length} unsteady pass(es) were thrown away. ` : ''}Drawn with ${r.outcome.backend}. The game cannot see an overclock: run the benchmark again yourself after overclocking or changing your GPU.` };
     show('soon');
   } else if (r.status === 'failed') { soon = { title: 'BENCHMARK FAILED', help: 'NOT SCORED', text: `${r.reason}. Nothing was saved. Run it again from the BENCHMARK row.` }; show('soon'); }
   else show('title');
@@ -247,7 +249,7 @@ function tuneItems(): MenuItem[] {
     { id: 'replaceClutch', label: 'REPLACE CLUTCH', hint: () => 'The clutch engages by itself, and slipping it on launches and shifts builds heat and wears the plates, so bites get softer over a session. Replacing it is free and puts it back to new.', value: () => (clutchCondition >= 1 ? 'NEW' : `${Math.round(clutchCondition * 100)}%`), enter: () => { clutchCondition = 1; show('tune'); } },
     { id: 'cool', label: 'COOL ENGINE', hint: () => 'Engine heat carries between races in this visit: burnouts and long boosted pulls retard the timing until you let it cool. This resets it to the day\'s air.', value: () => `${Math.round(engineOf())}C`, enter: () => { engineTemp = null; show('tune'); } },
     { id: 'strip', label: 'CLEAR STRIP', hint: () => 'Burnouts and wheelspin leave rubber on the strip for the rest of this visit, adding grip where it lies. Clear it for a clean run.', value: () => `${Math.round(rubberShare(strip, 0) * 100)}% RUBBER`, enter: () => { clearDragStrip(strip); show('tune'); } },
-    { id: 'reset', label: 'RESET TUNE', hint: () => tuneHint('reset'), enter: () => { commit(saveTune(save, defaultTune(STOCK_CAR))); show('tune'); } },
+    { id: 'reset', label: 'RESET TUNE', hint: () => tuneHint('reset'), enter: () => { commit(saveTune(save, defaultTune(readyCar(save).car))); show('tune'); } },
     testItem(),
     { id: 'back', label: 'BACK', hint: () => tuneHint('back'), enter: back },
   ];

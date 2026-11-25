@@ -7,7 +7,7 @@ import { classifyGpu, identityFromText } from '../src/benchmark/gpu.ts';
 import { rerunReason, needsBenchmark, classState, lockClass, stepClass, resultFromRun } from '../src/benchmark/rules.ts';
 import { dynoCurve, dynoPeaks, powerAt, torqueAt, dynoSvg } from '../src/benchmark/dyno.ts';
 import { startBenchmark, nextBatch } from '../src/benchmark/runner.ts';
-import { specForBenchmark, stockSpec, specLimitsOf, CLASS_SPEC_LIMITS, curveForSustain, HP_DIVISOR, tableRowFor, WEAKEST_RESULT } from '../src/drag/spec-source.ts';
+import { specForBenchmark, stockSpec, specLimitsOf, CLASS_SPEC_LIMITS, curveForSustain, HP_DIVISOR, tableRowFor, WEAKEST_RESULT, UNBENCHMARKED_TORQUE_SHARE } from '../src/drag/spec-source.ts';
 import { CLASS_IDS } from '../src/classes.ts';
 import { sanitizeSave, emptySave, cleanBenchmark, cleanClassLock } from '../src/save.ts';
 import { readyCar } from '../src/drag/model.ts';
@@ -29,17 +29,17 @@ test('the spec stays inside the class limits and in sane bounds for every class 
 });
 test('a higher score never gives a weaker engine in the same class, and the table is in order', () => {
   for (const cls of ['integrated', 'discrete-amd-classic', 'discrete-nvidia-current']) { let last = 0; for (let s = 0; s <= BENCHMARK.maxScore; s += 250) { const t = specForBenchmark(result({ class: cls, score: s })).torque; assert.ok(t >= last, `${cls} ${s}`); last = t; } }
-  assert.ok(tableRowFor(-5).torqueNm === tableRowFor(0).torqueNm && tableRowFor(1e9).torqueNm === tableRowFor(BENCHMARK.maxScore).torqueNm);
+  assert.ok(tableRowFor(-5).torqueShare === tableRowFor(0).torqueShare && tableRowFor(1e9).torqueShare === tableRowFor(1).torqueShare);
 });
 test('the same result always gives the same spec, with no benchmark the stock car, and class limits beat a high score', () => {
-  assert.deepEqual(specForBenchmark(result()), specForBenchmark(result())); assert.deepEqual(specForBenchmark(null), specForBenchmark(WEAKEST_RESULT));
+  assert.deepEqual(specForBenchmark(result()), specForBenchmark(result())); assert.deepEqual(specForBenchmark(null), { ...specForBenchmark(WEAKEST_RESULT), torque: Math.round(specForBenchmark(WEAKEST_RESULT).torque * UNBENCHMARKED_TORQUE_SHARE) });
   assert.deepEqual(specForBenchmark(result({ class: 'not a class' })), specForBenchmark(null), 'a result with an unknown class is not believed');
   const weak = specForBenchmark(result({ class: 'integrated', score: BENCHMARK.maxScore })), strong = specForBenchmark(result({ class: 'discrete-nvidia-current', score: BENCHMARK.maxScore }));
   assert.ok(weak.torque <= CLASS_SPEC_LIMITS.integrated.torqueNm[1] && weak.torque < strong.torque);
 });
 test('the un-benchmarked spec is no faster than the lowest possible benchmarked one, and weaker than every other', () => {
   const none = specForBenchmark(null), floor = specForBenchmark(result({ class: 'integrated', score: 0 }));
-  assert.deepEqual(none, floor); assert.ok(none.torque <= floor.torque);
+  assert.deepEqual({ ...none, torque: 0 }, { ...floor, torque: 0 }); assert.ok(none.torque < floor.torque, 'strictly weaker than the slowest benchmarked card');
   for (const cls of CLASS_IDS) for (const score of [0, 3000, BENCHMARK.maxScore]) { const s = specForBenchmark(result({ class: cls, score })); assert.ok(none.torque <= s.torque && none.redline <= s.redline, `${cls} ${score}`); }
   const et = spec => { const { tune } = readyCar(emptySave()); const d = createDrag({ seed: 3, strip: createDragStrip(2), entrants: [{ name: 'YOU', spec, tune, ai: { react: 0.2, spread: 0, shiftErr: 0, foul: 0 } }] }); let n = 0; while (d.state.phase !== 'over' && n++ < 240 * 60) d.step(); return d.state.runners[0].marks.quarter; };
   assert.ok(et(none) >= et(specForBenchmark(result({ class: 'discrete-nvidia-current', score: BENCHMARK.maxScore }))), 'and slower than the best card');
