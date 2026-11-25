@@ -42,6 +42,7 @@ src/drag/model.ts           save rules with no screen: readyCar, tune and slots,
 src/drag/physics.ts         the simulation (no drawing, no clock, deterministic)
 src/drag/hud.ts, topdown.ts the drawing: tachometer and gauges, the strip from above
 src/drag/tune-help.ts       the short description of every tune row
+src/leaderboard/            the leaderboard client, class-leader ghost, ranked class day and their screens' logic (see below)
 src/drag/page.ts            the page: title menu, tune screen, the race, the timeslip
 tests/                      drag.test.mjs (engine, model and save), drag-topdown.test.mjs, tune-slots.test.mjs, page.test.mjs (shape of the game)
 ```
@@ -52,7 +53,7 @@ One canvas draws the strip behind a neon menu card (the Chromium Halo: Neon menu
 
 - **Title menu:** BENCHMARK, CLASS, TUNE, RACE CLASS LEADER, RECORDS, OPTIONS. BENCHMARK, CLASS and OPTIONS are stubs that say COMING SOON. TUNE, RACE CLASS LEADER and RECORDS work.
 - **TUNE:** the TUNING tab (shifting, launch, boost, gears, final drive, tire pressure, ballast, fuel load, suspension, wheelie bar, nitro, the six tune slots, REPLACE CLUTCH, COOL ENGINE, CLEAR STRIP, RESET TUNE, TEST RUN) and the STATS tab (the car's numbers and a predicted timeslip from a perfect-driver run). Every change is saved at once and made safe for the car (`cleanTune`).
-- **RACE CLASS LEADER:** the top-down race. The first race is a solo pass; a clean pass is saved as your best-pass ghost, which every later race replays beside you. This is the **stand-in** for the class leader's ghost (see below).
+- **RACE CLASS LEADER:** a ranked run: the fixed class day (see below) against the ghost of your class leader. A clean pass with a benchmark is sent to the leaderboard when it ends.
 - **Timeslip:** the result, with RUN AGAIN, NEXT RACE, TUNE and MAIN MENU.
 
 ## The simulation (`src/drag/physics.ts`)
@@ -75,13 +76,21 @@ Today it returns the stock car whatever the benchmark said. The benchmark phase 
 
 One small versioned record under the key `gpuwars.save`, repaired on load (`sanitizeSave`): `benchmark` (`{ score, class, benchmarkVersion, gpuId, date }` or null), `tune`, `slots` (six), `records` (totals, bests, the last ten runs) and `ghost`. Settings are kept apart (`gpuwars.options`) so erasing a save never loses your controls. All storage goes through `src/browser-store.ts`, which never throws and falls back to memory when localStorage is blocked.
 
+## The leaderboard (`src/leaderboard/`)
+
+- `classes.ts` is a **copy** of `backend/src/classes.ts` (class ids and bounds); a test compares the two when the backend is present. `config.ts` holds the one placeholder `baseUrl` (empty: offline) and the timeout. Nothing is requested at load: the leader is fetched after the first key or tap, the boards when RECORDS opens, a score when a ranked run ends.
+- `client.ts` never throws: no URL, no network, CORS, timeout, 4xx/5xx all become `{ ok: false, kind, message }`; `leader()` always returns a record (the server's, or `fallbackLeader` from `leader.ts`, whose bundled times are placeholders in `FALLBACK_LEADERS`). `X-Client-Id` is generated once (`profile.ts`, stored apart from the save with your name and ONE unsent run that is retried later).
+- `payload.ts` builds the `POST /scores` body (feet, mph, tune flattened to numbers, optional compact ghost). `tests/leaderboard.test.mjs` runs it through the backend's own `validateSubmission`. A run is ranked only if it is clean and a benchmark gave a valid class; `category` is `manual` unless the autopilot phase calls `ui.setCategory('autopilot')`.
+- `ghost.ts`: the class-leader ghost is a smooth monotone curve through the leader's marks to the trap speed, not a physics car and not a replay. Missing splits come from the class envelope (`LEADERBOARD_GHOST.powerByEra`, mixed with the trap speed); lane drift is seeded; the staging path is canned. It goes through `cleanDragGhost` and plays in `physics.ts` as any ghost.
+- `ranked.ts`: `RANKED.seed` and `RANKED.conditions` are the one class day (calm wind, flat weather front, 22C air, 300 m, 36C track); `rankedStrip()` is a fresh strip and `rankedStart()` a new clutch, full tank and cool engine, so earlier races never change a ranked run. `densityAltitudeFt` is shown on the race banner. Free play (TEST RUN) keeps random weather.
+- `delta.ts`: ghost delta (you minus the leader) drawn on the race HUD and listed on the timeslip. `ui.ts` is the one object `page.ts` calls.
+
 ## Extension points for the next phases
 
 - **Benchmark and class:** `BenchmarkResult` and `Save.benchmark` exist; `specForBenchmark` is the spec feed; the BENCHMARK and CLASS rows in `page.ts` are `comingSoon(...)` rows to replace. The benchmark will also use the beat effects, the equalizer and the songs (`src/beat/*` and `src/neon/building-eq.ts` in Chromium Halo: Neon; they were not copied because the top-down race does not use them).
-- **Class leader ghost:** `ghostToRace()` in `page.ts` returns your best pass today. The leaderboard phase returns a simulated ghost of the class leader (seeded, checked with `cleanDragGhost`).
 - **Full staging sequence, reverse input, touch input, autopilot as a separate leaderboard category:** the physics already has the tree, staging and deep staging; `backUp` is noted in `DEFAULT_BINDS`; `readInput()` in `page.ts` is the one place input is turned into a `DragInput`.
 - **OPTIONS:** `src/options/model.ts` already holds the volume and binds, with `assignKey`.
-- **Leaderboard:** a separate database (Cloudflare Workers and D1), not part of this scaffold.
+- **Leaderboard server:** `backend/` (Cloudflare Workers and D1) is on its own branch; set `LEADERBOARD_API.baseUrl` after deploying it.
 
 ## Conventions
 
