@@ -8,7 +8,8 @@ import { createLeaderboardClient, type Board, type Failure, type LeaderboardClie
 import { buildLeaderGhost } from './ghost.ts';
 import { fallbackLeader, type LeaderRecord } from './leader.ts';
 import { buildScorePayload, whyNotRanked } from './payload.ts';
-import { cleanPlayerName, loadIdentity, saveIdentity, type Profile } from './profile.ts';
+import { createLetterPicker, type LetterPicker } from './letter-picker.ts';
+import { loadIdentity, saveIdentity, type Profile } from './profile.ts';
 import { LEADERBOARD_API } from './config.ts';
 
 type FetchFn = Parameters<typeof createLeaderboardClient>[0]['fetchFn'];
@@ -26,7 +27,7 @@ export function createLeaderboardUi(o: UiOptions) {
   let leader: { record: LeaderRecord; online: boolean; note: string } | null = null, ghostKey = '', ghostCache: DragGhost | null = null, leaderAsked = '';
   let status = '';
   let boardScope: BoardScope = 'class', boardCategory: Category = 'manual', board: Board | Failure | null = null, boardLoading = false;
-  let editingName = false, nameDraft = '';
+  let picker: LetterPicker | null = null;
 
   const playerClass = (): ClassId => { const b = o.benchmark(); return b && isClassId(b.class) ? b.class : DEFAULT_CLASS; };
   const leaderRecord = (): LeaderRecord => (leader && leader.record.class === playerClass() && leader.record.category === runCategory ? leader.record : fallbackLeader(playerClass(), runCategory));
@@ -91,18 +92,12 @@ export function createLeaderboardUi(o: UiOptions) {
       return `<table><tr><th>${esc(title)}</th><th></th></tr>${rows}</table>`;
     },
 
-    // ---- your name (typed on the records screen) ----
-    get editingName(): boolean { return editingName; }, get nameDraft(): string { return nameDraft; },
-    startNameEdit(): void { editingName = true; nameDraft = profile.playerName; },
-    /** a key while the name is being typed; returns whether it was used */
-    nameKey(key: string): boolean {
-      if (!editingName) return false;
-      if (key === 'enter') { const clean = cleanPlayerName(nameDraft); if (clean) { profile = { ...profile, playerName: clean }; saveIdentity(o.store, profile); } editingName = false; return true; }
-      if (key === 'escape') { editingName = false; return true; }
-      if (key === 'backspace') { nameDraft = nameDraft.slice(0, -1); return true; }
-      if (key.length === 1 && /[\p{L}\p{N} _\-.]/u.test(key) && nameDraft.length < 16) { nameDraft += key.toUpperCase(); return true; }
-      return true;
-    },
+    // ---- your name (picked letter by letter on the NAME screen: works with touch, a gamepad or the arrow keys) ----
+    get picker(): LetterPicker | null { return picker; },
+    startNameEdit(): void { picker = createLetterPicker(profile.playerName); },
+    /** keep the picked name (false when it is not a valid name yet); either way the picker closes only when it was kept */
+    finishNameEdit(): boolean { const clean = picker?.result(); if (!clean) return false; profile = { ...profile, playerName: clean }; saveIdentity(o.store, profile); picker = null; return true; },
+    cancelNameEdit(): void { picker = null; },
   };
   return api;
 }

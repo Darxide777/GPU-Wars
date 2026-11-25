@@ -83,6 +83,8 @@ One small versioned record under the key `gpuwars.save`, repaired on load (`sani
 - `payload.ts` builds the `POST /scores` body (feet, mph, tune flattened to numbers, optional compact ghost). `tests/leaderboard.test.mjs` runs it through the backend's own `validateSubmission`. A run is ranked only if it is clean and a benchmark gave a valid class; `category` is `manual` unless the autopilot phase calls `ui.setCategory('autopilot')`.
 - `ghost.ts`: the class-leader ghost is a smooth monotone curve through the leader's marks to the trap speed, not a physics car and not a replay. Missing splits come from the class envelope (`LEADERBOARD_GHOST.powerByEra`, mixed with the trap speed); lane drift is seeded; the staging path is canned. It goes through `cleanDragGhost` and plays in `physics.ts` as any ghost.
 - `ranked.ts`: `RANKED.seed` and `RANKED.conditions` are the one class day (calm wind, flat weather front, 22C air, 300 m, 36C track); `rankedStrip()` is a fresh strip and `rankedStart()` a new clutch, full tank and cool engine, so earlier races never change a ranked run. `densityAltitudeFt` is shown on the race banner. Free play (TEST RUN) keeps random weather.
+- Autopilot runs race on the same class day as manual ones (only the category differs). Rubber from the player's own burnout lays on the fresh strip and raises their grip (tested).
+- `letter-picker.ts`: name entry with no keyboard (up/down or tap cycles letters; ADD, DELETE, DONE, CANCEL) on the NAME screen, in the neon menu style.
 - `delta.ts`: ghost delta (you minus the leader) drawn on the race HUD and listed on the timeslip. `ui.ts` is the one object `page.ts` calls.
 
 ## Extension points for the next phases

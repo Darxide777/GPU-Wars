@@ -60,7 +60,7 @@ function predict(spec: DragSpec, tune: Tune, seed = raceSeed, kg = fuelOf(), tem
 const lb = createLeaderboardUi({ store: browserStore, benchmark: () => save.benchmark, onChange: () => {
   if (screen === 'race') return;
   const status = document.getElementById('lbstatus'), boardBox = document.getElementById('lbboard'); if (status) status.textContent = lb.status; if (boardBox) boardBox.innerHTML = lb.boardHtml();
-  if (isBackdrop) backdrop(); if (menu) render();
+  if (isBackdrop) backdrop(); if (menu && screen !== 'name') render();
 } });
 /** the leader is fetched after your first key or tap (never at load: itch.io pages make no request on start), and again each time the title menu opens */
 let touchedPage = false;
@@ -83,7 +83,7 @@ const myEntrant = (): Entrant => { const { spec, tune } = readyCar(save, clutchC
 const rankedEntrant = (): Entrant => { const start = rankedStart(), { spec, tune } = readyCar(save, start.clutchCondition); return { name: 'YOU', spec, tune, ai: null, ...start }; };
 
 // ---- the screens ----
-type Screen = 'title' | 'soon' | 'records' | 'tune' | 'race' | 'slip';
+type Screen = 'title' | 'soon' | 'records' | 'name' | 'tune' | 'race' | 'slip';
 type TuneTab = 'tuning' | 'stats';
 let screenBefore: Screen = 'title', screen: Screen = 'title', menu: Menu | null = null, msg = '', raceKind: DragRaceKind = 'solo', sel: Record<string, number> = {}, tuneTab: TuneTab = 'tuning';
 let soon = { title: '', text: '' };
@@ -137,10 +137,21 @@ function show(next: Screen): void {
       { id: 'scope', label: 'BOARD', value: () => (lb.boardScope === 'class' ? `MY CLASS: ${lb.className()}` : 'OVERALL'), hint: () => 'Class board: players in your class. Overall: the best time of every player across all classes.', left: () => lb.setBoardScope(lb.boardScope === 'class' ? 'overall' : 'class'), right: () => lb.setBoardScope(lb.boardScope === 'class' ? 'overall' : 'class') },
       { id: 'category', label: 'CATEGORY', value: () => lb.boardCategory.toUpperCase(), hint: () => 'Manual: you drive. Autopilot: the driver AI races for you. They are separate boards.', left: () => lb.setBoardCategory(lb.boardCategory === 'manual' ? 'autopilot' : 'manual'), right: () => lb.setBoardCategory(lb.boardCategory === 'manual' ? 'autopilot' : 'manual') },
       { id: 'refresh', label: 'REFRESH', hint: () => 'Ask the leaderboard again. The game works offline: ranked runs wait until it is reachable.', enter: board },
-      { id: 'name', label: 'YOUR NAME', value: () => (lb.editingName ? `${lb.nameDraft}_` : lb.profile.playerName), hint: () => (lb.editingName ? 'Type 3 to 16 letters or digits, Enter keeps it, Esc cancels.' : 'The name shown on the boards. Press Enter to change it.'), enter: () => lb.startNameEdit() },
+      { id: 'name', label: 'YOUR NAME', value: () => lb.profile.playerName, hint: () => 'The name shown on the boards. Press Enter to change it.', enter: () => { lb.startNameEdit(); show('name'); } },
       { id: 'back', label: 'BACK', enter: () => show('title') },
     ]);
     void lb.sendPending(); board();
+  } else if (next === 'name') {
+    const pk = lb.picker; if (!pk) { show('records'); return; }
+    title('YOUR NAME');
+    const again = (): void => { sel.name = menu?.sel ?? 0; show('name'); };
+    menu = createMenu([
+      { id: 'letter', label: 'LETTER', value: () => (pk.letter === ' ' ? 'SPACE' : pk.letter), hint: () => 'Up and down (or tap the arrows) change the letter. Choose ADD LETTER to put it on the end of your name.', left: () => { pk.cycle(-1); render(); }, right: () => { pk.cycle(1); render(); } },
+      { id: 'add', label: 'ADD LETTER', value: () => pk.name || '(EMPTY)', hint: () => 'Adds the shown letter to your name (up to 16).', enter: () => { pk.add(); again(); } },
+      { id: 'delete', label: 'DELETE', hint: () => 'Removes the last letter.', enter: () => { pk.remove(); again(); } },
+      { id: 'done', label: 'DONE', hint: () => 'Keeps the name (3 to 16 letters or digits).', enter: () => { if (lb.finishNameEdit()) show('records'); else { msg = 'A NAME NEEDS 3 TO 16 LETTERS OR DIGITS'; render(); } } },
+      { id: 'cancel', label: 'CANCEL', enter: () => { lb.cancelNameEdit(); show('records'); } },
+    ], sel.name ?? 1);
   } else if (next === 'tune') {
     title('TUNE'); menu = createMenu(tuneItems(), sel[tuneTab] ?? 0);
   } else if (next === 'slip' && result) {
@@ -260,9 +271,8 @@ addEventListener('keydown', e => {
     if (k === 'escape') show(screenBefore);      // leaving a race records nothing (from the timeslip screen it goes back to the menu)
     return;
   }
-  if (lb.editingName) { lb.nameKey(k); if (menu) render(); return; }
   if (screen === 'tune' && k === 'tab') { setTuneTab(tuneTab === 'tuning' ? 'stats' : 'tuning'); return; }
-  if (k === 'escape') { if (screen === 'tune') show(backFrom.tune ?? 'title'); else if (screen !== 'title') show('title'); return; }
+  if (k === 'escape') { if (screen === 'tune') show(backFrom.tune ?? 'title'); else if (screen === 'name') { lb.cancelNameEdit(); show('records'); } else if (screen !== 'title') show('title'); return; }
   if (menu && menu.key(k)) render();
 });
 addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));

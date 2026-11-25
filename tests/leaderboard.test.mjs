@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { memoryStore } from '../src/browser-store.ts';
-import { DRAG, cleanDragGhost, createDrag, predictDrag, timeslip } from '../src/drag/physics.ts';
+import { DRAG, cleanDragGhost, createDrag, predictDrag, rubberShare, timeslip } from '../src/drag/physics.ts';
 import { specForBenchmark } from '../src/drag/spec-source.ts';
 import { defaultTune } from '../src/drag/tune.ts';
 import { DRAG_CARS } from '../src/drag/data.ts';
@@ -18,6 +18,7 @@ import { LEADERBOARD_GHOST, buildLeaderGhost, completeSplits, monotoneCurve } fr
 import { allFallbackLeaders, fallbackLeader, parseLeader } from '../src/leaderboard/leader.ts';
 import { buildScorePayload, flattenTune, whyNotRanked } from '../src/leaderboard/payload.ts';
 import { RANKED, conditionsBanner, densityAltitudeFt, rankedStart, rankedStrip } from '../src/leaderboard/ranked.ts';
+import { createLetterPicker, PICKER_LETTERS, PICKER_MAX } from '../src/leaderboard/letter-picker.ts';
 import { createLeaderboardUi } from '../src/leaderboard/ui.ts';
 
 const MARKS = ['ft60', 'ft330', 'eighth', 'ft1000', 'quarter'];
@@ -200,8 +201,9 @@ test('the ui keeps an unsent run when offline, sends it later, and keeps the nam
   assert.equal(again.profile.clientId, ui.profile.clientId, 'the client id is remembered'); assert.ok(again.profile.pending, 'and so is the waiting run');
   online = true; await again.sendPending(); assert.equal(sent, 1); assert.equal(again.profile.pending, null);
   assert.match(await again.submitRun(cleanSlip({ foul: true }), tune, RANKED.seed, null), /CLEAN/); assert.equal(sent, 1);
-  again.startNameEdit(); for (let i = 0; i < 16; i++) again.nameKey('backspace');
-  for (const k of 'ace'.split('')) again.nameKey(k); again.nameKey('enter'); assert.equal(again.profile.playerName, 'ACE');
+  again.startNameEdit(); const pk = again.picker; for (let i = 0; i < 16; i++) pk.remove();
+  const pick = ch => { while (pk.letter !== ch) pk.cycle(1); pk.add(); }; for (const ch of 'ACE') pick(ch);
+  assert.equal(again.finishNameEdit(), true); assert.equal(again.profile.playerName, 'ACE'); assert.equal(again.picker, null);
   assert.equal(createLeaderboardUi({ store, benchmark: () => benchmark, onChange: () => {} }).profile.playerName, 'ACE', 'the name is remembered');
   const noBench = createLeaderboardUi({ store: memoryStore(), benchmark: () => null, onChange: () => {} }); assert.equal(noBench.playerClass(), 'integrated'); assert.ok(noBench.ghost(), 'a ghost exists before any data');
 });
@@ -215,4 +217,26 @@ test('leaderboard code takes no randomness from Math.random and no secrets or re
   const dir = new URL('../src/leaderboard/', import.meta.url);
   for (const f of readdirSync(dir)) { const src = readFileSync(new URL(f, dir), 'utf8').replace(/\/\/.*$/gm, ''); assert.ok(!/Math\.random/.test(src), `${f} uses no Math.random`); assert.ok(!/https?:\/\//.test(src), `${f} has no URL`); }
   assert.equal(statSync(new URL('../src/leaderboard/config.ts', import.meta.url)).isFile(), true);
+});
+
+test('the letter picker: cycle wraps, add and delete edit the name, short names are refused, cancel keeps the old one', () => {
+  const p = createLetterPicker('bob'); assert.equal(p.name, 'BOB'); assert.equal(p.letter, 'A');
+  p.cycle(-1); assert.equal(p.letter, ' '); p.cycle(-1); assert.equal(p.letter, PICKER_LETTERS.at(-1)); p.cycle(1); p.cycle(1); assert.equal(p.letter, 'A');
+  assert.equal(p.add(), true); assert.equal(p.name, 'BOBA'); p.remove(); p.remove(); p.remove(); assert.equal(p.name, 'B'); assert.equal(p.result(), null, 'too short');
+  p.cycle(1); p.add(); p.add(); assert.equal(p.name, 'BBB'); assert.equal(p.result(), 'BBB');
+  const full = createLetterPicker('X'.repeat(30)); assert.equal(full.name.length, PICKER_MAX); assert.equal(full.add(), false);
+  const ui = createLeaderboardUi({ store: memoryStore(), benchmark: () => null, onChange: () => {} }), before = ui.profile.playerName;
+  ui.startNameEdit(); ui.picker.remove(); ui.cancelNameEdit(); assert.equal(ui.profile.playerName, before); assert.equal(ui.picker, null);
+  ui.startNameEdit(); for (let i = 0; i < 16; i++) ui.picker.remove(); assert.equal(ui.finishNameEdit(), false, 'an empty name is not kept'); assert.ok(ui.picker);
+});
+
+test('rubber from your own burnout raises grip: a run on a strip with burnout rubber beats the same run on a fresh strip', () => {
+  const spec = specForBenchmark(null), fresh = rankedStrip(), burnt = rankedStrip();
+  const d = createDrag({ seed: RANKED.seed, conditions: RANKED.conditions, strip: burnt, entrants: [{ name: 'YOU', spec, tune, ai: null, ...rankedStart() }] });
+  d.setInput(0, { throttle: 1, launch: false, shiftUp: false, nitro: false, burnout: true, brake: true, chute: false, deepStage: false, steer: 0 });
+  for (let i = 0; i < 240 * 4; i++) d.step();
+  assert.ok(rubberShare(burnt, 0) > 0 && rubberShare(fresh, 0) === 0, 'the burnout laid rubber');
+  const run = strip => predictDrag(spec, tune, RANKED.seed, RANKED.conditions, rankedStart().fuel, rankedStart().engineTemp, strip).slip;
+  const a = run(fresh), b = run(burnt);
+  assert.ok(b.ft60 < a.ft60 && b.quarter <= a.quarter, `60 ft ${b.ft60} vs ${a.ft60}, quarter ${b.quarter} vs ${a.quarter}`);
 });

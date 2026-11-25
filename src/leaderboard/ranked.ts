@@ -2,7 +2,8 @@
 import { CONDITIONS, FUEL, airDensity, createDragStrip, trackGrip } from '../drag/physics.ts';
 import type { DragConditions, DragStrip } from '../drag/types.ts';
 
-/** Turn `seed` first to change the day for everyone (it also fixes the tree's timing); `conditions` to change the weather. Changing either makes old times incomparable:
+/** Autopilot runs race on this same class day as manual runs (only the leaderboard category differs).
+ * Turn `seed` first to change the day for everyone (it also fixes the tree's timing); `conditions` to change the weather. Changing either makes old times incomparable:
  * bump the benchmark/ranked version when you do. The wind is calm and the weather front is flat on the class day, so no player gets a tailwind. */
 const RANKED_AIR_C = 22, RANKED_TRACK_C = 36, RANKED_ALTITUDE_M = 300;
 export const RANKED = {
