@@ -11,7 +11,9 @@ const HISTORY_MAX = 10;
 /** the car, its spec (from the benchmark result) and the tune made safe for it: what a race or the tune screen uses */
 export function readyCar(save: Save, clutchCondition = 1): { car: DragCarDef; spec: DragSpec; tune: Tune } {
   const spec = specForBenchmark(save.benchmark, clutchCondition);
-  return { car: STOCK_CAR, spec, tune: cleanTune(save.tune, STOCK_CAR, spec) };
+  // (the default tune is built for this engine's revs, so a lower limiter does not start with a shift point above it)
+  const car = { ...STOCK_CAR, peakRpm: spec.peakRpm, redline: spec.redline };
+  return { car: STOCK_CAR, spec, tune: cleanTune(save.tune, car, spec) };
 }
 /** keep a tune (made safe for the car first) */
 export function saveTune(save: Save, tune: Partial<Tune>): Save { const { car, spec } = readyCar(save); return { ...save, tune: cleanTune(tune, car, spec) }; }
