@@ -1,61 +1,44 @@
 // The BENCHMARK and CLASS rows of the title menu (the rules are in rules.ts; the page hands in what it holds through `BenchmarkContext`, which keeps the page's own edits small).
+// The CLASS row only SHOWS the class the game detected from the graphics card. It has no arrows and no ENTER action: a class cannot be picked or locked.
 import type { MenuItem } from '../arena/view/menu.ts';
 import type { Save } from '../save.ts';
-import { classLabel, classNote, isClassId, type ClassId } from '../classes.ts';
-import { classState, lockClass, rerunReason, stepClass, type ClassState } from './rules.ts';
+import { classLabel, classNote, type ClassId } from '../classes.ts';
+import { rerunReason } from './rules.ts';
 import type { GpuIdentity } from './gpu.ts';
 
 export interface BenchmarkContext {
-  save: () => Save; commit: (next: Save) => void; gpu: () => GpuIdentity;
-  /** the class being picked by hand now (not yet locked), kept by the page between visits to the menu */
-  pick: { value: ClassId | null };
+  save: () => Save; gpu: () => GpuIdentity;
   /** put a line under the title */ say: (text: string) => void;
   /** start the benchmark for this class */ start: (cls: ClassId) => void;
-  /** redraw the menu */ refresh: () => void; now: () => number;
+  /** redraw the menu */ refresh: () => void;
 }
-export const classStateOf = (c: BenchmarkContext): ClassState => classState(c.gpu(), c.save().classLock, c.save().benchmark);
 
 /** the line under the title menu's name: the class and the score, or what is missing */
 export function benchmarkLine(c: BenchmarkContext): string {
-  const s = c.save(), why = rerunReason(s.benchmark, c.gpu().gpuId);
-  if (!s.benchmark) return 'NO BENCHMARK YET: RUN IT FROM THE BENCHMARK ROW. UNTIL THEN THE CAR HAS STOCK NUMBERS';
-  const cls = isClassId(s.benchmark.class) ? classLabel(s.benchmark.class) : s.benchmark.class;
+  const s = c.save(), g = c.gpu(), why = rerunReason(s.benchmark, g.gpuId, undefined, g.ready ? g.gpuClass : null);
+  if (!s.benchmark) return `NO BENCHMARK YET: RUN IT FROM THE BENCHMARK ROW. UNTIL THEN THE CAR HAS STOCK NUMBERS. YOUR CLASS: ${g.ready ? classLabel(g.gpuClass) : 'CHECKING'}`;
+  const cls = classLabel(s.benchmark.class as ClassId);
   return why ? `${cls}  SCORE ${s.benchmark.score}  RE-RUN NEEDED: ${why.toUpperCase()}` : `${cls}  SCORE ${s.benchmark.score}`;
 }
 
 export function benchmarkItem(c: BenchmarkContext): MenuItem {
   return {
     id: 'benchmark', label: 'BENCHMARK',
-    value: () => { const s = c.save(), why = rerunReason(s.benchmark, c.gpu().gpuId); return !s.benchmark ? 'NOT RUN' : why ? 'RE-RUN' : `SCORE ${s.benchmark.score}`; },
-    hint: () => 'Scores your graphics card with a few seconds of neon, lights and music, and sets your car\'s horsepower and torque from the score. It runs only from here, never by itself, and needs to be run again only if your graphics card or the benchmark itself changes. Keep this page in front while it runs.',
+    value: () => { const s = c.save(), g = c.gpu(), why = rerunReason(s.benchmark, g.gpuId, undefined, g.ready ? g.gpuClass : null); return !s.benchmark ? 'NOT RUN' : why ? 'RE-RUN' : `SCORE ${s.benchmark.score}`; },
+    hint: () => 'Scores your graphics card with a few seconds of neon, lights and music, and sets your car\'s horsepower and torque from the score. It runs only from here, never by itself, and needs to be run again only if your graphics card, its detected class or the benchmark itself changes. Keep this page in front while it runs.',
     enter: () => {
-      const st = classStateOf(c);
-      if (!st.locked) { c.say('PICK YOUR CLASS FIRST (THE CLASS ROW) AND PRESS ENTER TO LOCK IT'); c.refresh(); return; }
-      c.start(st.locked);
+      const g = c.gpu();
+      if (!g.ready) { c.say('STILL CHECKING YOUR GRAPHICS CARD: TRY AGAIN IN A MOMENT'); c.refresh(); return; }
+      c.start(g.gpuClass);
     },
   };
 }
 
+/** read-only: the class the game detected. ENTER, LEFT and RIGHT do nothing (the row has no handlers) (there is no way to pick a class) */
 export function classItem(c: BenchmarkContext): MenuItem {
-  const shown = (): ClassId | null => { const st = classStateOf(c); return st.locked ?? c.pick.value; };
   return {
     id: 'class', label: 'CLASS',
-    value: () => { const st = classStateOf(c), cls = shown(); return cls ? `${classLabel(cls)}${st.locked ? ' (LOCKED)' : ''}` : 'PICK YOURS'; },
-    hint: () => {
-      const st = classStateOf(c), g = c.gpu(), cls = shown();
-      if (st.how === 'detected') return `Named by your browser from "${g.gpuId.slice(0, 60)}": ${g.why.toLowerCase()}. It cannot be changed.`;
-      if (st.how === 'manual') return 'You picked this class for this graphics card and it is locked. It unlocks only if the game sees a different graphics card.';
-      return `${g.why.toLowerCase()}. Pick the class with LEFT and RIGHT${cls ? ` (${classNote(cls)})` : ''} and press ENTER to lock it for this graphics card. Choose honestly: it cannot be changed afterwards.`;
-    },
-    left: () => { if (classStateOf(c).canChange) { c.pick.value = stepClass(c.pick.value, -1); c.refresh(); } },
-    right: () => { if (classStateOf(c).canChange) { c.pick.value = stepClass(c.pick.value, 1); c.refresh(); } },
-    enter: () => {
-      const st = classStateOf(c);
-      if (!st.canChange) { c.say(st.how === 'detected' ? 'NAMED BY YOUR BROWSER: CANNOT BE CHANGED' : 'ALREADY LOCKED FOR THIS GRAPHICS CARD'); c.refresh(); return; }
-      if (!c.pick.value) { c.pick.value = stepClass(null, 1); c.say('PICKED. USE LEFT AND RIGHT TO CHANGE IT, ENTER TO LOCK'); c.refresh(); return; }
-      const lock = lockClass(st, c.gpu().gpuId, c.pick.value, c.now());
-      if (lock) { c.commit({ ...c.save(), classLock: lock }); c.say(`${classLabel(c.pick.value)} LOCKED`); }
-      c.refresh();
-    },
+    value: () => { const g = c.gpu(); return g.ready ? `${classLabel(g.gpuClass)} (DETECTED)` : 'CHECKING...'; },
+    hint: () => { const g = c.gpu(); return g.ready ? `Detected from "${g.gpuId.slice(0, 60)}": ${g.why.toLowerCase()}. ${classNote(g.gpuClass)}. The class is worked out by the game and cannot be picked or changed.` : 'The game is reading what your browser says about your graphics card.'; },
   };
 }

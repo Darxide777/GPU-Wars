@@ -9,7 +9,7 @@ import { defaultTune, specFor } from '../src/drag/tune.ts';
 /** a canvas context that records what it is asked to draw (text and the calls) and accepts everything else */
 function recorder() {
   const calls = [], texts = [], ellipses = [], lines = []; const fns = new Set(['strokeText', 'fillRect', 'strokeRect', 'moveTo', 'arc', 'fill', 'stroke', 'beginPath', 'closePath', 'save', 'restore', 'translate', 'rotate', 'setLineDash', 'clearRect']);
-  const ctx = new Proxy({}, { get: (t, k) => { if (k === 'fillText') return (s, x, y) => { texts.push(String(s)); calls.push('fillText'); }; if (k === 'ellipse') return (...args) => { ellipses.push(args); calls.push('ellipse'); }; if (k === 'lineTo') return (...args) => { lines.push(args); calls.push('lineTo'); }; if (fns.has(k)) return () => { calls.push(k); }; return t[k]; }, set: (t, k, v) => { t[k] = v; return true; } });
+  const ctx = new Proxy({}, { get: (t, k) => { if (k === 'measureText') return (s) => ({ width: String(s).length * 7.8 }); if (k === 'fillText') return (s, x, y) => { texts.push(String(s)); calls.push('fillText'); }; if (k === 'ellipse') return (...args) => { ellipses.push(args); calls.push('ellipse'); }; if (k === 'lineTo') return (...args) => { lines.push(args); calls.push('lineTo'); }; if (fns.has(k)) return () => { calls.push(k); }; return t[k]; }, set: (t, k, v) => { t[k] = v; return true; } });
   return { ctx, calls, texts, ellipses, lines };
 }
 const ghost = cleanDragGhost({ car: 'streeter', name: 'BEST PASS', reaction: 0.2, marks: { quarter: 13, ft60: 2 }, trap: 180, total: 13.2, samples: [{ t: 0, x: 0, y: 0, psi: 0, v: 0 }, { t: 13.1, x: DRAG.marks.quarter, y: 0, psi: 0, v: 40 }] });
@@ -23,7 +23,7 @@ test('the top-down strip draws every stage of a race: the line-up, the run down 
     if (k % 12 === 0) { r.calls.length = 0; r.texts.length = 0; td.draw(r.ctx, 1280, 720, race.state, 0, 0.05, k / 240); frames++; assert.ok(r.calls.length > 40, `a frame has ${r.calls.length} drawing calls`); if (r.texts.includes('FINISH')) sawFinish = true; if (r.texts.includes(conditionsText(race.state.weather) + weatherText(forecast))) sawConditions = true; if (r.texts.some(t => t.includes('FRONT AIR'))) sawFront = true; }
   }
   assert.ok(frames > 100); assert.ok(sawFinish, 'the finish line came into view'); assert.ok(sawConditions, 'the live conditions are drawn on the strip'); assert.ok(sawFront, 'and the forecast says what the front will do');
-  const last = recorder(); td.draw(last.ctx, 1280, 720, race.state, 0, 0.05, 99); assert.ok(last.texts.includes('YOU') && last.texts.includes('BEST PASS'), 'you and the saved ghost are named');
+  const last = recorder(); td.draw(last.ctx, 1280, 720, race.state, 0, 0.05, 99); assert.ok(last.texts.includes('YOU'), 'you are named'); assert.ok(!last.texts.includes('BEST PASS') && !last.texts.some(t => /^ET \d/.test(t)), 'the ghost carries no name or ET text');
 });
 
 test('it follows your car (the strip scrolls as you go), names the marks, and a new race starts with no old tire marks or smoke', () => {
@@ -42,7 +42,7 @@ test('it follows your car (the strip scrolls as you go), names the marks, and a 
 test('the top-down strip shows the staging beam, the rollout and an abort', () => {
   const race = createDrag({ seed: 5, quickStart: true, entrants: entrants() }), td = createDragTopDown(), r = recorder(), runner = race.state.runners[0];
   td.draw(r.ctx, 1280, 720, race.state, 0, 0, 1);
-  assert.ok(r.texts.includes('STAGE'), 'the staging beam is drawn'); assert.ok(r.texts.includes('STAGED'), 'the car starts staged');
+  assert.ok(r.texts.includes('STAGE'), 'the staging beam is drawn'); assert.ok(r.texts.includes('DEEP STAGED'), 'your car starts staged (the ghost has no stage text)');
   runner.rolling = true; r.texts.length = 0; td.draw(r.ctx, 1280, 720, race.state, 0, 0, 1);
   assert.ok(r.texts.includes('ROLLING'));
   runner.rolling = false; runner.aborted = true; race.state.runners[1].launched = true; r.texts.length = 0; td.draw(r.ctx, 1280, 720, race.state, 0, 0, 1);
@@ -130,4 +130,23 @@ test('the top-down strip shows the blower charge as a number and a bar', () => {
   td.draw(r.ctx, 1280, 720, state, 0, 0, 1);
   assert.ok(r.texts.some(t => /BOOST 75%  180C -20%/.test(t)), r.texts.join(' | '));
   assert.ok(r.calls.filter(c => c === 'strokeRect').length >= 1, 'the boost bar is drawn');
+});
+
+test('no labels overlap on a short or a phone-sized window: the three beam names are apart, the readouts end above the conditions bar, and the ghost has none', () => {
+  // a recording context that keeps each text with its position and font size
+  const place = () => {
+    const items = []; let font = 12;
+    const ctx = new Proxy({}, { get: (t, k) => { if (k === 'fillText') return (s, x, y) => items.push({ s: String(s), x, y, size: font }); if (k === 'measureText') return s => ({ width: String(s).length * font * 0.6 }); if (k === 'createLinearGradient' || k === 'createRadialGradient') return () => ({ addColorStop() {} }); if (k === 'font') return `${font}px`; return () => {}; }, set: (t, k, v) => { if (k === 'font') font = Number(/(\d+(?:\.\d+)?)px/.exec(v)?.[1] ?? 12); return true; } });
+    return { ctx, items };
+  };
+  for (const [W, H] of [[800, 450], [420, 860], [1280, 720], [360, 640]]) {
+    const race = createDrag({ seed: 5, quickStart: true, entrants: entrants() }), td = createDragTopDown(), p = place();
+    td.draw(p.ctx, W, H, race.state, 0, 0, 1);
+    const at = s => p.items.find(i => i.s === s), names = ['DEEP', 'STAGE', 'PRE-STAGE'].map(at).filter(Boolean);
+    for (let i = 1; i < names.length; i++) for (let j = 0; j < i; j++) assert.ok(Math.abs(names[i].y - names[j].y) >= Math.min(names[i].size, names[j].size) * 0.9, `${W}x${H}: ${names[i].s} and ${names[j].s} are apart`);
+    const bar = p.items.filter(i => i.s.startsWith('AIR ') || i.s.startsWith('WIND ')), barTop = Math.min(...bar.map(i => i.y - i.size)), fuel = at(p.items.find(i => i.s.startsWith('FUEL'))?.s);
+    assert.ok(bar.length >= 1, `${W}x${H}: the conditions bar is drawn`); assert.ok(fuel.y < barTop, `${W}x${H}: the readouts (fuel line at ${fuel.y}) end above the conditions bar (top ${barTop})`);
+    for (const i of p.items) assert.ok(i.size <= 16, `${W}x${H}: "${i.s}" is ${i.size}px, not huge`);
+    assert.ok(!p.items.some(i => i.s === 'BEST PASS' || /^ET \d/.test(i.s)), 'no ghost text');
+  }
 });

@@ -7,27 +7,25 @@ import { isClassId } from './classes.ts';
 import { BENCHMARK } from './benchmark/constants.ts';
 
 export const SAVE_KEY = 'gpuwars.save';
-export const SAVE_VERSION = 1;
+/** 2: the class is detected, never picked: `classLock` is gone (an older save's lock is dropped on load, see repairBenchmark in src/benchmark/rules.ts) */
+export const SAVE_VERSION = 2;
 const HISTORY_MAX = 10;
 
 /** what the benchmark leaves behind. It is re-run only when `gpuId` or `benchmarkVersion` changes (src/benchmark/rules.ts). `class` is a class id (src/classes.ts); `sustain` (0 to 1, optional) is how steady the card was across the passes: it shapes the torque curve. */
 export interface BenchmarkResult { score: number; class: string; benchmarkVersion: number; gpuId: string; date: number; sustain?: number }
-/** a class the player picked by hand because the browser did not name the card: locked to that card's `gpuId` */
-export interface ClassLock { class: string; gpuId: string; date: number }
 /** one race, as kept in the history: what it was against, how it went and the timeslip's main numbers */
 export interface RunRecord { against: string; won: boolean; foul: boolean; crossed: boolean; crashed: boolean; reaction: number; et: number; trap: number; at: number }
 export interface Records { races: number; wins: number; fouls: number; crashes: number; bestEt: number; best60: number; bestTrap: number; bestReaction: number; history: RunRecord[] }
 export interface Save {
   version: number;
   /** null until the benchmark has been run */ benchmark: BenchmarkResult | null;
-  /** the hand-picked class, locked to one graphics card (null: none picked) */ classLock: ClassLock | null;
   /** the tune, as typed (made safe for the car when it is used) */ tune: Partial<Tune> | null;
   /** the six named tune slots */ slots: TuneSlots;
   records: Records;
 }
 
 export const emptyRecords = (): Records => ({ races: 0, wins: 0, fouls: 0, crashes: 0, bestEt: 0, best60: 0, bestTrap: 0, bestReaction: 0, history: [] });
-export const emptySave = (): Save => ({ version: SAVE_VERSION, benchmark: null, classLock: null, tune: null, slots: emptySlots(), records: emptyRecords() });
+export const emptySave = (): Save => ({ version: SAVE_VERSION, benchmark: null, tune: null, slots: emptySlots(), records: emptyRecords() });
 
 const num = (v: unknown, d = 0, lo = 0, hi = 1e9): number => (typeof v === 'number' && Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : d);
 const count = (v: unknown): number => Math.floor(num(v, 0, 0, 1e15));      // (large enough for a date in milliseconds)
@@ -43,12 +41,6 @@ export function cleanBenchmark(raw: unknown): BenchmarkResult | null {
   if (typeof raw.sustain === 'number' && Number.isFinite(raw.sustain)) out.sustain = Math.max(0, Math.min(1, raw.sustain));
   return out;
 }
-/** a class lock from a save, or null when it is missing or not a real class */
-export function cleanClassLock(raw: unknown): ClassLock | null {
-  if (!isObject(raw)) return null;
-  const gpuId = text(raw.gpuId, 200), cls = text(raw.class, 60);
-  return gpuId && isClassId(cls) ? { class: cls, gpuId, date: count(raw.date) } : null;
-}
 function cleanRecords(raw: unknown): Records {
   const r = isObject(raw) ? raw : {}, out = emptyRecords();
   out.races = count(r.races); out.wins = count(r.wins); out.fouls = count(r.fouls); out.crashes = count(r.crashes);
@@ -60,7 +52,7 @@ function cleanRecords(raw: unknown): Records {
 export function sanitizeSave(raw: unknown): Save {
   const r = isObject(raw) ? raw : {};
   return {
-    version: SAVE_VERSION, benchmark: cleanBenchmark(r.benchmark), classLock: cleanClassLock(r.classLock), tune: isObject(r.tune) ? (JSON.parse(JSON.stringify(r.tune)) as Partial<Tune>) : null,
+    version: SAVE_VERSION, benchmark: cleanBenchmark(r.benchmark), tune: isObject(r.tune) ? (JSON.parse(JSON.stringify(r.tune)) as Partial<Tune>) : null,
     slots: cleanSlots(r.slots, t => t), records: cleanRecords(r.records),
   };
 }

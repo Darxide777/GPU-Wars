@@ -1,15 +1,20 @@
 // The benchmark: scoring, the spec it gives the car, the dyno, the class and re-run rules, GPU naming, and the save's checks. Deterministic, no GPU needed.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { BENCHMARK } from '../src/benchmark/constants.ts';
 import { summarizePasses, scoreFromRate, capScore, classScoreCap, checkDurations, outcomeFromPasses } from '../src/benchmark/score.ts';
-import { classifyGpu, identityFromText } from '../src/benchmark/gpu.ts';
-import { rerunReason, needsBenchmark, classState, lockClass, stepClass, resultFromRun } from '../src/benchmark/rules.ts';
+import { classifyGpu, identityFromText, identify, gpuLine, PENDING_GPU } from '../src/benchmark/gpu.ts';
+import { rerunReason, needsBenchmark, repairBenchmark, resultFromRun } from '../src/benchmark/rules.ts';
 import { dynoCurve, dynoPeaks, powerAt, torqueAt, dynoSvg } from '../src/benchmark/dyno.ts';
 import { startBenchmark, nextBatch } from '../src/benchmark/runner.ts';
 import { specForBenchmark, stockSpec, specLimitsOf, CLASS_SPEC_LIMITS, curveForSustain, HP_DIVISOR, tableRowFor, WEAKEST_RESULT, UNBENCHMARKED_TORQUE_SHARE } from '../src/drag/spec-source.ts';
 import { CLASS_IDS } from '../src/classes.ts';
-import { sanitizeSave, emptySave, cleanBenchmark, cleanClassLock } from '../src/save.ts';
+import { benchmarkItem, classItem } from '../src/benchmark/menu.ts';
+import { REFERENCE_CARDS } from '../src/benchmark/reference.ts';
+import { predictDrag } from '../src/drag/physics.ts';
+import { RANKED, rankedStart, rankedStrip } from '../src/leaderboard/ranked.ts';
+import { sanitizeSave, emptySave, cleanBenchmark } from '../src/save.ts';
 import { readyCar } from '../src/drag/model.ts';
 import { createDrag, createDragStrip, DRAG } from '../src/drag/physics.ts';
 import { cleanTune } from '../src/drag/tune.ts';
@@ -129,60 +134,107 @@ test('the runner runs warm-up, passes and scoring with a fake card and clock, an
   assert.equal((await startBenchmark({ cls: 'integrated', beat: () => ({}), createWorkload: () => null }).done).status, 'failed', 'no way to draw is reported, not thrown');
 });
 
-// ---- naming the card, never guessing ----
-test('a class is named only when the text says plainly what the card is', () => {
-  const c = t => classifyGpu(t).detectedClass;
-  assert.equal(c('ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 (0x00002504) Direct3D11 vs_5_0 ps_5_0, D3D11)'), 'discrete-nvidia-modern');
-  assert.equal(c('NVIDIA GeForce RTX 4090'), 'discrete-nvidia-current'); assert.equal(c('NVIDIA GeForce GTX 1060 6GB'), 'discrete-nvidia-classic'); assert.equal(c('NVIDIA GeForce GTX 1650'), 'discrete-nvidia-modern'); assert.equal(c('GeForce GTX 480'), 'discrete-nvidia-retro');
-  assert.equal(c('ANGLE (AMD, AMD Radeon RX 580 Series Direct3D11, D3D11)'), 'discrete-amd-classic'); assert.equal(c('AMD Radeon RX 6800 XT'), 'discrete-amd-modern'); assert.equal(c('AMD Radeon RX 7900 XTX'), 'discrete-amd-current');
-  assert.equal(c('ANGLE (Intel, Intel(R) UHD Graphics 620 Direct3D11, D3D11)'), 'integrated'); assert.equal(c('AMD Radeon(TM) Graphics'), 'integrated'); assert.equal(c('Apple M2'), 'integrated'); assert.equal(c('Adreno (TM) 650'), 'integrated');
-  assert.equal(c('Intel(R) Arc(TM) A770 Graphics'), 'discrete-intel-current');
-  // not plain enough: asked of the player
-  for (const t of ['', 'unknown', 'WebKit WebGL', 'Intel(R) Arc(TM) Graphics', 'NVIDIA Quadro P2000', 'Mali', 'Google SwiftShader', 'llvmpipe (LLVM 15)', 'Some Brand GPU 9000']) assert.equal(c(t), null, `"${t}" is not guessed`);
-  assert.equal(classifyGpu('Google SwiftShader').why.includes('SOFTWARE'), true);
+// ---- detecting the class from real strings: always a class, never a pick ----
+// [WebGL vendor, WebGL renderer, WebGPU adapter or null, the class]
+const NV = 'ANGLE (NVIDIA, NVIDIA GeForce RTX 4090 (0x00002684) Direct3D11 vs_5_0 ps_5_0, D3D11)';
+const CARDS = [
+  // the owner's AMD Radeon 8060S (Strix Halo, gfx1151) as Windows, Linux (Mesa, ANGLE) and WebGPU report it, and masked variants
+  ['Google Inc. (AMD)', 'ANGLE (AMD, AMD Radeon(TM) 8060S Graphics (0x00001586) Direct3D11 vs_5_0 ps_5_0, D3D11)', null, 'integrated'],
+  ['AMD', 'AMD Radeon Graphics (radeonsi, gfx1151, LLVM 20.1.2, DRM 3.64, 6.17.0)', null, 'integrated'],
+  ['Google Inc. (AMD)', 'ANGLE (AMD, AMD Radeon Graphics (radeonsi, gfx1151, LLVM 20.1.2, DRM 3.64, 6.17.0), OpenGL 4.6)', { vendor: 'amd', architecture: 'rdna3.5', device: '', description: '' }, 'integrated'],
+  ['', 'Radeon 8060S Graphics', null, 'integrated'], ['', 'Mesa', { vendor: 'amd', architecture: 'rdna3.5' }, 'integrated'], ['', 'Mesa', null, 'integrated'], ['', 'WebKit WebGL', null, 'integrated'],
+  ['', '', { vendor: 'amd', architecture: 'rdna3.5', device: '0x1586', description: 'AMD Radeon 8060S' }, 'integrated'], ['', '', { vendor: 'amd', architecture: 'rdna-3' }, 'integrated'],
+  ['', 'AMD Radeon 890M Graphics', null, 'integrated'], ['', 'AMD Radeon(TM) 780M', null, 'integrated'], ['', 'AMD Radeon(TM) Graphics', null, 'integrated'], ['', 'AMD Radeon(TM) Vega 8 Graphics', null, 'integrated'], ['', 'AMD Radeon RX Vega 11 Graphics', null, 'integrated'],
+  // separate cards
+  ['Google Inc. (NVIDIA)', NV, null, 'discrete-nvidia-current'], ['', 'NVIDIA GeForce RTX 5090/PCIe/SSE2', null, 'discrete-nvidia-current'], ['', '', { vendor: 'nvidia', architecture: 'ada-lovelace', description: 'NVIDIA GeForce RTX 4090' }, 'discrete-nvidia-current'],
+  ['', 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 (0x00002504) Direct3D11 vs_5_0 ps_5_0, D3D11)', null, 'discrete-nvidia-modern'], ['', 'NVIDIA GeForce GTX 1650', null, 'discrete-nvidia-modern'], ['', 'NVIDIA GeForce GTX 1060 6GB', null, 'discrete-nvidia-classic'], ['', 'NVIDIA GeForce GTX 480', null, 'discrete-nvidia-retro'],
+  ['', 'AMD Radeon RX 7900 XTX (radeonsi, navi31, LLVM 19.1.0, DRM 3.59, 6.8.0)', null, 'discrete-amd-current'], ['', 'ANGLE (AMD, AMD Radeon RX 9070 XT (0x00007550) Direct3D11, D3D11)', null, 'discrete-amd-current'], ['', 'AMD Radeon Graphics (radeonsi, gfx1201, LLVM 20.1.2)', null, 'discrete-amd-current'],
+  ['', 'AMD Radeon RX 6800 XT', null, 'discrete-amd-modern'], ['', 'ANGLE (AMD, AMD Radeon RX 580 Series Direct3D11, D3D11)', null, 'discrete-amd-classic'], ['', 'AMD Radeon RX Vega 64', null, 'discrete-amd-classic'],
+  ['', 'ANGLE (Intel, Intel(R) Arc(TM) A770 Graphics (0x000056A0) Direct3D11 vs_5_0 ps_5_0, D3D11)', null, 'discrete-intel-current'], ['', 'ANGLE (Intel, Intel(R) Arc(TM) B580 Graphics (0x0000E20B) Direct3D11, D3D11)', null, 'discrete-intel-current'], ['', '', { vendor: 'intel', architecture: 'xe-hpg', description: 'Intel(R) Arc(tm) A770 Graphics' }, 'discrete-intel-current'],
+  // built in, phones, Apple, software
+  ['', 'ANGLE (Intel, Intel(R) UHD Graphics 620 (0x00005917) Direct3D11 vs_5_0 ps_5_0, D3D11)', null, 'integrated'], ['', 'Mesa Intel(R) Arc(tm) Graphics (MTL)', null, 'integrated'], ['', 'Intel(R) Iris(R) Xe Graphics', null, 'integrated'], ['', '', { vendor: 'intel', architecture: 'xe-lpg' }, 'integrated'],
+  ['', 'ANGLE (Apple, ANGLE Metal Renderer: Apple M3 Pro, Unspecified Version)', null, 'integrated'], ['', 'Apple M2', null, 'integrated'], ['', 'Adreno (TM) 650', null, 'integrated'], ['', 'Mali-G78', null, 'integrated'],
+  ['', 'ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)', null, 'integrated'], ['', 'llvmpipe (LLVM 17.0.6, 256 bits)', null, 'integrated'], ['', '', { vendor: 'google', architecture: 'swiftshader', isFallbackAdapter: true }, 'integrated'],
+  // unclear: the safe defaults
+  ['', '', null, 'integrated'], ['', 'unknown', null, 'integrated'], ['', 'Some Brand GPU 9000', null, 'integrated'],
+  ['', 'NVIDIA GeForce 8800 GTX', null, 'discrete-nvidia-retro'], ['', 'Moore Threads MTT S80', null, 'discrete-other-retro'], ['', '', { vendor: 'nvidia' }, 'discrete-nvidia-retro'],
+];
+test('the class is detected from real renderer and adapter strings, whatever the browser calls the card', () => {
+  for (const [vendor, renderer, adapter, want] of CARDS) assert.equal(identify({ webglVendor: vendor, webglRenderer: renderer, adapter }).gpuClass, want, `${vendor} | ${renderer} | ${JSON.stringify(adapter)}`);
+  for (const [, renderer] of CARDS) assert.ok(CLASS_IDS.includes(classifyGpu(renderer)), 'every answer is a real class id');
 });
-test('the card id and the detected class agree across WebGL and WebGPU, or the player picks', () => {
-  assert.equal(identityFromText('NVIDIA GeForce RTX 3060', '').detectedClass, 'discrete-nvidia-modern');
-  assert.equal(identityFromText('NVIDIA GeForce RTX 3060', 'nvidia ampere').detectedClass, 'discrete-nvidia-modern', 'a vague WebGPU text does not veto');
-  assert.equal(identityFromText('NVIDIA GeForce RTX 3060', 'Intel(R) UHD Graphics 630').detectedClass, null, 'a disagreement is not guessed through');
-  assert.equal(identityFromText('', 'amd rdna-3 Radeon RX 7800 XT').source, 'webgpu'); assert.equal(identityFromText('', '').gpuId, 'unknown'); assert.equal(identityFromText('', '').detectedClass, null);
-  assert.equal(identityFromText('Google SwiftShader', '').software, true); assert.equal(identityFromText('x\u0000éy  z', '').gpuId, 'xy z');
-  assert.ok(identityFromText('a'.repeat(500), '').gpuId.length <= 200);
+test('the safe defaults: unclear is integrated, an unknown maker is "other", an unknown generation is the slowest discrete era', () => {
+  assert.equal(classifyGpu(''), 'integrated'); assert.equal(classifyGpu('WebKit WebGL'), 'integrated');
+  assert.equal(classifyGpu('Moore Threads MTT S80'), 'discrete-other-retro'); assert.equal(classifyGpu('NVIDIA GeForce 9800 GTX'), 'discrete-nvidia-retro');
+  assert.equal(identify({ webglVendor: '', webglRenderer: 'Mesa', adapter: { vendor: 'amd', architecture: 'rdna-3' } }).gpuClass, 'integrated', 'RDNA 3 alone does not tell a 7900 from a 780M: built in');
+});
+test('WebGL and WebGPU: plain evidence beats a guess, a software WebGPU adapter does not veto a real WebGL card, WebGL wins ties', () => {
+  assert.equal(identify({ webglVendor: '', webglRenderer: 'Mesa', adapter: { vendor: 'nvidia', architecture: 'ampere', description: 'NVIDIA GeForce RTX 3060' } }).gpuClass, 'discrete-nvidia-modern', 'WebGL masked: WebGPU names the card');
+  assert.equal(identify({ webglVendor: '', webglRenderer: NV, adapter: { vendor: 'google', architecture: 'swiftshader', isFallbackAdapter: true } }).gpuClass, 'discrete-nvidia-current');
+  assert.equal(identify({ webglVendor: '', webglRenderer: NV, adapter: { vendor: 'intel', description: 'Intel(R) UHD Graphics 630' } }).gpuClass, 'discrete-nvidia-current', 'WebGL is the card the benchmark runs on');
+  assert.equal(identify({ webglVendor: '', webglRenderer: 'SwiftShader', adapter: { vendor: 'nvidia', description: 'NVIDIA GeForce RTX 3060' } }).software, true);
+  assert.equal(identify({ webglVendor: '', webglRenderer: 'x\u0000éy  z', adapter: null }).gpuId, 'xy z'); assert.equal(identify({ webglVendor: '', webglRenderer: '', adapter: null }).gpuId, 'unknown');
+  assert.equal(identify({ webglVendor: '', webglRenderer: '', adapter: { description: 'Radeon' } }).source, 'webgpu'); assert.ok(identify({ webglVendor: '', webglRenderer: 'a'.repeat(500), adapter: null }).gpuId.length <= 200);
+  assert.equal(identityFromText('NVIDIA GeForce RTX 3060', '').gpuClass, 'discrete-nvidia-modern');
+});
+test('the result screen and the console show what the game saw', () => {
+  const g = identify({ webglVendor: 'Google Inc. (AMD)', webglRenderer: 'ANGLE (AMD, AMD Radeon(TM) 8060S Graphics (0x00001586) Direct3D11, D3D11)', adapter: null }), line = gpuLine(g);
+  assert.match(line, /8060S/); assert.match(line, /INTEGRATED/); assert.match(line, /built into the ryzen/);
+  const page = readFileSync(new URL('../src/drag/page.ts', import.meta.url), 'utf8');
+  assert.match(page, /text: `\$\{gpuLine\(gpu\)\}/, 'the BENCHMARK DONE screen shows it'); assert.match(page, /\[GPU Wars benchmark\][^\n]*gpuLine\(gpu\)/, 'the console line shows it');
 });
 
-// ---- re-run and class lock rules ----
-test('the benchmark is re-run only when the card or the benchmark version changes', () => {
-  const r = result(); assert.equal(rerunReason(null, r.gpuId), 'never run'); assert.equal(rerunReason(r, r.gpuId), null); assert.equal(needsBenchmark(r, r.gpuId), false);
+// ---- the class cannot be picked ----
+test('there is no class pick: the CLASS row is read-only and the benchmark runs in the detected class', () => {
+  const gpu = identify({ webglVendor: '', webglRenderer: 'ANGLE (AMD, AMD Radeon(TM) 8060S Graphics Direct3D11, D3D11)', adapter: null });
+  let started = null, said = '', saved = emptySave();
+  const ctx = { save: () => saved, gpu: () => gpu, say: t => { said = t; }, start: cls => { started = cls; }, refresh: () => {} };
+  const row = classItem(ctx);
+  assert.equal(row.left, undefined); assert.equal(row.right, undefined); assert.equal(row.enter, undefined, 'no ENTER-to-lock');
+  assert.match(row.value(), /INTEGRATED/); assert.match(row.hint(), /cannot be picked/);
+  benchmarkItem(ctx).enter(); assert.equal(started, 'integrated', 'the benchmark can only start in the detected class');
+  started = null; const waiting = { ...ctx, gpu: () => PENDING_GPU }; benchmarkItem(waiting).enter(); assert.equal(started, null, 'it waits until the card has been read'); assert.match(said, /CHECKING/);
+  const src = ['src/benchmark/menu.ts', 'src/benchmark/rules.ts', 'src/drag/page.ts', 'src/save.ts'].map(f => readFileSync(new URL('../' + f, import.meta.url), 'utf8')).join('\n');
+  assert.doesNotMatch(src, /lockClass|stepClass|classLock\s*[:=(]|classPick|canChange|LOCKED/, 'no pick or lock code is left');
+});
+test('a strong integrated GPU (the 8060S) is raced as integrated near 10 s, and the same score is never a discrete car', () => {
+  const ref = REFERENCE_CARDS.find(c => c.name === 'AMD Radeon 8060S');
+  const gpu = identify({ webglVendor: 'Google Inc. (AMD)', webglRenderer: 'ANGLE (AMD, AMD Radeon Graphics (radeonsi, gfx1151, LLVM 20.1.2, DRM 3.64, 6.17.0), OpenGL 4.6)', adapter: { vendor: 'amd', architecture: 'rdna3.5' } });
+  assert.equal(gpu.gpuClass, 'integrated');
+  const score = Math.min(scoreFromRate(ref.rate, 'webgl2'), classScoreCap(gpu.gpuClass));
+  const et = cls => { const { spec, tune } = readyCar({ ...emptySave(), benchmark: resultFromRun({ score, sustain: 1, cls, gpuId: gpu.gpuId, now: 1 }) }), st = rankedStart(); return predictDrag(spec, tune, RANKED.seed, RANKED.conditions, st.fuel, st.engineTemp, rankedStrip()).slip.quarter; };
+  assert.ok(Math.abs(et(gpu.gpuClass) - 10) < 0.35, `integrated: ${et(gpu.gpuClass).toFixed(2)} s`);
+  assert.ok(et('discrete-nvidia-classic') < 7, 'the discrete class the owner was put in is the 5 to 6 s car');
+  // no UI path turns it discrete: the only class the benchmark is started with is the detected one, and a saved result of another class is dropped
+  let started = null; benchmarkItem({ save: () => emptySave(), gpu: () => gpu, say() {}, start: c => { started = c; }, refresh() {} }).enter(); assert.equal(started, 'integrated');
+  const stale = { ...emptySave(), benchmark: resultFromRun({ score, sustain: 1, cls: 'discrete-nvidia-classic', gpuId: gpu.gpuId, now: 1 }) };
+  assert.equal(repairBenchmark(stale, gpu).benchmark, null, 'a result saved in a picked class is thrown away');
+  assert.equal(readyCar(repairBenchmark(stale, gpu)).spec.torque, readyCar(emptySave()).spec.torque, 'and the car is stock again until the benchmark is re-run');
+});
+
+// ---- re-run and old saves ----
+test('the benchmark is re-run only when the card, the benchmark version or the detected class changes', () => {
+  const r = result(); assert.equal(rerunReason(null, r.gpuId), 'never run'); assert.equal(rerunReason(r, r.gpuId), null); assert.equal(needsBenchmark(r, { gpuId: r.gpuId, gpuClass: r.class }), false);
   assert.equal(rerunReason(r, 'another card'), 'new graphics card'); assert.equal(rerunReason(r, r.gpuId, BENCHMARK.version + 1), 'new benchmark version'); assert.equal(rerunReason({ ...r, date: 5, score: 1 }, r.gpuId), null, 'age and score do not matter');
+  assert.equal(rerunReason(r, r.gpuId, BENCHMARK.version, 'integrated'), 'class changed'); assert.equal(rerunReason(r, r.gpuId, BENCHMARK.version, r.class), null);
 });
-test('class lock: a named class is fixed, a hand pick locks to the card, and a new card unlocks', () => {
-  const named = { gpuId: 'g1', detectedClass: 'discrete-nvidia-modern' }, unnamed = { gpuId: 'g2', detectedClass: null };
-  let st = classState(named, null, null); assert.deepEqual(st, { locked: 'discrete-nvidia-modern', how: 'detected', canChange: false });
-  assert.equal(lockClass(st, 'g1', 'integrated', 1), null, 'a detected class cannot be overridden');
-  assert.equal(classState(named, { class: 'integrated', gpuId: 'g1', date: 1 }, null).locked, 'discrete-nvidia-modern', 'a lock does not beat the browser');
-  st = classState(unnamed, null, null); assert.deepEqual(st, { locked: null, how: 'none', canChange: true });
-  assert.equal(lockClass(st, 'g2', 'not a class', 1), null); assert.equal(lockClass(st, '', 'integrated', 1), null);
-  const lock = lockClass(st, 'g2', 'discrete-amd-modern', 123.9); assert.deepEqual(lock, { class: 'discrete-amd-modern', gpuId: 'g2', date: 123 });
-  st = classState(unnamed, lock, null); assert.deepEqual(st, { locked: 'discrete-amd-modern', how: 'manual', canChange: false });
-  assert.equal(lockClass(st, 'g2', 'integrated', 5), null, 'once locked it cannot be changed');
-  assert.equal(classState({ gpuId: 'g3', detectedClass: null }, lock, null).canChange, true, 'a different card unlocks the pick');
-  assert.equal(classState(unnamed, null, result({ gpuId: 'g2', class: 'integrated' })).locked, 'integrated', 'a benchmark already run on this card keeps its class');
-  assert.equal(classState({ gpuId: 'g3', detectedClass: null }, null, result({ gpuId: 'g2', class: 'integrated' })).locked, null);
-});
-test('stepping through classes wraps and visits every class', () => {
-  const seen = new Set(); let c = null; for (let i = 0; i < CLASS_IDS.length; i++) { c = stepClass(c, 1); seen.add(c); } assert.equal(seen.size, CLASS_IDS.length);
-  assert.equal(stepClass(CLASS_IDS[CLASS_IDS.length - 1], 1), CLASS_IDS[0]); assert.equal(stepClass(CLASS_IDS[0], -1), CLASS_IDS[CLASS_IDS.length - 1]); assert.equal(stepClass(null, -1), CLASS_IDS[CLASS_IDS.length - 1]);
+test('an old save is repaired: its classLock is dropped and a result in another class is removed, a matching result stays', () => {
+  const old = sanitizeSave({ version: 1, classLock: { class: 'discrete-nvidia-classic', gpuId: 'g', date: 5 }, benchmark: result({ class: 'discrete-nvidia-classic', gpuId: 'g' }), tune: { final: 3.5 } });
+  assert.equal('classLock' in old, false); assert.equal(old.version, 2); assert.equal(old.tune.final, 3.5, 'the tune is kept');
+  assert.equal(repairBenchmark(old, { gpuClass: 'integrated', ready: true }).benchmark, null);
+  assert.equal(repairBenchmark(old, { gpuClass: 'discrete-nvidia-classic', ready: true }), null, 'nothing to repair when the class matches');
+  assert.equal(repairBenchmark(old, { gpuClass: 'integrated', ready: false }), null, 'nothing is judged before the card has been read');
+  assert.equal(repairBenchmark(emptySave(), { gpuClass: 'integrated', ready: true }), null);
 });
 
 // ---- the save ----
-test('the saved benchmark and class lock are checked, and the result has the agreed fields', () => {
+test('the saved benchmark is checked, and the result has the agreed fields', () => {
   const run = resultFromRun({ score: 4321, sustain: 2, cls: 'integrated', gpuId: 'g', now: 99.9 });
   assert.deepEqual(Object.keys(run).sort(), ['benchmarkVersion', 'class', 'date', 'gpuId', 'score', 'sustain']); assert.equal(run.sustain, 1); assert.equal(run.date, 99);
   assert.deepEqual(sanitizeSave({ benchmark: run }).benchmark, run);
   for (const bad of [{ ...run, class: 'integrated; DROP' }, { ...run, class: 'discrete-nvidia-future' }, { ...run, gpuId: '\u0001' }, { ...run, score: 'x' }, { ...run, score: -1 }, null, 3, []]) assert.equal(cleanBenchmark(bad), null);
   assert.equal(cleanBenchmark({ ...run, score: 1e9 }).score, BENCHMARK.maxScore, 'an impossible stored score is capped'); assert.equal(cleanBenchmark({ ...run, sustain: 'x' }).sustain, undefined); assert.equal(cleanBenchmark({ ...run, gpuId: 'é' + 'g'.repeat(400) }).gpuId.length, 200);
-  assert.equal(cleanClassLock({ class: 'integrated', gpuId: 'g', date: 5 }).class, 'integrated'); for (const bad of [{ class: 'x', gpuId: 'g' }, { class: 'integrated', gpuId: '' }, 'x', null]) assert.equal(cleanClassLock(bad), null);
-  assert.equal(sanitizeSave({ classLock: { class: 'integrated', gpuId: 'g', date: -3 } }).classLock.date, 0); assert.equal(emptySave().classLock, null); assert.equal(sanitizeSave({}).classLock, null);
+  assert.equal('classLock' in emptySave(), false); assert.equal('classLock' in sanitizeSave({ classLock: { class: 'integrated', gpuId: 'g', date: 1 } }), false);
 });
 test('a tune saved for a stronger engine is brought inside a weaker one', () => {
   const weak = specForBenchmark(result({ class: 'integrated', score: 0 })), tune = cleanTune({ shiftRpm: 9300, launchRpm: 9000 }, { ...STOCK_CAR, redline: weak.redline, peakRpm: weak.peakRpm }, weak);

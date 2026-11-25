@@ -12,12 +12,16 @@ import type { Mark, Runner } from './types.ts';
 export const LANE_M = 2.4;
 const MARK_NAMES: Record<Mark, string> = { ft60: '60 FT', ft330: '330 FT', eighth: '1/8 MILE', ft1000: '1000 FT', trapStart: '66 FT TRAP', quarter: 'FINISH' };
 const LIFT = { frontFade: 0.75, labelLine: 5.8 } as const;
-const CLUTCH_LABEL = { line: 4.2, barY: 4.8, barH: 0.28, halfW: 1.1 } as const;
-const BOOST_LABEL = { line: 6.7, barY: 7.2, barH: 0.28, halfW: 1.1 } as const;
-const TIRE_LABEL = { line: 8.5 } as const;
-const FUEL_LABEL = { line: 9.5, low: 0.25 } as const;
-/** the ghost's ET line sits above its name and stage label (it has no readouts under it) */
-const GHOST_LABEL = { line: 2.2, side: 2.4, size: 0.8 } as const;
+const CLUTCH_LABEL = { line: 3.4, barY: 3.9, barH: 0.28, halfW: 1.1 } as const;
+const BOOST_LABEL = { line: 5.7, barY: 6.0, barH: 0.28, halfW: 1.1 } as const;
+const TIRE_LABEL = { line: 7.4 } as const;
+const FUEL_LABEL = { line: 8.7, low: 0.25 } as const;
+/** the readouts are drawn in units of `unit` pixels per metre, kept between these so the writing is 10 to 15 px whatever the window (a tall phone screen has a big scale: the writing must not grow with it). `extent` is the block's height in units. */
+const READOUT_UNIT = { min: 10.5, max: 15.8, extent: 9.1, tailClear: 2.6, firstLineTop: 2.4 } as const;
+/** the labels written to the right of the strip (water box, beams, marks): their size, the gap from the wall, and the lowest px between two labels */
+const SIDE_LABEL = { minSize: 8, maxSize: 14, gap: 8, spacing: 1.15 } as const;
+/** the conditions bar at the bottom: the lines it may wrap to, and the room kept between it and the readouts above */
+const CONDITIONS_BAR = { size: 13, minSize: 10, lineHeight: 15, pad: 7, margin: 16, readoutGap: 8, maxLines: 2 } as const;
 /** the readouts' widest line (characters) and the gap from the car's middle to their near edge (m), used to decide whether they fit beside the car */
 const READOUT = { chars: 26, charWidth: 0.6, gap: 1.9, besideLift: 5.2 } as const;
 const SMOKE_TOP = { windDrift: 0.8 } as const;
@@ -28,6 +32,42 @@ export const puffNoise = (n: number, salt: number): number => { let h = (Math.im
 interface Puff { x: number; y: number; vx: number; vy: number; t: number; max: number }
 interface Skid { x0: number; y0: number; x1: number; y1: number }
 
+/** one name written beside the strip: where its beam is, where the text goes, and whether to draw a short line from the beam to the text */
+interface SideName { text: string; beam: number; at: number; col: string; line: boolean }
+/** the names right of the strip: sized to the window (never huge on a phone), pushed apart so none overlaps another, and kept inside the canvas */
+function drawSideNames(ctx: CanvasRenderingContext2D, names: SideName[], wallX: number, scale: number, W: number): void {
+  const size = Math.max(SIDE_LABEL.minSize, Math.min(SIDE_LABEL.maxSize, 1.1 * scale)), x = wallX + SIDE_LABEL.gap, room = Math.max(1, W - x - 2);
+  const sorted = [...names].sort((a, b) => a.at - b.at); let floor = -Infinity;
+  for (const n of sorted) { n.at = Math.max(n.at, floor + size * SIDE_LABEL.spacing); floor = n.at; }
+  ctx.textAlign = 'left';
+  for (const n of sorted) {
+    // a long name on a narrow window is made smaller rather than cut off
+    const fit = Math.min(size, room / (n.text.length * 0.6)); ctx.font = `bold ${Math.max(6, fit)}px monospace`;
+    if (n.line && n.at - 4 !== n.beam) { ctx.strokeStyle = n.col; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(wallX, n.beam); ctx.lineTo(x - 1, n.at - fit * 0.35); ctx.stroke(); }
+    ctx.fillStyle = n.col; ctx.fillText(n.text, x, n.at);
+  }
+}
+/** the conditions text for the bottom bar, in one or two lines that fit the width, and the bar's height */
+interface ConditionsBar { lines: string[]; size: number; height: number }
+function conditionsBar(ctx: CanvasRenderingContext2D, W: number, weather: Parameters<typeof conditionsText>[0], conditions: Parameters<typeof weatherText>[0]): ConditionsBar {
+  const text = conditionsText(weather) + weatherText(conditions), C_ = CONDITIONS_BAR, room = W - 2 * C_.margin - 2 * C_.pad;
+  const width = (t: string, size: number): number => { ctx.font = `bold ${size}px monospace`; return ctx.measureText(t).width; };
+  let size: number = C_.size; while (size > C_.minSize && width(text, size) > room) size--;
+  let lines = [text];
+  if (width(text, size) > room && C_.maxLines > 1) {
+    // two lines, broken at the space nearest the middle, and the size shrunk to fit the longer one
+    const mid = text.length / 2; let cut = -1; for (let k = 0; k < text.length; k++) if (text[k] === ' ' && (cut < 0 || Math.abs(k - mid) < Math.abs(cut - mid))) cut = k;
+    if (cut > 0) lines = [text.slice(0, cut).trim(), text.slice(cut).trim()];
+    size = C_.size; while (size > C_.minSize && Math.max(...lines.map(l => width(l, size))) > room) size--;
+  }
+  return { lines, size, height: lines.length * C_.lineHeight + C_.pad * 2 - 2 };
+}
+function drawConditionsBar(ctx: CanvasRenderingContext2D, bar: ConditionsBar, H: number): void {
+  const C_ = CONDITIONS_BAR, top = H - C_.margin - bar.height, width = Math.max(...bar.lines.map(l => { ctx.font = `bold ${bar.size}px monospace`; return ctx.measureText(l).width; })) + 2 * C_.pad;
+  ctx.fillStyle = 'rgba(5,1,15,0.72)'; ctx.fillRect(C_.margin, top, width, bar.height);
+  ctx.font = `bold ${bar.size}px monospace`; ctx.textAlign = 'left'; ctx.fillStyle = C.cyan;
+  bar.lines.forEach((l, k) => ctx.fillText(l, C_.margin + C_.pad, top + C_.pad + C_.lineHeight * (k + 1) - 4));
+}
 export function createDragTopDown() {
   let puffs: Puff[] = [], skids: Skid[] = [], puffCount = 0, last: DragHudState | null = null; const prev = new Map<string, { x: number; lat: number }>();
   const laneX = (i: number): number => (i === 0 ? -LANE_M : LANE_M);
@@ -38,7 +78,11 @@ export function createDragTopDown() {
   }
   function draw(ctx: CanvasRenderingContext2D, W: number, H: number, s: DragHudState, mine: number, dt: number, time: number): void {
     if (last && last.runners !== s.runners) { puffs = []; skids = []; prev.clear(); puffCount = 0; } last = s;
-    const me = (s.runners[mine] ?? s.runners[0]) as Runner | undefined, camX = me ? me.x : 0, v = me ? me.v : 0, scale = H / (28 + v * 0.55), cx = W / 2, yBase = H * 0.68;
+    const me = (s.runners[mine] ?? s.runners[0]) as Runner | undefined, camX = me ? me.x : 0, v = me ? me.v : 0, scale = H / (28 + v * 0.55), cx = W / 2;
+    // the conditions bar along the bottom is measured first: the readouts under your car must end above it, so on a short window the car is drawn higher up the screen
+    const bar = conditionsBar(ctx, W, s.weather ?? s.conditions, s.conditions), unit = Math.max(READOUT_UNIT.min, Math.min(READOUT_UNIT.max, scale));
+    const readoutShift = Math.max(0, READOUT_UNIT.tailClear * scale - READOUT_UNIT.firstLineTop * unit), readoutRoom = (H - bar.height - CONDITIONS_BAR.margin - CONDITIONS_BAR.readoutGap) - (readoutShift + READOUT_UNIT.extent * unit);
+    const yBase = Math.max(H * 0.5, Math.min(H * 0.68, readoutRoom));
     const sx = (lat: number): number => cx + lat * scale, sy = (x: number): number => yBase - (x - camX) * scale, xTop = camX + yBase / scale + 4, xBot = camX - (H - yBase) / scale - 4, half = LANE_M * 2;
     ctx.fillStyle = '#05010f'; ctx.fillRect(0, 0, W, H);
     // the ground beside the strip: a faint grid that scrolls past, every 10 m
@@ -58,21 +102,21 @@ export function createDragTopDown() {
     }
     // the start line (white), the marks and the chequered finish, with their names on the right
     ctx.fillStyle = '#ffffff'; ctx.fillRect(sx(-half), sy(0) - 0.3 * scale, half * 2 * scale, 0.6 * scale);
-    ctx.font = `bold ${Math.max(10, 1.1 * scale)}px monospace`; ctx.textAlign = 'left';
-    // the staging area behind the line: the water box (wet, low grip), the pre-stage beam, and the run-out past the tree
-    const boxTop = sy(STAGE.waterBoxEnd), boxBottom = sy(STAGE.waterBoxStart); if (boxBottom > -20 && boxTop < H + 20) { ctx.fillStyle = 'rgba(33,140,255,0.22)'; ctx.fillRect(sx(-half), boxTop, half * 2 * scale, boxBottom - boxTop); ctx.fillStyle = C.cyan; ctx.fillText('WATER BOX', sx(half) + 1.2 * scale, boxTop + 14); }
-    const preY = sy(-STAGE.preStageRollout); if (preY > -20 && preY < H + 20) { ctx.fillStyle = 'rgba(255,225,77,0.7)'; ctx.fillRect(sx(-half), preY - 0.15 * scale, half * 2 * scale, 0.3 * scale); ctx.fillStyle = C.yel; ctx.fillText('PRE-STAGE', sx(half) + 1.2 * scale, preY + 4); }
-    const stageY = sy(-DRAG.stageRollout); if (stageY > -20 && stageY < H + 20) { ctx.fillStyle = 'rgba(33,230,255,0.7)'; ctx.fillRect(sx(-half), stageY - 0.25 * scale, half * 2 * scale, 0.5 * scale); ctx.fillStyle = C.cyan; ctx.fillText('STAGE', sx(half) + 1.2 * scale, stageY + 4); }
-    const deepY = sy(-DRAG.deepStageRollout); if (deepY > -20 && deepY < H + 20) { ctx.fillStyle = 'rgba(255,138,31,0.8)'; ctx.fillRect(sx(-half), deepY - 0.15 * scale, half * 2 * scale, 0.3 * scale); ctx.fillStyle = C.org; ctx.fillText('DEEP', sx(half) + 1.2 * scale, deepY + 4); }
+    // the names written to the right of the strip: collected, spread apart so two close beams (pre-stage, stage, deep stage are under a metre apart) never write over each other, then drawn with a short line to their beam
+    const names: SideName[] = [];
+    const boxTop = sy(STAGE.waterBoxEnd), boxBottom = sy(STAGE.waterBoxStart); if (boxBottom > -20 && boxTop < H + 20) { ctx.fillStyle = 'rgba(33,140,255,0.22)'; ctx.fillRect(sx(-half), boxTop, half * 2 * scale, boxBottom - boxTop); names.push({ text: 'WATER BOX', beam: boxTop + 14, at: boxTop + 14, col: C.cyan, line: false }); }
+    // the staging area behind the line: the pre-stage beam, the stage beam and the deep stage beam, and the run-out past the tree
+    const beam = (y: number, fill: string, thick: number, text: string, col: string): void => { if (y > -20 && y < H + 20) { ctx.fillStyle = fill; ctx.fillRect(sx(-half), y - thick * scale / 2, half * 2 * scale, thick * scale); names.push({ text, beam: y, at: y + 4, col, line: true }); } };
+    beam(sy(-STAGE.preStageRollout), 'rgba(255,225,77,0.7)', 0.3, 'PRE-STAGE', C.yel); beam(sy(-DRAG.stageRollout), 'rgba(33,230,255,0.7)', 0.5, 'STAGE', C.cyan); beam(sy(-DRAG.deepStageRollout), 'rgba(255,138,31,0.8)', 0.3, 'DEEP', C.org);
     for (const [k, x] of Object.entries(DRAG.marks) as [Mark, number][]) {
       const y = sy(x); if (y < -20 || y > H + 20) continue;
       if (k === 'quarter') { const n = 16, w = (half * 2 * scale) / n; for (let q = 0; q < n; q++) for (let row = 0; row < 2; row++) { ctx.fillStyle = (q + row) % 2 ? '#e8f8ff' : '#150a30'; ctx.fillRect(sx(-half) + q * w, y - 1.2 * scale + row * 1.2 * scale, w, 1.2 * scale); } }
       else { ctx.fillStyle = 'rgba(255,225,77,0.55)'; ctx.fillRect(sx(-half), y - 0.15 * scale, half * 2 * scale, 0.3 * scale); }
-      ctx.fillStyle = C.yel; ctx.fillText(MARK_NAMES[k], sx(half) + 1.2 * scale, y + 4);
+      names.push({ text: MARK_NAMES[k], beam: y, at: y + 4, col: C.yel, line: false });
     }
-    const endY = sy(SHUTDOWN.end); if (endY > -20 && endY < H + 20) { ctx.fillStyle = C.red; ctx.fillRect(sx(-half), endY - 0.3 * scale, half * 2 * scale, 0.6 * scale); ctx.fillText('END OF STRIP', sx(half) + 1.2 * scale, endY + 4); }
-    ctx.fillStyle = 'rgba(5,1,15,0.72)'; ctx.fillRect(16, H - 44, Math.min(560, W * 0.44), 28);
-    ctx.font = 'bold 13px monospace'; ctx.textAlign = 'left'; ctx.fillStyle = C.cyan; ctx.fillText(conditionsText(s.weather ?? s.conditions) + weatherText(s.conditions), 26, H - 24);
+    const endY = sy(SHUTDOWN.end); if (endY > -20 && endY < H + 20) { ctx.fillStyle = C.red; ctx.fillRect(sx(-half), endY - 0.3 * scale, half * 2 * scale, 0.6 * scale); names.push({ text: 'END OF STRIP', beam: endY, at: endY + 4, col: C.red, line: false }); }
+    drawSideNames(ctx, names, sx(half), scale, W);
+    drawConditionsBar(ctx, bar, H);
     // the tire marks on the strip, and the smoke
     ctx.lineCap = 'round'; ctx.strokeStyle = 'rgba(0,0,0,0.75)'; ctx.lineWidth = Math.max(2, 0.8 * scale); ctx.beginPath(); for (const k of skids) { const a = sy(k.x0), b = sy(k.x1); if ((a < -10 && b < -10) || (a > H + 10 && b > H + 10)) continue; ctx.moveTo(sx(k.y0), a); ctx.lineTo(sx(k.y1), b); } ctx.stroke(); ctx.lineCap = 'butt';
     s.runners.forEach((r, i) => {      // new marks and smoke from every spinning rear tire (and a burnout on the line)
@@ -87,18 +131,19 @@ export function createDragTopDown() {
     for (const p of puffs) { const f = p.t / p.max; ctx.globalAlpha = 0.45 * (1 - f); ctx.fillStyle = '#bdf7ff'; ctx.beginPath(); ctx.arc(sx(p.y), sy(p.x), (0.6 + 1.8 * f) * scale, 0, 6.283); ctx.fill(); } ctx.globalAlpha = 1;
     // the cars: the one you drive last, so it is on top
     const order = s.runners.map((_, i) => i).sort((a, b) => (a === mine ? 1 : 0) - (b === mine ? 1 : 0));
-    for (const i of order) carOf(ctx, s.runners[i] as Runner, i, sx(laneX(i) + (s.runners[i] as Runner).y), sy((s.runners[i] as Runner).x), scale, time, i === mine, laneX(i) > laneX(mine) ? 1 : -1);
+    for (const i of order) carOf(ctx, s.runners[i] as Runner, i, sx(laneX(i) + (s.runners[i] as Runner).y), sy((s.runners[i] as Runner).x), scale, time, i === mine);
     // the readouts come last, on top of every car, and only for your car: two cars side by side would write over each other's
     const mineRunner = s.runners[mine];
     if (mineRunner && !mineRunner.ghost) {
-      // they go on the side of your car away from the other car (over the dark ground beside the strip) when the screen is wide enough, and under it when it is not
-      const rivalIdx = s.runners.findIndex((_, i) => i !== mine), away = rivalIdx < 0 ? 0 : laneX(rivalIdx) > laneX(mine) ? -1 : 1, px = sx(laneX(mine) + mineRunner.y), wide = Math.max(10, 0.95 * scale) * READOUT.charWidth * READOUT.chars + READOUT.gap * scale;
-      readoutsOf(ctx, mineRunner, px, sy(mineRunner.x), scale, away < 0 && px - wide > 0 ? -1 : away > 0 && px + wide < W ? 1 : 0);
+      // under the car, clear of its tail, whenever that fits above the conditions bar (the car is drawn higher on a short window to make it fit); if even then it cannot, beside the car on the side away from the other car
+      const rivalIdx = s.runners.findIndex((_, i) => i !== mine), away = rivalIdx < 0 ? 0 : laneX(rivalIdx) > laneX(mine) ? -1 : 1, px = sx(laneX(mine) + mineRunner.y), wide = unit * 0.95 * READOUT.charWidth * READOUT.chars + READOUT.gap * unit;
+      const fitsUnder = readoutRoom >= H * 0.5, side: -1 | 0 | 1 = fitsUnder ? 0 : away < 0 && px - wide > 0 ? -1 : away > 0 && px + wide < W ? 1 : 0;
+      readoutsOf(ctx, mineRunner, px, sy(mineRunner.x) + (side === 0 ? readoutShift : 0), unit, side);
     }
     ctx.textAlign = 'left';
   }
   /** one car from above at (x, y) on the screen, its nose up and turned by its heading: `scale` pixels to the metre */
-  function carOf(ctx: CanvasRenderingContext2D, r: Runner, i: number, x: number, y: number, scale: number, time: number, mineCar: boolean, awayFromYou = 1): void {
+  function carOf(ctx: CanvasRenderingContext2D, r: Runner, i: number, x: number, y: number, scale: number, time: number, mineCar: boolean): void {
     const m = scale, col = r.spec.col, trim = r.spec.trim;
     ctx.save(); ctx.translate(x, y); ctx.rotate(r.psi); ctx.lineWidth = Math.max(1.2, 0.12 * m);
     if (r.nitroOn) for (const off of [-0.45, 0.45]) { const L = (2.4 + 1.2 * Math.abs(Math.sin(time * 40 + off * 9))) * m; ctx.fillStyle = 'rgba(255,138,31,0.85)'; ctx.beginPath(); ctx.moveTo((off - 0.18) * m, 2.5 * m); ctx.lineTo(off * m, 2.5 * m + L); ctx.lineTo((off + 0.18) * m, 2.5 * m); ctx.fill(); ctx.fillStyle = 'rgba(255,240,200,0.9)'; ctx.beginPath(); ctx.moveTo((off - 0.08) * m, 2.5 * m); ctx.lineTo(off * m, 2.5 * m + L * 0.55); ctx.lineTo((off + 0.08) * m, 2.5 * m); ctx.fill(); }
@@ -125,10 +170,10 @@ export function createDragTopDown() {
     ctx.shadowBlur = 0; ctx.fillStyle = col; ctx.beginPath(); ctx.ellipse(0, 0.35 * m, 0.22 * m, 0.4 * m, 0, 0, 6.283); ctx.fill(); ctx.fillStyle = trim; ctx.fillRect(-0.3 * m, 1.1 * m, 0.6 * m, 0.7 * m);      // (the driver, and the engine)
     if (r.reversing) { ctx.fillStyle = '#ffffff'; ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 10; for (const off of [-0.45, 0.45]) ctx.fillRect((off - 0.12) * m, 2.5 * m, 0.24 * m, 0.2 * m); ctx.shadowBlur = 0; }      // the reverse lights
     ctx.restore();
-    // your labels sit over your car; the ghost's go to the outer side of its own lane, smaller, so two cars side by side never write over each other
-    const lx = mineCar ? x : x + awayFromYou * GHOST_LABEL.side * m;
-    ctx.font = `bold ${Math.max(10, (mineCar ? 0.95 : GHOST_LABEL.size) * m)}px monospace`; ctx.textAlign = mineCar ? 'center' : awayFromYou > 0 ? 'left' : 'right'; ctx.fillStyle = mineCar ? C.cyan : C.mag; ctx.fillText(i === 0 && mineCar ? 'YOU' : r.name, lx, y - 3.4 * m);
-    if (r.ghost) ghostLine(ctx, r, lx, y, m);
+    // your labels sit over your car. The GHOST HAS NO TEXT AT ALL (no name, stage or ET beside it): its delta is on the HUD and the timeslip's VS table.
+    if (r.ghost) return;
+    const lx = x;
+    ctx.font = `bold ${Math.max(READOUT_UNIT.min * 0.95, Math.min(READOUT_UNIT.max * 0.95, 0.95 * m))}px monospace`; ctx.textAlign = 'center'; ctx.fillStyle = C.cyan; ctx.fillText(i === 0 && mineCar ? 'YOU' : r.name, lx, y - 3.4 * m);
     if (r.lift > 0) { ctx.fillStyle = C.yel; ctx.fillText('FRONT UP', lx, y - LIFT.labelLine * m); }
     if (r.aborted) { ctx.fillStyle = C.red; ctx.fillText('ABORT', lx, y - 4.6 * m); }
     else if (r.rolling) { ctx.fillStyle = '#34ff7a'; ctx.fillText('ROLLING', lx, y - 4.6 * m); }
@@ -153,10 +198,5 @@ export function createDragTopDown() {
     ctx.fillStyle = wearL > 0.2 || wearR > 0.2 ? C.org : C.cyan; put(`TIRE L${Math.round(tl.temp)}C ${Math.round(wearL * 100)}%  R${Math.round(tr.temp)}C ${Math.round(wearR * 100)}%`, x, y + TIRE_LABEL.line * m);
     const f = fuelShare(r); ctx.fillStyle = f < FUEL_LABEL.low ? C.red : C.cyan; put(`FUEL ${(Math.round(r.fuel * 10) / 10).toFixed(1)} KG ${Math.round(f * 100)}%`, x, y + FUEL_LABEL.line * m);
       }
-  /** the ghost's one extra line under its name: its ET once it has crossed the line (the only thing that is compared) */
-  function ghostLine(ctx: CanvasRenderingContext2D, r: Runner, x: number, y: number, m: number): void {
-    const quarter = r.marks.quarter; if (quarter === undefined) return;
-    ctx.fillStyle = C.mag; ctx.fillText(`ET ${quarter.toFixed(3)} S  ${Math.round(r.trap / 1.609344)} MPH`, x, y - GHOST_LABEL.line * m);
-  }
   return { draw };
 }

@@ -3,7 +3,7 @@ changes to drag mode for GPU Wars
 DONE (see the pull request "Integration: the full standalone GPU Wars"):
 refer to the following link for itch.io requirements. https://itch.io/docs/creators/html5   [npm run package, docs/ITCH.md]
 add touch support for mobile.   [on-screen controls, analog gas, pointer events; needs testing on a real phone]
-gpu benchmark needs to work for anything that can play this game.   [WebGL2, WebGL1 and 2D fallbacks, and pick your class by hand]
+gpu benchmark needs to work for anything that can play this game.   [WebGL2, WebGL1 and 2D fallbacks, and the class is detected from WebGL and WebGPU, never picked]
 no currency or upgrade options, only tuning. horsepower and torque will be determined from gpu benchmark. use the current top upgrades as the simulations stock parts.
 no rivals. players will race a ghost of the top player on the leaderboard for their class.   [the only ghost is the class leader's]
 the ghost doesnt need to follow the games simulation. just simulate the top leaderboard time and make it look like it.
