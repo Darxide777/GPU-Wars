@@ -92,10 +92,10 @@ const mapAt = (points: readonly (readonly [number, number])[], f: number): numbe
   }
   return last[1];
 };
-/** the named rev/torque map: the torque at `rpm` as a fraction of the peak, rising to `peakRpm` and falling toward the limiter */
-export function torqueShape(spec: Pick<DragSpec, 'idle' | 'peakRpm' | 'redline'>, rpm: number): number {
-  const r = Math.max(spec.idle, Math.min(spec.redline, rpm));
-  return r <= spec.peakRpm ? mapAt(ENGINE.map.rise, (r - spec.idle) / Math.max(1, spec.peakRpm - spec.idle)) : mapAt(ENGINE.map.fall, (r - spec.peakRpm) / Math.max(1, spec.redline - spec.peakRpm));
+/** the named rev/torque map (the car's own `curve`, else the shared ENGINE.map): the torque at `rpm` as a fraction of the peak, rising to `peakRpm` and falling toward the limiter */
+export function torqueShape(spec: Pick<DragSpec, 'idle' | 'peakRpm' | 'redline' | 'curve'>, rpm: number): number {
+  const r = Math.max(spec.idle, Math.min(spec.redline, rpm)), map = spec.curve ?? ENGINE.map;
+  return r <= spec.peakRpm ? mapAt(map.rise, (r - spec.idle) / Math.max(1, spec.peakRpm - spec.idle)) : mapAt(map.fall, (r - spec.peakRpm) / Math.max(1, spec.redline - spec.peakRpm));
 }
 /** the torque left in the soft part of the limiter: full until `redline - span`, fading to `1 - cut` at the redline */
 export const limiterTorqueShare = (spec: Pick<DragSpec, 'redline'>, rpm: number): number => 1 - ENGINE.limiter.cut * clamp((rpm - (spec.redline - ENGINE.limiter.span)) / Math.max(1, ENGINE.limiter.span), 0, 1);

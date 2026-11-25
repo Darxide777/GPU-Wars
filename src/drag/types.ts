@@ -46,6 +46,8 @@ export interface DragConditions {
 }
 
 /** a car ready to race: the dealer car with its parts applied (what the physics uses) */
+/** a rev/torque map: torque as a share of the peak from idle up to `peakRpm` (`rise`) and from `peakRpm` to the limiter (`fall`); each point is [how far along 0 to 1, the share] */
+export interface TorqueCurve { rise: readonly (readonly [number, number])[]; fall: readonly (readonly [number, number])[] }
 export interface DragSpec {
   name: string; col: string; trim: string; mass: number; torque: number; peakRpm: number; idle: number; redline: number; gearsMax: number;
   tire: number; grip: number; rear: number; /** kg on the driven wheels (losing weight takes it off the front) */ rearKg: number; cda: number; shiftTime: number; /** seconds of nitro at a full shot (0: no bottle) */ nitroSecs: number; nitroMax: number;
@@ -53,6 +55,7 @@ export interface DragSpec {
   gearEff: number[];
   /** the blower's full boost multiplier (0 with no part) and the seconds it takes to reach 90% of its target */
   boostCap: number; boostLag: number;
+  /** this car's own torque curve; missing means the shared ENGINE.map (the stock dragster with no benchmark) */ curve?: TorqueCurve;
   /** clutch: torque share while slipping, heat capacity, wear resistance and the condition this run starts with (1 new) */
   clutchShare: number; clutchHeatCapacity: number; clutchWearResist: number; clutchCondition: number;
 }

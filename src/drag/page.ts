@@ -16,6 +16,12 @@ import { BOOST, defaultTune } from './tune.ts';
 import { tuneHint } from './tune-help.ts';
 import { drawLane, drawProgress, drawTach } from './hud.ts';
 import { createDragTopDown } from './topdown.ts';
+import { readGpuIdentity, type GpuIdentity } from '../benchmark/gpu.ts';
+import { openBenchmarkScreen, type BenchmarkScreen } from '../benchmark/screen.ts';
+import { benchmarkItem, benchmarkLine, classItem, type BenchmarkContext } from '../benchmark/menu.ts';
+import { resultFromRun } from '../benchmark/rules.ts';
+import { dynoPeaks, dynoSvg } from '../benchmark/dyno.ts';
+import type { ClassId } from '../classes.ts';
 import type { DragGhost, DragRaceKind, DragSpec, Runner, Timeslip, Tune } from './types.ts';
 
 const $ = (id: string): HTMLElement => document.getElementById(id) as HTMLElement;
@@ -66,24 +72,45 @@ const fuelItem = (): MenuItem => {
 /** you, on the line: the stock car with the benchmark's numbers, your tune, and the clutch, fuel and engine heat you carry from the last race */
 const myEntrant = (): Entrant => { const { spec, tune } = readyCar(save, clutchCondition); return { name: 'YOU', spec, tune, ai: null, clutchCondition, fuel: fuelOf(), engineTemp: engineOf() }; };
 
+// ---- the graphics card and the benchmark (rules: src/benchmark/rules.ts) ----
+let gpu: GpuIdentity = { gpuId: 'unknown', source: 'none', detectedClass: null, why: 'CHECKING THE GRAPHICS CARD', software: false };
+let benchScreen: BenchmarkScreen | null = null;
+const classPick: { value: ClassId | null } = { value: null };
+const benchContext: BenchmarkContext = {
+  save: () => save, commit, gpu: () => gpu, pick: classPick, now: () => Date.now(), say: text => { msg = text; }, refresh: () => { if (screen === 'title') render(); },
+  start: cls => { show('bench'); music.startMusic(); benchScreen = openBenchmarkScreen({ cls, playing: () => music.nowPlaying(), onFinish: r => finishBenchmark(cls, r) }); },
+};
+function finishBenchmark(cls: ClassId, r: Parameters<Parameters<typeof openBenchmarkScreen>[0]['onFinish']>[0]): void {
+  benchScreen?.close(); benchScreen = null;
+  if (r.status === 'done') {
+    commit({ ...save, benchmark: resultFromRun({ score: r.outcome.score, sustain: r.outcome.sustain, cls, gpuId: gpu.gpuId, now: Date.now() }) });
+    const spec = readyCar(save).spec, peaks = dynoPeaks(spec);
+    soon = { title: 'BENCHMARK DONE', help: `SCORE ${r.outcome.score}${r.outcome.capped ? ' (CAPPED FOR YOUR CLASS)' : ''}`, text: `Your car now makes ${Math.round(peaks.hp)} hp at ${peaks.hpRpm} rpm and ${Math.round(peaks.torqueNm)} Nm of torque. ${r.outcome.discarded.length ? `${r.outcome.discarded.length} unsteady pass(es) were thrown away. ` : ''}Drawn with ${r.outcome.backend}.` };
+    show('soon');
+  } else if (r.status === 'failed') { soon = { title: 'BENCHMARK FAILED', help: 'NOT SCORED', text: `${r.reason}. Nothing was saved. Run it again from the BENCHMARK row.` }; show('soon'); }
+  else show('title');
+}
+void readGpuIdentity().then(g => { gpu = g; if (screen === 'title') show('title'); });
+
 // ---- the screens ----
-type Screen = 'title' | 'soon' | 'records' | 'tune' | 'race' | 'slip';
+type Screen = 'title' | 'soon' | 'bench' | 'records' | 'tune' | 'race' | 'slip';
 type TuneTab = 'tuning' | 'stats';
 let screenBefore: Screen = 'title', screen: Screen = 'title', menu: Menu | null = null, msg = '', raceKind: DragRaceKind = 'solo', sel: Record<string, number> = {}, tuneTab: TuneTab = 'tuning';
-let soon = { title: '', text: '' };
+let soon: { title: string; text: string; help?: string } = { title: '', text: '' };
 let race: Drag = createDrag({ seed: raceSeed, strip, entrants: [myEntrant(), ...ghostList()] }), banked = true, overT = 0, acc = 0;
-let result: { won: boolean; crashed: boolean; records: string[]; improved: boolean; slips: Timeslip[]; reason: string; winner: number; kind: DragRaceKind } | null = null;
+let result: { won: boolean; crashed: boolean; records: string[]; improved: boolean; slips: Timeslip[]; reason: string; winner: number; kind: DragRaceKind; hp: number[] } | null = null;
 function ghostList(): Entrant[] { const g = ghostToRace(); return g ? [ghostEntrant(g)] : []; }
 const WIDE: Screen[] = ['tune', 'slip', 'records'];
 const setTuneTab = (tab: TuneTab): void => { if (tuneTab === tab) return; tuneTab = tab; show('tune'); };
 
 function statsTable(spec: DragSpec, tune: Tune, seed = raceSeed, kg = fuelOf()): string {
   const temp = engineOf(), p = predict(spec, tune, seed, kg, temp), s = p.slip, tops = gearTops(spec, tune).map(v => Math.round(v)).join(' / ');
-  const rows: [string, string][] = [['WEIGHT', `${Math.round(spec.mass)} KG`], ['FUEL LOAD', `${Math.round(kg)} KG ${Math.round(fuelShareOf(kg) * 100)}%`], ['ENGINE START', `${Math.round(temp)}C`], ['TORQUE', `${Math.round(spec.torque)} NM @ ${spec.peakRpm}`], ['LIMITER', `${spec.redline} RPM`], ['GEARS', `${tune.ratios.length}  (SHIFT ${spec.shiftTime.toFixed(2)} S)`], ['BOOST', spec.boostCap > 0 ? `${Math.round(boostLimitOf(tune) * 100)}% OF +${Math.round(spec.boostCap * 100)}%` : 'NONE'], ['CLUTCH BITE', `${tune.launchAggression}/10`], ['CLUTCH CONDITION', `${Math.round(spec.clutchCondition * 100)}%`], ['GRIP', spec.grip.toFixed(2)], ['CONDITIONS', forecastText(conditionsForSeed(seed))], ['NITRO', spec.nitroSecs > 0 ? `${spec.nitroSecs} S, UP TO ${Math.round(spec.nitroMax * 100)}%` : 'NONE'], ['TOP OF EACH GEAR', tops]];
+  const rows: [string, string][] = [['WEIGHT', `${Math.round(spec.mass)} KG`], ['FUEL LOAD', `${Math.round(kg)} KG ${Math.round(fuelShareOf(kg) * 100)}%`], ['ENGINE START', `${Math.round(temp)}C`], ['TORQUE', `${Math.round(spec.torque)} NM @ ${spec.peakRpm}`], ['POWER', `${Math.round(dynoPeaks(spec).hp)} HP @ ${dynoPeaks(spec).hpRpm}`], ['LIMITER', `${spec.redline} RPM`], ['GEARS', `${tune.ratios.length}  (SHIFT ${spec.shiftTime.toFixed(2)} S)`], ['BOOST', spec.boostCap > 0 ? `${Math.round(boostLimitOf(tune) * 100)}% OF +${Math.round(spec.boostCap * 100)}%` : 'NONE'], ['CLUTCH BITE', `${tune.launchAggression}/10`], ['CLUTCH CONDITION', `${Math.round(spec.clutchCondition * 100)}%`], ['GRIP', spec.grip.toFixed(2)], ['CONDITIONS', forecastText(conditionsForSeed(seed))], ['NITRO', spec.nitroSecs > 0 ? `${spec.nitroSecs} S, UP TO ${Math.round(spec.nitroMax * 100)}%` : 'NONE'], ['TOP OF EACH GEAR', tops]];
   const pred: [string, string][] = [['60 FT', sec(s.ft60)], ['330 FT', sec(s.ft330)], ['1/8 MILE', sec(s.eighth)], ['1000 FT', sec(s.ft1000)], ['1/4 MILE', sec(s.quarter)], ['TRAP', kmh(s.trap)], ['BOOST PEAK', s.boostPeak !== undefined ? `${Math.round(s.boostPeak * 100)}%` : '-'], ['ENGINE PEAK', s.enginePeakTemp !== undefined ? `${Math.round(s.enginePeakTemp)}C  -${Math.round((s.peakRetard ?? 0) * 100)}% TIMING` : '-'], ['SPIN', spinCell(s)], ['TIRE WEAR', s.tireWearL !== undefined && s.tireWearR !== undefined ? `L${Math.round(s.tireWearL * 100)}% R${Math.round(s.tireWearR * 100)}%` : '-'], ['NITRO SHOT', s.nitroUsed ? `${s.nitroUsed.toFixed(2)} S  +${Math.round((s.nitroPeakGain ?? 0) * 100)}% PEAK` : '-'], ['NITRO DELTA', spec.nitroSecs > 0 && p.nitroDelta !== undefined ? `${p.nitroDelta >= 0 ? '+' : ''}${p.nitroDelta.toFixed(3)} S WITH BOTTLE` : '-'], ['FUEL LEFT', fuelCell(s)], ['REAR WEIGHT', rearCell(s)], ['BRAKE', brakeCell(s)], ['CHUTE', chuteCell(s)]];
   const t = (title: string, r: [string, string][]): string => `<table><tr><th>${title}</th><th></th></tr>${r.map(([a, b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join('')}</table>`;
-  return `<div class="slips">${t(spec.name, rows)}${t('PREDICTED: PERFECT R/T, AUTO SHIFTS, WARM TIRES, NO BURNOUT, START ENGINE HEAT, AUTO RUN-OUT, SESSION RUBBER', pred)}</div>`;
-}let backFrom: Partial<Record<Screen, Screen>> = {}, isBackdrop = true, backdropKey = '';
+  return `${dynoSvg(spec, tune.shiftRpm)}<div class="slips">${t(spec.name, rows)}${t('PREDICTED: PERFECT R/T, AUTO SHIFTS, WARM TIRES, NO BURNOUT, START ENGINE HEAT, AUTO RUN-OUT, SESSION RUBBER', pred)}</div>`;
+}
+let backFrom: Partial<Record<Screen, Screen>> = {}, isBackdrop = true, backdropKey = '';
 /** behind the menus: your car and the ghost on the line */
 function backdrop(): void {
   const g = ghostToRace(), key = `${g?.total ?? 0}|${g?.marks.quarter ?? 0}|${raceSeed}|${clutchCondition}|${fuelOf()}|${engineOf()}|${JSON.stringify(save.tune)}|${save.benchmark?.score ?? 0}`; if (isBackdrop && key === backdropKey) return;
@@ -96,21 +123,21 @@ function show(next: Screen): void {
   const prev = screen; screen = next; menu = null; const scr = $('screen'); if (prev !== next) msg = '';
   if (next === 'tune' && prev !== next && prev !== 'race') backFrom[next] = prev;
   if (next !== 'race' && next !== 'slip') backdrop();
-  if (next === 'race') { scr.style.display = 'none'; return; }
+  if (next === 'race' || next === 'bench') { scr.style.display = 'none'; return; }
   scr.style.display = 'flex'; card.classList.toggle('wide', WIDE.includes(next)); $('rows').className = next === 'tune' ? 'rows-grid' : ''; $('extra').innerHTML = '';
   const title = (t: string, col = '#ff2bd6'): void => { $('title').textContent = t; $('title').style.color = col; };
   if (next === 'title') {
     title('GPU WARS');
     menu = createMenu([
-      comingSoon('benchmark', 'BENCHMARK', 'BENCHMARK', 'The benchmark scores your graphics card and sets your car\'s horsepower and torque. It is not built yet: until then every car has the same placeholder stock numbers.'),
-      comingSoon('class', 'CLASS', 'CLASS', 'Your class (integrated or discrete graphics, by generation and maker) comes from the benchmark. It is not built yet.'),
+      benchmarkItem(benchContext),
+      classItem(benchContext),
       { id: 'tune', label: 'TUNE', hint: () => 'Set up the car: gearing, launch, boost, nitro and more. Your tune is kept on this computer.', enter: () => show('tune') },
       raceItem(),
       { id: 'records', label: 'RECORDS', hint: () => 'Your own best times on this computer.', enter: () => show('records') },
       comingSoon('options', 'OPTIONS', 'OPTIONS', 'Volume and rebinding the controls are not built yet. The controls work with their default keys.'),
     ], sel.title ?? 3);
   } else if (next === 'soon') {
-    title(soon.title); $('extra').innerHTML = `<p class="help">COMING SOON</p><p>${soon.text}</p>`;
+    title(soon.title); $('extra').innerHTML = `<p class="help">${soon.help ?? 'COMING SOON'}</p><p>${soon.text}</p>`;
     menu = createMenu([{ id: 'back', label: 'BACK', enter: () => show('title') }]);
   } else if (next === 'records') {
     title('RECORDS'); const r = save.records, row = (a: string, b: string): string => `<tr><td>${a}</td><td>${b}</td></tr>`;
@@ -129,7 +156,7 @@ function show(next: Screen): void {
     const nitroCell = (s: Timeslip): string => !s.nitroUsed ? '-' : `${s.nitroUsed.toFixed(2)} S  +${Math.round((s.nitroPeakGain ?? 0) * 100)}% PEAK`;
     const bottleCell = (s: Timeslip): string => !s.nitroUsed ? '-' : `${Math.round(s.nitroTemp ?? 0)}C ${Math.round((s.nitroPressure ?? 0) * 100)}%`;
     $('extra').innerHTML = `<table><tr><th></th>${R.slips.map((s, i) => `<th${i === R.winner ? ' style="color:#34ff7a"' : ''}>${s.name}</th>`).join('')}</tr>`
-      + line('R/T', s => (s.aborted ? '<span style="color:#ff3355">ABORT</span>' : s.foul ? '<span style="color:#ff3355">RED LIGHT</span>' : sec(s.reaction))) + line('60 FT', s => sec(s.ft60)) + line('330 FT', s => sec(s.ft330)) + line('1/8 MILE', s => sec(s.eighth)) + line('1000 FT', s => sec(s.ft1000)) + line('1/4 MILE', s => sec(s.quarter)) + line('TRAP', s => kmh(s.trap)) + line('SPIN', spinCell) + line('TOTAL', s => (s.crossed || s.foul || s.crashed ? '<span style="color:#ff3355">DQ</span>' : sec(s.total))) + line('BOOST', s => (s.boostPeak !== undefined ? Math.round(s.boostPeak * 100) + '%' : '-')) + line('ENGINE', s => (s.enginePeakTemp !== undefined ? `${Math.round(s.enginePeakTemp)}C  -${Math.round((s.peakRetard ?? 0) * 100)}% TIMING` : '-')) + line('CLUTCH', s => `${s.clutchTemp !== undefined ? Math.round(s.clutchTemp) + 'C ' : ''}${s.clutchCondition !== undefined ? Math.round(s.clutchCondition * 100) + '%' : ''}`) + line('TIRES', tireCell) + line('FUEL', fuelCell) + line('REAR WEIGHT', rearCell) + line('BRAKE', brakeCell) + line('CHUTE', chuteCell) + line('NITRO', nitroCell) + line('BOTTLE', bottleCell)
+      + line('R/T', s => (s.aborted ? '<span style="color:#ff3355">ABORT</span>' : s.foul ? '<span style="color:#ff3355">RED LIGHT</span>' : sec(s.reaction))) + line('60 FT', s => sec(s.ft60)) + line('330 FT', s => sec(s.ft330)) + line('1/8 MILE', s => sec(s.eighth)) + line('1000 FT', s => sec(s.ft1000)) + line('1/4 MILE', s => sec(s.quarter)) + line('TRAP', s => kmh(s.trap)) + line('SPIN', spinCell) + `<tr><td>POWER</td>${R.hp.map(h => `<td>${h} HP</td>`).join('')}</tr>` + line('TOTAL', s => (s.crossed || s.foul || s.crashed ? '<span style="color:#ff3355">DQ</span>' : sec(s.total))) + line('BOOST', s => (s.boostPeak !== undefined ? Math.round(s.boostPeak * 100) + '%' : '-')) + line('ENGINE', s => (s.enginePeakTemp !== undefined ? `${Math.round(s.enginePeakTemp)}C  -${Math.round((s.peakRetard ?? 0) * 100)}% TIMING` : '-')) + line('CLUTCH', s => `${s.clutchTemp !== undefined ? Math.round(s.clutchTemp) + 'C ' : ''}${s.clutchCondition !== undefined ? Math.round(s.clutchCondition * 100) + '%' : ''}`) + line('TIRES', tireCell) + line('FUEL', fuelCell) + line('REAR WEIGHT', rearCell) + line('BRAKE', brakeCell) + line('CHUTE', chuteCell) + line('NITRO', nitroCell) + line('BOTTLE', bottleCell)
       + `</table><div class="pts">${R.records.length ? 'NEW: ' + R.records.join(', ') : ''}</div>`;
     const items: MenuItem[] = [{ id: 'again', label: 'RUN AGAIN', enter: () => { raceSeed = freshSeed(); startRace(R.kind); } }];
     if (R.kind !== 'test' && R.kind !== 'ghost') items.push({ ...raceItem(), label: 'NEXT RACE' });
@@ -182,8 +209,7 @@ function tuneItems(): MenuItem[] {
 /** the panel above the rows for screens whose numbers follow the selection or the tune */
 function info(): void {
   if (screen === 'tune' && tuneTab === 'stats') { const r = readyCar(save, clutchCondition); $('extra').innerHTML = statsTable(r.spec, r.tune, raceSeed, fuelOf()); }
-  const bench = save.benchmark;
-  $('sub').textContent = msg || (screen === 'slip' && $('sub').dataset.note) || (screen === 'title' ? (bench ? `${bench.class}  SCORE ${Math.round(bench.score)}` : 'NO BENCHMARK YET: PLACEHOLDER STOCK CAR') : '');
+  $('sub').textContent = msg || (screen === 'slip' && $('sub').dataset.note) || (screen === 'title' ? benchmarkLine(benchContext) : '');
 }
 function render(): void {
   if (!menu) return; const m = menu, rows = $('rows'); rows.innerHTML = ''; info();
@@ -211,7 +237,7 @@ function finishRace(): void {
   if (me.launched) clutchCondition = clutchAfterRun(me); fuelLoad = me.fuel; engineTemp = slip.engineTemp ?? engineOf();
   const slips = s.runners.map(timeslip), candidate = ghostFromRunner(me, s.greenAt, STOCK_CAR.id);
   const res = recordRace(save, { kind: raceKind, won, slip, ghost: candidate, crashed }, Date.now()); commit(res.save);
-  result = { won, crashed, records: res.records, improved: res.improved, slips, reason: s.reason, winner: s.winner, kind: raceKind };
+  result = { won, crashed, records: res.records, improved: res.improved, slips, reason: s.reason, winner: s.winner, kind: raceKind, hp: s.runners.map(r => Math.round(dynoPeaks(r.spec).hp)) };
 }
 // ---- input: gas and brake are held keys (or the pad's triggers), launch and shift-up are one press, burnout is its own key or gas + brake together; the clutch is automatic ----
 const keys = new Set<string>(), taps = { launch: false, nitro: false, chute: false };
@@ -225,7 +251,9 @@ function readInput(): void {
   race.setInput(0, { throttle: gas, launch: go, shiftUp: go || held('shiftUp'), shiftDown: held('shiftDown'), backUp: held('backUp'), nitro: held('nitro') || !!pad?.nitro || taps.nitro, burnout: held('burnout') || (gas > 0 && braking), brake: braking, chute: held('chute') || !!pad?.special || taps.chute, deepStage: held('deepStage'), steer: Math.max(-1, Math.min(1, steer)) });
 }
 addEventListener('keydown', e => {
-  const k = e.key.toLowerCase(); if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', 'tab'].includes(k)) e.preventDefault();
+  const k = e.key.toLowerCase();
+  if (screen === 'bench') { if (k === 'escape') benchScreen?.cancel(); return; }
+  if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', 'tab'].includes(k)) e.preventDefault();
   if (screen === 'race') {
     if (e.repeat) return; keys.add(k);
     if (isBound('launch', k) || k === 'enter') taps.launch = true; if (isBound('nitro', k)) taps.nitro = true; if (isBound('chute', k)) taps.chute = true;
@@ -246,6 +274,7 @@ const topDown = createDragTopDown();
 let last = performance.now();
 function frame(now: number): void {
   const dt = Math.min(0.1, (now - last) / 1000); last = now; padMenu();
+  if (screen === 'bench') { requestAnimationFrame(frame); return; }      // (nothing else draws while the benchmark measures the card)
   const W = innerWidth, H = innerHeight, S = Math.max(0.7, Math.min(1.6, H / 720)), s = race.state, me = s.runners[0] as Runner;
   if (screen === 'race') {
     acc += dt; let n = 0; while (acc >= DRAG.dt && n++ < 60) { acc -= DRAG.dt; readInput(); race.step(); taps.launch = taps.nitro = taps.chute = false; }
