@@ -59,7 +59,7 @@ test('the ghost stages like a real car: burnout, run-out, back up, pre-stage, st
 });
 
 test('the ghost launch is a realistic share of its ET: 60 ft is about 15 to 22 percent (top fuel 0.8 s of 3.7, a ten second car 1.6 s)', () => {
-  assert.ok(Math.abs(launchShareFor(3.7) - 0.22) < 1e-9 && launchShareFor(10) < 0.17 && launchShareFor(10) > 0.16);
+  assert.ok(Math.abs(launchShareFor(3.7) - 0.193) < 1e-9 && launchShareFor(10) < 0.19 && launchShareFor(10) > 0.17);
   for (const [et, trap] of [[3.7, 330], [4.2, 290], [6.6, 210], [7.9, 170], [10, 135], [13, 105]]) {
     const s = completeSplits(record({ splits: { quarter: et }, trapSpeed: trap })), share = s.ft60 / et;
     assert.ok(share > 0.145 && share < 0.23, `${et} s ET: 60 ft ${s.ft60.toFixed(2)} s is ${(share * 100).toFixed(1)} percent`);
@@ -84,4 +84,24 @@ test('only the player car carries the clutch, boost, tire and fuel readouts; the
   assert.ok(r.texts.includes('SPEEDY') && r.texts.some(t => /^ET 7\.200 S/.test(t)), 'the ghost shows its name and ET');
   // with the camera on the ghost's lane the player's readouts are still the only ones
   const other = recorder(); td.draw(other.ctx, 1280, 720, race.state, 1, 0.016, 3); assert.ok(other.texts.filter(t => t.startsWith('CLUTCH')).length <= 1);
+});
+
+test('ghost splits follow the physics: every class leader ghost reaches 60 ft, 330 ft, the eighth and 1000 ft at the same share of its ET as the simulated car (within 5 percent), and a given split is never moved', async () => {
+  const { predictDrag } = await import('../src/drag/physics.ts');
+  const { readyCar } = await import('../src/drag/model.ts');
+  const { emptySave } = await import('../src/save.ts');
+  const { BENCHMARK } = await import('../src/benchmark/constants.ts');
+  const { classScoreCap } = await import('../src/benchmark/score.ts');
+  const marks = ['ft60', 'ft330', 'eighth', 'ft1000'];
+  for (const cls of ['integrated', 'discrete-amd-retro', 'discrete-amd-classic', 'discrete-nvidia-modern', 'discrete-amd-current']) {
+    const { spec, tune } = readyCar({ ...emptySave(), benchmark: { score: Math.round(classScoreCap(cls) * 0.7), class: cls, benchmarkVersion: BENCHMARK.version, gpuId: 'ghost-test', date: 1 } }), st = rankedStart();
+    const slip = predictDrag(spec, tune, RANKED.seed, RANKED.conditions, st.fuel, st.engineTemp, rankedStrip()).slip, ghost = completeSplits(fallbackLeader(cls));
+    for (const m of marks) {
+      const physics = slip[m] / slip.quarter, generated = ghost[m] / ghost.quarter;
+      assert.ok(Math.abs(generated / physics - 1) < 0.05, `${cls} ${m}: the ghost takes ${(generated * 100).toFixed(1)}% of its ET, the physics ${(physics * 100).toFixed(1)}%`);
+    }
+    // a split the leader's record provides stays exactly as given
+    const given = { ...fallbackLeader(cls), splits: { quarter: ghost.quarter, ft60: ghost.ft60 * 1.1 } };
+    assert.equal(completeSplits(given).ft60, ghost.ft60 * 1.1);
+  }
 });

@@ -158,8 +158,8 @@ test('only a clean ranked pass with a benchmark is sent', () => {
 const reply = (status, body) => async () => ({ ok: status >= 200 && status < 300, status, json: async () => body });
 const payload = () => buildScorePayload({ playerName: 'Test Pilot', category: 'manual', benchmark, slip: cleanSlip(), tune, seed: RANKED.seed });
 
-test('with no server address the game is fully offline: nothing throws and the bundled leader is used', async () => {
-  const c = createLeaderboardClient({ clientId: 'abcdefgh12345678' });
+test('with an empty server address override the game is fully offline: nothing throws and the bundled leader is used', async () => {
+  const c = createLeaderboardClient({ baseUrl: '', clientId: 'abcdefgh12345678' });
   assert.equal(c.configured, false);
   const s = await c.submit(payload()); assert.equal(s.ok, false); assert.equal(s.kind, 'not-configured'); assert.match(s.message, /OFFLINE/);
   const l = await c.leader('integrated', 'manual'); assert.equal(l.online, false); assert.equal(l.record.source, 'fallback'); assert.equal(l.record.class, 'integrated');

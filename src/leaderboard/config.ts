@@ -1,9 +1,8 @@
 // The leaderboard's settings. The base URL is the ONLY place the game learns where the server is.
-// It is a placeholder (empty): with no URL the game is fully playable offline and says "LEADERBOARD NOT CONNECTED".
-// After deploying the Worker (backend/README.md) put its https://...workers.dev address here. It is public information, never a secret.
+// It is the deployed Worker's public address (public information, never a secret). With an empty URL (or no fetch) the game is fully playable offline and says "LEADERBOARD NOT CONNECTED".
 // The game makes no request at load: the leaderboard is only contacted when you open a board or finish a ranked run.
 export const LEADERBOARD_API = {
-  baseUrl: '',
+  baseUrl: 'https://gpu-wars-leaderboard.gpuwars.workers.dev',
   /** give up on a request after this many milliseconds, so a dead network never freezes a screen */
   timeoutMs: 6000,
   /** how many rows a board asks for (the server allows up to 100) */

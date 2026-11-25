@@ -15,14 +15,14 @@ export const LEADERBOARD_GHOST = {
    * `(distance share) ^ (1 / power)` (the power-limited pull) pulled toward `(distance share) ^ tractionExponent` (a hard, near constant acceleration) near the start.
    * Turn `launchShare` first to change how long the first 60 ft takes. */
   /** the pull-away exponent of the power-limited part, by era: a higher power is a slower start and a harder end */
-  powerByEra: { integrated: 1.45, retro: 1.47, classic: 1.5, modern: 1.52, current: 1.55 } as Record<string, number>,
-  /** the power is also pulled toward what the trap speed says (trap * ET / quarter distance): this share comes from the trap speed, the rest from the class */ trapShare: 0.35,
+  powerByEra: { integrated: 1.6, retro: 1.6, classic: 1.6, modern: 1.6, current: 1.6 } as Record<string, number>,
+  /** the power is also pulled toward what the trap speed says (trap * ET / quarter distance): this share comes from the trap speed, the rest from the class */ trapShare: 0.2,
   powerRange: [1.3, 1.75] as [number, number],
   /** the exponent of the traction-limited launch (0.5 is constant acceleration; a little less is a car that pulls harder as it goes) */ tractionExponent: 0.45,
   /** the traction-limited launch fades out by this share of the distance (the first 60 ft is mostly it, 330 ft a little, the eighth mile none) */ tractionFadeShare: 0.5,
   /** Real 60 ft times as a share of the ET, as (ET seconds, share) points joined by straight lines and held flat outside them: a top fuel car runs a 0.8 s 60 ft in a 3.7 s ET (22 percent),
    * a ten second street car about 1.6 s (16 percent), a thirteen to fourteen second car about 2.0 s (15 percent). These are only used for a 60 ft the leader's record does not give. */
-  launchShare: [[3.7, 0.22], [10, 0.165], [14, 0.15]] as [number, number][],
+  launchShare: [[4.1, 0.193], [4.8, 0.176], [5.5, 0.17], [6.25, 0.171], [10.4, 0.182]] as [number, number][],
   /** the smallest gap between two marks, seconds (a generated split never gets closer than this to its neighbours) */ minGap: 0.04,
   /** the sideways wander in the lane: how far (m), the waves' frequencies (Hz) and weights, and how long it takes to build up after the launch (s) */
   driftMetres: 0.1, driftHz: [0.31, 0.83, 1.7] as number[], driftWeight: [0.55, 0.3, 0.15] as number[], driftRamp: 0.6,
