@@ -18,12 +18,12 @@ test('index.html is the one itch.io page: relative paths, no external requests, 
   assert.ok(existsSync(new URL('../dist/gpuwars.js', import.meta.url)), 'npm test builds first');
 });
 
-test('the title menu is BENCHMARK, CLASS, TUNE, RACE CLASS LEADER, RECORDS, OPTIONS, and the unbuilt rows say coming soon', () => {
+test('the title menu is BENCHMARK, CLASS, TUNE, RACE CLASS LEADER, RECORDS, OPTIONS, and the unbuilt rows say coming soon (OPTIONS and DRIVER are built)', () => {
   const page = read('src/drag/page.ts'), start = page.indexOf("title('GPU WARS')"), block = page.slice(start, page.indexOf('], sel.title', start));
   const order = ["'benchmark'", "'class'", "id: 'tune'", 'raceItem()', "id: 'records'", "'options'"].map(k => block.indexOf(k));
   assert.ok(order.every(i => i >= 0) && order.every((i, n) => n === 0 || i > order[n - 1]), 'the six rows are there, in order');
   assert.ok(page.includes("label: 'RACE CLASS LEADER'") && block.includes("'BENCHMARK'") && block.includes("label: 'RECORDS'") && block.includes("'OPTIONS'") && block.includes("'CLASS'"));
-  for (const id of ['benchmark', 'class', 'options']) assert.ok(block.includes(`comingSoon('${id}'`), `${id} is a coming soon row`);
+  for (const id of ['benchmark', 'class']) assert.ok(block.includes(`comingSoon('${id}'`), `${id} is a coming soon row`);
   assert.match(page, /value: \(\) => 'COMING SOON'/);
 });
 
