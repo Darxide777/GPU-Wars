@@ -9,7 +9,7 @@ What it is **not**: there is **no city hub, no shop, no parts, no points or curr
 ```bash
 npm run build       # node build.mjs: bundles src/drag/page.ts into dist/gpuwars.js and rebuilds assets/music/library.json
 npm run typecheck   # strict TypeScript (also flags unused locals)
-npm test            # builds, then runs every test in tests/ (about 10 seconds, CPU only)
+npm test            # builds, then runs every test in tests/ (a few seconds, CPU only)
 node --test tests/<file>.test.mjs   # one test file (Node runs the TypeScript directly)
 ```
 
