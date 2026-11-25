@@ -13,9 +13,13 @@ export const LANE_M = 2.4;
 const MARK_NAMES: Record<Mark, string> = { ft60: '60 FT', ft330: '330 FT', eighth: '1/8 MILE', ft1000: '1000 FT', trapStart: '66 FT TRAP', quarter: 'FINISH' };
 const LIFT = { frontFade: 0.75, labelLine: 5.8 } as const;
 const CLUTCH_LABEL = { line: 4.2, barY: 4.8, barH: 0.28, halfW: 1.1 } as const;
-const BOOST_LABEL = { line: 5.8, barY: 6.4, barH: 0.28, halfW: 1.1 } as const;
-const TIRE_LABEL = { line: 7.1 } as const;
-const FUEL_LABEL = { line: 8.1, low: 0.25 } as const;
+const BOOST_LABEL = { line: 6.7, barY: 7.2, barH: 0.28, halfW: 1.1 } as const;
+const TIRE_LABEL = { line: 8.5 } as const;
+const FUEL_LABEL = { line: 9.5, low: 0.25 } as const;
+/** the ghost's ET line sits above its name and stage label (it has no readouts under it) */
+const GHOST_LABEL = { line: 2.2, side: 2.4, size: 0.8 } as const;
+/** the readouts' widest line (characters) and the gap from the car's middle to their near edge (m), used to decide whether they fit beside the car */
+const READOUT = { chars: 26, charWidth: 0.6, gap: 1.9, besideLift: 5.2 } as const;
 const SMOKE_TOP = { windDrift: 0.8 } as const;
 const CHUTE_TOP = { minWidth: 0.5, maxWidth: 1.8, minHeight: 0.3, maxHeight: 0.8, back: 3.6, lift: 1.0, minAlpha: 0.25, alphaSpan: 0.6 } as const;
 const TIRE_SPIN = { stripes: 3, gap: 0.75, skew: 0.18, hz: 14, line: 0.09 } as const;
@@ -83,11 +87,18 @@ export function createDragTopDown() {
     for (const p of puffs) { const f = p.t / p.max; ctx.globalAlpha = 0.45 * (1 - f); ctx.fillStyle = '#bdf7ff'; ctx.beginPath(); ctx.arc(sx(p.y), sy(p.x), (0.6 + 1.8 * f) * scale, 0, 6.283); ctx.fill(); } ctx.globalAlpha = 1;
     // the cars: the one you drive last, so it is on top
     const order = s.runners.map((_, i) => i).sort((a, b) => (a === mine ? 1 : 0) - (b === mine ? 1 : 0));
-    for (const i of order) carOf(ctx, s.runners[i] as Runner, i, sx(laneX(i) + (s.runners[i] as Runner).y), sy((s.runners[i] as Runner).x), scale, time, i === mine);
+    for (const i of order) carOf(ctx, s.runners[i] as Runner, i, sx(laneX(i) + (s.runners[i] as Runner).y), sy((s.runners[i] as Runner).x), scale, time, i === mine, laneX(i) > laneX(mine) ? 1 : -1);
+    // the readouts come last, on top of every car, and only for your car: two cars side by side would write over each other's
+    const mineRunner = s.runners[mine];
+    if (mineRunner && !mineRunner.ghost) {
+      // they go on the side of your car away from the other car (over the dark ground beside the strip) when the screen is wide enough, and under it when it is not
+      const rivalIdx = s.runners.findIndex((_, i) => i !== mine), away = rivalIdx < 0 ? 0 : laneX(rivalIdx) > laneX(mine) ? -1 : 1, px = sx(laneX(mine) + mineRunner.y), wide = Math.max(10, 0.95 * scale) * READOUT.charWidth * READOUT.chars + READOUT.gap * scale;
+      readoutsOf(ctx, mineRunner, px, sy(mineRunner.x), scale, away < 0 && px - wide > 0 ? -1 : away > 0 && px + wide < W ? 1 : 0);
+    }
     ctx.textAlign = 'left';
   }
   /** one car from above at (x, y) on the screen, its nose up and turned by its heading: `scale` pixels to the metre */
-  function carOf(ctx: CanvasRenderingContext2D, r: Runner, i: number, x: number, y: number, scale: number, time: number, mineCar: boolean): void {
+  function carOf(ctx: CanvasRenderingContext2D, r: Runner, i: number, x: number, y: number, scale: number, time: number, mineCar: boolean, awayFromYou = 1): void {
     const m = scale, col = r.spec.col, trim = r.spec.trim;
     ctx.save(); ctx.translate(x, y); ctx.rotate(r.psi); ctx.lineWidth = Math.max(1.2, 0.12 * m);
     if (r.nitroOn) for (const off of [-0.45, 0.45]) { const L = (2.4 + 1.2 * Math.abs(Math.sin(time * 40 + off * 9))) * m; ctx.fillStyle = 'rgba(255,138,31,0.85)'; ctx.beginPath(); ctx.moveTo((off - 0.18) * m, 2.5 * m); ctx.lineTo(off * m, 2.5 * m + L); ctx.lineTo((off + 0.18) * m, 2.5 * m); ctx.fill(); ctx.fillStyle = 'rgba(255,240,200,0.9)'; ctx.beginPath(); ctx.moveTo((off - 0.08) * m, 2.5 * m); ctx.lineTo(off * m, 2.5 * m + L * 0.55); ctx.lineTo((off + 0.08) * m, 2.5 * m); ctx.fill(); }
@@ -114,21 +125,38 @@ export function createDragTopDown() {
     ctx.shadowBlur = 0; ctx.fillStyle = col; ctx.beginPath(); ctx.ellipse(0, 0.35 * m, 0.22 * m, 0.4 * m, 0, 0, 6.283); ctx.fill(); ctx.fillStyle = trim; ctx.fillRect(-0.3 * m, 1.1 * m, 0.6 * m, 0.7 * m);      // (the driver, and the engine)
     if (r.reversing) { ctx.fillStyle = '#ffffff'; ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 10; for (const off of [-0.45, 0.45]) ctx.fillRect((off - 0.12) * m, 2.5 * m, 0.24 * m, 0.2 * m); ctx.shadowBlur = 0; }      // the reverse lights
     ctx.restore();
-    ctx.font = `bold ${Math.max(10, 0.95 * m)}px monospace`; ctx.textAlign = 'center'; ctx.fillStyle = mineCar ? C.cyan : C.mag; ctx.fillText(i === 0 && mineCar ? 'YOU' : r.name, x, y - 3.4 * m);
-    const cc = CLUTCH_LABEL, temp = Number.isFinite(r.clutchTemp) ? r.clutchTemp : CLUTCH.ambient, condition = Number.isFinite(r.clutchCondition) ? Math.max(CLUTCH.minCondition, Math.min(1, r.clutchCondition)) : 1, heat = Math.max(0, Math.min(1, (temp - CLUTCH.ambient) / Math.max(1, CLUTCH.maxTemp - CLUTCH.ambient))), heatCol = temp >= CLUTCH.wearHotTemp ? C.red : temp >= CLUTCH.fadeFrom ? C.org : C.cyan;
-    ctx.fillStyle = heatCol; ctx.fillText(`CLUTCH ${Math.round(temp)}C ${Math.round(condition * 100)}%${r.clutchLocked ? ' LOCK' : r.launched ? ' SLIP' : ''}`, x, y + cc.line * m); ctx.strokeStyle = heatCol; ctx.lineWidth = Math.max(1, 0.1 * m); ctx.strokeRect((x - cc.halfW * m), y + cc.barY * m, cc.halfW * 2 * m, cc.barH * m); ctx.fillRect(x - cc.halfW * m, y + cc.barY * m, cc.halfW * 2 * m * heat, cc.barH * m); ctx.strokeStyle = C.cyan; ctx.strokeRect(x - cc.halfW * m, y + (cc.barY + cc.barH + 0.1) * m, cc.halfW * 2 * m, cc.barH * m); ctx.fillStyle = C.cyan; ctx.fillRect(x - cc.halfW * m, y + (cc.barY + cc.barH + 0.1) * m, cc.halfW * 2 * m * condition, cc.barH * m);
+    // your labels sit over your car; the ghost's go to the outer side of its own lane, smaller, so two cars side by side never write over each other
+    const lx = mineCar ? x : x + awayFromYou * GHOST_LABEL.side * m;
+    ctx.font = `bold ${Math.max(10, (mineCar ? 0.95 : GHOST_LABEL.size) * m)}px monospace`; ctx.textAlign = mineCar ? 'center' : awayFromYou > 0 ? 'left' : 'right'; ctx.fillStyle = mineCar ? C.cyan : C.mag; ctx.fillText(i === 0 && mineCar ? 'YOU' : r.name, lx, y - 3.4 * m);
+    if (r.ghost) ghostLine(ctx, r, lx, y, m);
+    if (r.lift > 0) { ctx.fillStyle = C.yel; ctx.fillText('FRONT UP', lx, y - LIFT.labelLine * m); }
+    if (r.aborted) { ctx.fillStyle = C.red; ctx.fillText('ABORT', lx, y - 4.6 * m); }
+    else if (r.rolling) { ctx.fillStyle = '#34ff7a'; ctx.fillText('ROLLING', lx, y - 4.6 * m); }
+    else if (!r.launched) { ctx.fillStyle = r.overstaged ? C.red : r.stage === 'staged' || r.stage === 'deepStaged' ? C.yel : C.cyan; ctx.fillText(stageLabel(r) || 'STAGED', lx, y - 4.6 * m); }
+    else if (r.crossed || r.foul) { ctx.fillStyle = C.red; ctx.fillText(r.crossed ? 'OVER THE LINE' : 'RED LIGHT', lx, y - 4.6 * m); }
+    else if (r.wall) { ctx.fillStyle = C.org; ctx.fillText('WALL', lx, y - 4.6 * m); }
+  }
+  /** the player's own readouts under the car: clutch, boost, tires and fuel (written with a dark edge so they stay readable over the lane and the other car) */
+  function readoutsOf(ctx: CanvasRenderingContext2D, r: Runner, carX: number, carY: number, scale: number, side: -1 | 0 | 1): void {
+    // beside the car the block starts level with the car, under it (the narrow screen) it starts below the car
+    const y = side === 0 ? carY : carY - READOUT.besideLift * scale;
+    // `side` is -1 / 1 for writing beside the car (to the left / right of it) and 0 for under it
+    const x = carX + side * READOUT.gap * scale, bx = (halfW: number): number => (side === 0 ? x - halfW * scale : side < 0 ? x - 2 * halfW * scale : x);
+    ctx.font = `bold ${Math.max(10, 0.95 * scale)}px monospace`; ctx.textAlign = side < 0 ? 'right' : side > 0 ? 'left' : 'center'; ctx.lineJoin = 'round';
+    const put = (text: string, tx: number, ty: number): void => { ctx.save(); ctx.strokeStyle = 'rgba(5,1,15,0.9)'; ctx.lineWidth = 3; ctx.strokeText(text, tx, ty); ctx.restore(); ctx.fillText(text, tx, ty); };
+    const tl = r.tires[0] ?? { temp: r.tireTemp, wear: 0 }, tr = r.tires[1] ?? { temp: r.tireTemp, wear: 0 }, wearL = Number.isFinite(tl.wear) ? Math.max(0, Math.min(1, tl.wear)) : 0, wearR = Number.isFinite(tr.wear) ? Math.max(0, Math.min(1, tr.wear)) : 0, m = scale, cc = CLUTCH_LABEL, temp = Number.isFinite(r.clutchTemp) ? r.clutchTemp : CLUTCH.ambient, condition = Number.isFinite(r.clutchCondition) ? Math.max(CLUTCH.minCondition, Math.min(1, r.clutchCondition)) : 1, heat = Math.max(0, Math.min(1, (temp - CLUTCH.ambient) / Math.max(1, CLUTCH.maxTemp - CLUTCH.ambient))), heatCol = temp >= CLUTCH.wearHotTemp ? C.red : temp >= CLUTCH.fadeFrom ? C.org : C.cyan;
+    ctx.fillStyle = heatCol; put(`CLUTCH ${Math.round(temp)}C ${Math.round(condition * 100)}%${r.clutchLocked ? ' LOCK' : r.launched ? ' SLIP' : ''}`, x, y + cc.line * m); ctx.strokeStyle = heatCol; ctx.lineWidth = Math.max(1, 0.1 * m); ctx.strokeRect(bx(cc.halfW), y + cc.barY * m, cc.halfW * 2 * m, cc.barH * m); ctx.fillRect(bx(cc.halfW), y + cc.barY * m, cc.halfW * 2 * m * heat, cc.barH * m); ctx.strokeStyle = C.cyan; ctx.strokeRect(bx(cc.halfW), y + (cc.barY + cc.barH + 0.1) * m, cc.halfW * 2 * m, cc.barH * m); ctx.fillStyle = C.cyan; ctx.fillRect(bx(cc.halfW), y + (cc.barY + cc.barH + 0.1) * m, cc.halfW * 2 * m * condition, cc.barH * m);
     if (r.spec.boostCap > 0) {
       const B = BOOST_LABEL, boost = Math.max(0, Math.min(BOOST.maxLimit, r.boost)), col = boostLimitOf(r.tune) > BOOST.safeLimit ? C.org : C.cyan, temp = Number.isFinite(r.engineTemp) ? r.engineTemp : DRAG.tire.ambient, retard = Number.isFinite(r.retard) ? r.retard : 0, heatCol = retard > 0.01 ? C.red : col;
-      ctx.fillStyle = heatCol; ctx.fillText(`BOOST ${Math.round(boost * 100)}%  ${Math.round(temp)}C -${Math.round(retard * 100)}%`, x, y + B.line * m); ctx.strokeStyle = col; ctx.lineWidth = Math.max(1, 0.1 * m); ctx.strokeRect(x - B.halfW * m, y + B.barY * m, B.halfW * 2 * m, B.barH * m); ctx.fillRect(x - B.halfW * m, y + B.barY * m, B.halfW * 2 * m * boost, B.barH * m);
+      ctx.fillStyle = heatCol; put(`BOOST ${Math.round(boost * 100)}%  ${Math.round(temp)}C -${Math.round(retard * 100)}%`, x, y + B.line * m); ctx.strokeStyle = col; ctx.lineWidth = Math.max(1, 0.1 * m); ctx.strokeRect(bx(B.halfW), y + B.barY * m, B.halfW * 2 * m, B.barH * m); ctx.fillRect(bx(B.halfW), y + B.barY * m, B.halfW * 2 * m * boost, B.barH * m);
     }
-    ctx.fillStyle = wearL > 0.2 || wearR > 0.2 ? C.org : C.cyan; ctx.fillText(`TIRE L${Math.round(tl.temp)}C ${Math.round(wearL * 100)}%  R${Math.round(tr.temp)}C ${Math.round(wearR * 100)}%`, x, y + TIRE_LABEL.line * m);
-    const f = fuelShare(r); ctx.fillStyle = f < FUEL_LABEL.low ? C.red : C.cyan; ctx.fillText(`FUEL ${(Math.round(r.fuel * 10) / 10).toFixed(1)} KG ${Math.round(f * 100)}%`, x, y + FUEL_LABEL.line * m);
-    if (r.lift > 0) { ctx.fillStyle = C.yel; ctx.fillText('FRONT UP', x, y - LIFT.labelLine * m); }
-    if (r.aborted) { ctx.fillStyle = C.red; ctx.fillText('ABORT', x, y - 4.6 * m); }
-    else if (r.rolling) { ctx.fillStyle = '#34ff7a'; ctx.fillText('ROLLING', x, y - 4.6 * m); }
-    else if (!r.launched) { ctx.fillStyle = r.overstaged ? C.red : r.stage === 'staged' || r.stage === 'deepStaged' ? C.yel : C.cyan; ctx.fillText(stageLabel(r) || 'STAGED', x, y - 4.6 * m); }
-    else if (r.crossed || r.foul) { ctx.fillStyle = C.red; ctx.fillText(r.crossed ? 'OVER THE LINE' : 'RED LIGHT', x, y - 4.6 * m); }
-    else if (r.wall) { ctx.fillStyle = C.org; ctx.fillText('WALL', x, y - 4.6 * m); }
+    ctx.fillStyle = wearL > 0.2 || wearR > 0.2 ? C.org : C.cyan; put(`TIRE L${Math.round(tl.temp)}C ${Math.round(wearL * 100)}%  R${Math.round(tr.temp)}C ${Math.round(wearR * 100)}%`, x, y + TIRE_LABEL.line * m);
+    const f = fuelShare(r); ctx.fillStyle = f < FUEL_LABEL.low ? C.red : C.cyan; put(`FUEL ${(Math.round(r.fuel * 10) / 10).toFixed(1)} KG ${Math.round(f * 100)}%`, x, y + FUEL_LABEL.line * m);
+      }
+  /** the ghost's one extra line under its name: its ET once it has crossed the line (the only thing that is compared) */
+  function ghostLine(ctx: CanvasRenderingContext2D, r: Runner, x: number, y: number, m: number): void {
+    const quarter = r.marks.quarter; if (quarter === undefined) return;
+    ctx.fillStyle = C.mag; ctx.fillText(`ET ${quarter.toFixed(3)} S  ${Math.round(r.trap / 1.609344)} MPH`, x, y - GHOST_LABEL.line * m);
   }
   return { draw };
 }
