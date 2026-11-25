@@ -897,7 +897,7 @@ test('a quicker pass replaces the ghost, a slower or identical one does not, and
   assert.equal(slower.improved, false); assert.deepEqual(slower.save.ghost, start.ghost);
   const better = recordRace(start, { kind: 'ghost', won: true, slip: slip({ quarter: 12.5, ft60: 2.1 }), ghost: bestGhost(12.7, 12.5) }, 3);
   assert.equal(better.improved, true); assert.deepEqual(better.records, ['BEST PASS', 'BEST ET', 'BEST 60 FT']);
-  assert.equal(better.save.ghost.marks.quarter, 12.5); assert.equal(better.save.records.history.at(-1).against, 'BEST PASS');
+  assert.equal(better.save.ghost.marks.quarter, 12.5); assert.equal(better.save.records.history.at(-1).against, 'CLASS LEADER');
   const tie = recordRace(better.save, { kind: 'ghost', won: true, slip: slip(), ghost: bestGhost(12.7, 12.4) }, 4);
   assert.equal(tie.improved, true, 'the same total with a lower ET is a new best pass');
   assert.equal(recordRace(tie.save, { kind: 'ghost', won: true, slip: slip(), ghost: bestGhost(12.7, 12.4) }, 5).improved, false);

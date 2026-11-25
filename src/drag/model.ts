@@ -37,7 +37,7 @@ export function recordRace(save: Save, o: { kind: DragRaceKind; won: boolean; sl
     if (s.trap !== undefined && s.trap > d.bestTrap) { if (d.bestTrap > 0) records.push('BEST TRAP SPEED'); d.bestTrap = +s.trap.toFixed(1); }
     if (s.reaction !== null && s.reaction >= 0 && (d.bestReaction === 0 || s.reaction < d.bestReaction)) { if (d.bestReaction > 0) records.push('BEST REACTION'); d.bestReaction = +s.reaction.toFixed(3); }
   }
-  const against = o.kind === 'test' ? 'TEST RUN' : o.kind === 'solo' ? 'SOLO' : 'BEST PASS';
+  const against = o.kind === 'test' ? 'TEST RUN' : o.kind === 'solo' ? 'SOLO' : 'CLASS LEADER';
   d.history = [...d.history, { against, won, foul, crossed: !!s.crossed, crashed, reaction: s.reaction ?? 0, et: s.quarter ?? 0, trap: s.trap ?? 0, at: now }].slice(-HISTORY_MAX);
   return { save: { ...save, records: d, ghost }, records, ghost, improved };
 }

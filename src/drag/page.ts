@@ -22,6 +22,10 @@ import { benchmarkItem, benchmarkLine, classItem, type BenchmarkContext } from '
 import { resultFromRun } from '../benchmark/rules.ts';
 import { dynoPeaks, dynoSvg } from '../benchmark/dyno.ts';
 import type { ClassId } from '../classes.ts';
+import { createLeaderboardUi } from '../leaderboard/ui.ts';
+import { RANKED, conditionsBanner, rankedStart, rankedStrip } from '../leaderboard/ranked.ts';
+import { deltaRowsHtml, drawBanner, drawDeltas, markDeltas } from '../leaderboard/delta.ts';
+import { classLabel } from '../leaderboard/classes.ts';
 import type { DragGhost, DragRaceKind, DragSpec, Runner, Timeslip, Tune } from './types.ts';
 
 const $ = (id: string): HTMLElement => document.getElementById(id) as HTMLElement;
@@ -58,8 +62,18 @@ function predict(spec: DragSpec, tune: Tune, seed = raceSeed, kg = fuelOf(), tem
   const key = JSON.stringify([spec, tune, seed, kg, temp, strip.version]), hit = predictions.get(key); if (hit) return hit;
   const p = predictDrag(spec, tune, seed, undefined, kg, temp, strip), out = { slip: p.slip, spin: p.spin, withoutNitro: p.withoutNitro, nitroDelta: p.nitroDelta }; if (predictions.size > 200) predictions.clear(); predictions.set(key, out); return out;
 }
-/** THE GHOST YOU RACE. Phase 0 stand-in: your own best clean pass. The leaderboard phase replaces this with a simulated ghost of your class leader (seeded, checked with cleanDragGhost). */
-const ghostToRace = (): DragGhost | null => save.ghost;
+// ---- the leaderboard: your class, the class leader's ghost, ranked runs and the boards (all in src/leaderboard/; offline it uses a bundled leader time) ----
+const lb = createLeaderboardUi({ store: browserStore, benchmark: () => save.benchmark, onChange: () => {
+  if (screen === 'race') return;
+  const status = document.getElementById('lbstatus'), boardBox = document.getElementById('lbboard'); if (status) status.textContent = lb.status; if (boardBox) boardBox.innerHTML = lb.boardHtml();
+  if (isBackdrop) backdrop(); if (menu && screen !== 'name') render();
+} });
+/** the leader is fetched after your first key or tap (never at load: itch.io pages make no request on start), and again each time the title menu opens */
+let touchedPage = false;
+const askLeader = (): void => { touchedPage = true; void lb.refreshLeader(); };
+addEventListener('keydown', askLeader, { once: true }); addEventListener('pointerdown', askLeader, { once: true });
+/** THE GHOST YOU RACE: a simulated ghost of your class leader (built from their ET, splits, trap speed and seed; checked with cleanDragGhost), never your own pass */
+const ghostToRace = (): DragGhost | null => lb.ghost();
 const ghostEntrant = (g: DragGhost): Entrant => {
   const { spec, tune } = readyCar(save, clutchCondition);
   return { name: g.name || 'BEST PASS', spec: { ...spec, col: '#bdf7ff', trim: '#ffffff' }, tune, ghost: g };
@@ -71,6 +85,8 @@ const fuelItem = (): MenuItem => {
 };
 /** you, on the line: the stock car with the benchmark's numbers, your tune, and the clutch, fuel and engine heat you carry from the last race */
 const myEntrant = (): Entrant => { const { spec, tune } = readyCar(save, clutchCondition); return { name: 'YOU', spec, tune, ai: null, clutchCondition, fuel: fuelOf(), engineTemp: engineOf() }; };
+/** you for a ranked run: the same start for everyone (new clutch, full tank, cool engine) whatever you did earlier in the visit */
+const rankedEntrant = (): Entrant => { const start = rankedStart(), { spec, tune } = readyCar(save, start.clutchCondition); return { name: 'YOU', spec, tune, ai: null, ...start }; };
 
 // ---- the graphics card and the benchmark (rules: src/benchmark/rules.ts) ----
 let gpu: GpuIdentity = { gpuId: 'unknown', source: 'none', detectedClass: null, why: 'CHECKING THE GRAPHICS CARD', software: false };
@@ -93,7 +109,7 @@ function finishBenchmark(cls: ClassId, r: Parameters<Parameters<typeof openBench
 void readGpuIdentity().then(g => { gpu = g; if (screen === 'title') show('title'); });
 
 // ---- the screens ----
-type Screen = 'title' | 'soon' | 'bench' | 'records' | 'tune' | 'race' | 'slip';
+type Screen = 'title' | 'soon' | 'bench' | 'records' | 'name' | 'tune' | 'race' | 'slip';
 type TuneTab = 'tuning' | 'stats';
 let screenBefore: Screen = 'title', screen: Screen = 'title', menu: Menu | null = null, msg = '', raceKind: DragRaceKind = 'solo', sel: Record<string, number> = {}, tuneTab: TuneTab = 'tuning';
 let soon: { title: string; text: string; help?: string } = { title: '', text: '' };
@@ -118,7 +134,7 @@ function backdrop(): void {
 }
 /** a row for a part of the game that is not built yet: it says so on screen and does nothing else */
 const comingSoon = (id: string, label: string, title: string, text: string): MenuItem => ({ id, label, value: () => 'COMING SOON', hint: () => text, enter: () => { soon = { title, text }; show('soon'); } });
-const raceItem = (): MenuItem => ({ id: 'race', label: 'RACE CLASS LEADER', value: () => { const q = ghostToRace(); return q ? `${sec(q.marks.quarter)} S TO BEAT` : 'SET A GHOST'; }, hint: () => 'Race the ghost of the leader of your class. Until the leaderboard exists the ghost is your own best clean pass, and your first race is a solo pass that sets it.', enter: () => { raceSeed = freshSeed(); startRace(ghostToRace() ? 'ghost' : 'solo'); } });
+const raceItem = (): MenuItem => ({ id: 'race', label: 'RACE CLASS LEADER', value: () => `${sec(lb.leader().splits.quarter)} S TO BEAT`, hint: () => `Ranked run in ${lb.className()} against ${lb.leader().name}${lb.leader().source === 'fallback' ? ' (a bundled time: no leader online yet)' : ''}. Everyone races the same class day: ${RANKED.rubberPolicy}. ${lb.leaderNote()}`, enter: () => { startRace(ghostToRace() ? 'ghost' : 'solo'); } });
 function show(next: Screen): void {
   const prev = screen; screen = next; menu = null; const scr = $('screen'); if (prev !== next) msg = '';
   if (next === 'tune' && prev !== next && prev !== 'race') backFrom[next] = prev;
@@ -127,7 +143,7 @@ function show(next: Screen): void {
   scr.style.display = 'flex'; card.classList.toggle('wide', WIDE.includes(next)); $('rows').className = next === 'tune' ? 'rows-grid' : ''; $('extra').innerHTML = '';
   const title = (t: string, col = '#ff2bd6'): void => { $('title').textContent = t; $('title').style.color = col; };
   if (next === 'title') {
-    title('GPU WARS');
+    title('GPU WARS'); if (touchedPage) void lb.refreshLeader();
     menu = createMenu([
       benchmarkItem(benchContext),
       classItem(benchContext),
@@ -142,13 +158,32 @@ function show(next: Screen): void {
   } else if (next === 'records') {
     title('RECORDS'); const r = save.records, row = (a: string, b: string): string => `<tr><td>${a}</td><td>${b}</td></tr>`;
     $('extra').innerHTML = `<table><tr><th>YOUR BESTS</th><th></th></tr>${row('BEST 1/4 MILE', r.bestEt ? sec(r.bestEt) + ' S' : '-')}${row('BEST 60 FT', r.best60 ? sec(r.best60) + ' S' : '-')}${row('BEST TRAP SPEED', r.bestTrap ? kmh(r.bestTrap) : '-')}${row('BEST REACTION', r.bestReaction ? sec(r.bestReaction) + ' S' : '-')}${row('RACES / WINS', `${r.races} / ${r.wins}`)}${row('RED LIGHTS / CRASHES', `${r.fouls} / ${r.crashes}`)}</table>`
-      + `<table><tr><th>LAST RUNS</th><th></th></tr>${r.history.length ? [...r.history].reverse().map(h => row(h.against, h.crashed ? 'CRASHED' : h.foul || h.crossed ? 'DQ' : `${sec(h.et)} S  ${h.won ? 'WIN' : ''}`)).join('') : row('NONE YET', '')}</table><p>CLASS LEADERBOARDS: COMING SOON</p>`;
-    menu = createMenu([{ id: 'back', label: 'BACK', enter: () => show('title') }]);
+      + `<table><tr><th>LAST RUNS</th><th></th></tr>${r.history.length ? [...r.history].reverse().map(h => row(h.against, h.crashed ? 'CRASHED' : h.foul || h.crossed ? 'DQ' : `${sec(h.et)} S  ${h.won ? 'WIN' : ''}`)).join('') : row('NONE YET', '')}</table><div id="lbboard">${lb.boardHtml()}</div>`;
+    const board = (): void => { void lb.loadBoard(); };
+    menu = createMenu([
+      { id: 'scope', label: 'BOARD', value: () => (lb.boardScope === 'class' ? `MY CLASS: ${lb.className()}` : 'OVERALL'), hint: () => 'Class board: players in your class. Overall: the best time of every player across all classes.', left: () => lb.setBoardScope(lb.boardScope === 'class' ? 'overall' : 'class'), right: () => lb.setBoardScope(lb.boardScope === 'class' ? 'overall' : 'class') },
+      { id: 'category', label: 'CATEGORY', value: () => lb.boardCategory.toUpperCase(), hint: () => 'Manual: you drive. Autopilot: the driver AI races for you. They are separate boards.', left: () => lb.setBoardCategory(lb.boardCategory === 'manual' ? 'autopilot' : 'manual'), right: () => lb.setBoardCategory(lb.boardCategory === 'manual' ? 'autopilot' : 'manual') },
+      { id: 'refresh', label: 'REFRESH', hint: () => 'Ask the leaderboard again. The game works offline: ranked runs wait until it is reachable.', enter: board },
+      { id: 'name', label: 'YOUR NAME', value: () => lb.profile.playerName, hint: () => 'The name shown on the boards. Press Enter to change it.', enter: () => { lb.startNameEdit(); show('name'); } },
+      { id: 'back', label: 'BACK', enter: () => show('title') },
+    ]);
+    void lb.sendPending(); board();
+  } else if (next === 'name') {
+    const pk = lb.picker; if (!pk) { show('records'); return; }
+    title('YOUR NAME');
+    const again = (): void => { sel.name = menu?.sel ?? 0; show('name'); };
+    menu = createMenu([
+      { id: 'letter', label: 'LETTER', value: () => (pk.letter === ' ' ? 'SPACE' : pk.letter), hint: () => 'Up and down (or tap the arrows) change the letter. Choose ADD LETTER to put it on the end of your name.', left: () => { pk.cycle(-1); render(); }, right: () => { pk.cycle(1); render(); } },
+      { id: 'add', label: 'ADD LETTER', value: () => pk.name || '(EMPTY)', hint: () => 'Adds the shown letter to your name (up to 16).', enter: () => { pk.add(); again(); } },
+      { id: 'delete', label: 'DELETE', hint: () => 'Removes the last letter.', enter: () => { pk.remove(); again(); } },
+      { id: 'done', label: 'DONE', hint: () => 'Keeps the name (3 to 16 letters or digits).', enter: () => { if (lb.finishNameEdit()) show('records'); else { msg = 'A NAME NEEDS 3 TO 16 LETTERS OR DIGITS'; render(); } } },
+      { id: 'cancel', label: 'CANCEL', enter: () => { lb.cancelNameEdit(); show('records'); } },
+    ], sel.name ?? 1);
   } else if (next === 'tune') {
     title('TUNE'); menu = createMenu(tuneItems(), sel[tuneTab] ?? 0);
   } else if (next === 'slip' && result) {
     const R = result, me = R.slips[0] as Timeslip, them = R.slips[1];
-    const head = R.crashed ? 'You crashed' : me.aborted ? 'START ABORTED' : me.crossed ? 'CROSSED THE LINE' : me.foul ? 'RED LIGHT' : R.kind === 'test' ? 'TIMESLIP' : R.slips.length === 1 ? (R.won ? 'CLEAN PASS' : 'NO PASS') : R.won ? 'YOU WIN' : 'BEST PASS WINS';
+    const head = R.crashed ? 'You crashed' : me.aborted ? 'START ABORTED' : me.crossed ? 'CROSSED THE LINE' : me.foul ? 'RED LIGHT' : R.kind === 'test' ? 'TIMESLIP' : R.slips.length === 1 ? (R.won ? 'CLEAN PASS' : 'NO PASS') : R.won ? 'YOU WIN' : 'LEADER WINS';
     title(head, R.crashed || me.foul || me.crossed || (!!them && !R.won) ? '#ff3355' : '#34ff7a');
     if (R.crashed) $('sub').dataset.note = 'YOU DID NOT STOP BEFORE THE END OF THE STRIP'; else if (R.improved) $('sub').dataset.note = 'NEW BEST PASS SAVED'; else delete $('sub').dataset.note;
     const line = (k: string, f: (s: Timeslip) => string): string => `<tr><td>${k}</td>${R.slips.map(s => `<td>${f(s)}</td>`).join('')}</tr>`;
@@ -157,7 +192,8 @@ function show(next: Screen): void {
     const bottleCell = (s: Timeslip): string => !s.nitroUsed ? '-' : `${Math.round(s.nitroTemp ?? 0)}C ${Math.round((s.nitroPressure ?? 0) * 100)}%`;
     $('extra').innerHTML = `<table><tr><th></th>${R.slips.map((s, i) => `<th${i === R.winner ? ' style="color:#34ff7a"' : ''}>${s.name}</th>`).join('')}</tr>`
       + line('R/T', s => (s.aborted ? '<span style="color:#ff3355">ABORT</span>' : s.foul ? '<span style="color:#ff3355">RED LIGHT</span>' : sec(s.reaction))) + line('60 FT', s => sec(s.ft60)) + line('330 FT', s => sec(s.ft330)) + line('1/8 MILE', s => sec(s.eighth)) + line('1000 FT', s => sec(s.ft1000)) + line('1/4 MILE', s => sec(s.quarter)) + line('TRAP', s => kmh(s.trap)) + line('SPIN', spinCell) + `<tr><td>POWER</td>${R.hp.map(h => `<td>${h} HP</td>`).join('')}</tr>` + line('TOTAL', s => (s.crossed || s.foul || s.crashed ? '<span style="color:#ff3355">DQ</span>' : sec(s.total))) + line('BOOST', s => (s.boostPeak !== undefined ? Math.round(s.boostPeak * 100) + '%' : '-')) + line('ENGINE', s => (s.enginePeakTemp !== undefined ? `${Math.round(s.enginePeakTemp)}C  -${Math.round((s.peakRetard ?? 0) * 100)}% TIMING` : '-')) + line('CLUTCH', s => `${s.clutchTemp !== undefined ? Math.round(s.clutchTemp) + 'C ' : ''}${s.clutchCondition !== undefined ? Math.round(s.clutchCondition * 100) + '%' : ''}`) + line('TIRES', tireCell) + line('FUEL', fuelCell) + line('REAR WEIGHT', rearCell) + line('BRAKE', brakeCell) + line('CHUTE', chuteCell) + line('NITRO', nitroCell) + line('BOTTLE', bottleCell)
-      + `</table><div class="pts">${R.records.length ? 'NEW: ' + R.records.join(', ') : ''}</div>`;
+      + `</table><div class="pts">${R.records.length ? 'NEW: ' + R.records.join(', ') : ''}</div>`
+      + (R.kind === 'ghost' && them ? `<table><tr><th>VS ${them.name} (${classLabel(lb.playerClass())})</th><th>DELTA</th></tr>${deltaRowsHtml(markDeltas(me, them, me.reaction, them.reaction))}</table><p class="help" id="lbstatus">${lb.status}</p>` : '');
     const items: MenuItem[] = [{ id: 'again', label: 'RUN AGAIN', enter: () => { raceSeed = freshSeed(); startRace(R.kind); } }];
     if (R.kind !== 'test' && R.kind !== 'ghost') items.push({ ...raceItem(), label: 'NEXT RACE' });
     items.push({ id: 'tune', label: 'TUNE', enter: () => show('tune') }, { id: 'title', label: 'MAIN MENU', enter: () => show('title') });
@@ -228,15 +264,18 @@ function render(): void {
 
 // ---- the race ----
 function startRace(kind: DragRaceKind): void {
-  raceKind = kind; screenBefore = screen; msg = ''; const entrants = [myEntrant()], g = kind === 'ghost' ? ghostToRace() : null; if (g) entrants.push(ghostEntrant(g));
-  race = createDrag({ seed: raceSeed, strip, entrants }); isBackdrop = false; banked = false; overT = 0; acc = 0; result = null; taps.launch = taps.nitro = taps.chute = false; music.startMusic(); show('race');
+  raceKind = kind; screenBefore = screen; msg = ''; const ranked = kind === 'ghost', entrants = [ranked ? rankedEntrant() : myEntrant()], g = ranked ? ghostToRace() : null; if (g) entrants.push(ghostEntrant(g));
+  if (ranked) { raceSeed = RANKED.seed; lb.clearStatus(); }      // (a ranked run is the fixed class day: the same seed, weather and fresh strip for everyone)
+  race = createDrag(ranked ? { seed: RANKED.seed, conditions: RANKED.conditions, strip: rankedStrip(), entrants } : { seed: raceSeed, strip, entrants }); isBackdrop = false; banked = false; overT = 0; acc = 0; result = null; taps.launch = taps.nitro = taps.chute = false; music.startMusic(); show('race');
 }
 function finishRace(): void {
   if (banked) return; banked = true; const s = race.state, me = s.runners[0] as Runner, slip = timeslip(me), crashed = !!slip.crashed;
   const won = !crashed && !me.aborted && (s.runners.length === 1 ? s.winner === 0 && !me.foul : s.winner === 0);
-  if (me.launched) clutchCondition = clutchAfterRun(me); fuelLoad = me.fuel; engineTemp = slip.engineTemp ?? engineOf();
+  const ranked = raceKind === 'ghost';      // (a ranked run starts fresh, so it leaves the visit's clutch, fuel and engine heat alone)
+  if (!ranked) { if (me.launched) clutchCondition = clutchAfterRun(me); fuelLoad = me.fuel; engineTemp = slip.engineTemp ?? engineOf(); }
   const slips = s.runners.map(timeslip), candidate = ghostFromRunner(me, s.greenAt, STOCK_CAR.id);
   const res = recordRace(save, { kind: raceKind, won, slip, ghost: candidate, crashed }, Date.now()); commit(res.save);
+  if (ranked) void lb.submitRun(slip, me.tune, RANKED.seed, candidate);
   result = { won, crashed, records: res.records, improved: res.improved, slips, reason: s.reason, winner: s.winner, kind: raceKind, hp: s.runners.map(r => Math.round(dynoPeaks(r.spec).hp)) };
 }
 // ---- input: gas and brake are held keys (or the pad's triggers), launch and shift-up are one press, burnout is its own key or gas + brake together; the clutch is automatic ----
@@ -261,7 +300,7 @@ addEventListener('keydown', e => {
     return;
   }
   if (screen === 'tune' && k === 'tab') { setTuneTab(tuneTab === 'tuning' ? 'stats' : 'tuning'); return; }
-  if (k === 'escape') { if (screen === 'tune') show(backFrom.tune ?? 'title'); else if (screen !== 'title') show('title'); return; }
+  if (k === 'escape') { if (screen === 'tune') show(backFrom.tune ?? 'title'); else if (screen === 'name') { lb.cancelNameEdit(); show('records'); } else if (screen !== 'title') show('title'); return; }
   if (menu && menu.key(k)) render();
 });
 addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
@@ -284,12 +323,14 @@ function frame(now: number): void {
   if (screen === 'race') {
     drawTach(ctx, W, H, me, S, now / 1000, s.weather); drawLane(ctx, W, H, me, 0, S);
     const label = (id: string, fallback: string): string => keyLabel((binds[id] ?? [])[0] ?? fallback);
+    drawBanner(ctx, W, S, conditionsBanner(s.weather ?? s.conditions, raceKind === 'ghost'), raceKind === 'ghost');
+    const rival = s.runners[1]; if (rival) drawDeltas(ctx, W, S, rival.name, markDeltas(me.marks, rival.marks, me.reaction, rival.reaction));
     drawProgress(ctx, W, H, s, 0, S, { launch: label('launch', ' '), nitro: label('nitro', 'Shift'), manual: me.tune.shift === 'manual', auto: !!me.ai, burnout: label('burnout', 'j'), gas: label('gas', 'w'), brake: label('brake', 's'), chute: label('chute', 'n'), deepStage: label('deepStage', 'h'), backUp: label('backUp', 'r') });
   }
   requestAnimationFrame(frame);
 }
 window.__drag = () => {
   const s = race.state;
-  return { screen, tuneTab, phase: s.phase, seed: raceSeed, conditions: s.conditions, menu: menu ? { sel: menu.items[menu.sel]?.id, items: menu.items.map(i => i.id) } : null, benchmark: save.benchmark, kind: raceKind, clutch: clutchCondition, fuel: fuelOf(), ghost: save.ghost ? { et: save.ghost.marks.quarter ?? 0, total: save.ghost.total, samples: save.ghost.samples.length } : null, winner: s.winner, runners: s.runners.map(r => ({ name: r.name, x: r.x, v: r.v, gear: r.gear, rpm: r.rpm, launched: r.launched, finished: r.finished, crashed: r.crashed })), result };
+  return { screen, tuneTab, phase: s.phase, seed: raceSeed, conditions: s.conditions, menu: menu ? { sel: menu.items[menu.sel]?.id, items: menu.items.map(i => i.id) } : null, benchmark: save.benchmark, kind: raceKind, clutch: clutchCondition, fuel: fuelOf(), ghost: (() => { const g = ghostToRace(); return g ? { et: g.marks.quarter ?? 0, total: g.total, samples: g.samples.length } : null; })(), leaderboard: { class: lb.playerClass(), category: lb.category, leader: lb.leader().name, source: lb.leader().source, status: lb.status, ranked: raceKind === 'ghost', configured: lb.configured }, winner: s.winner, runners: s.runners.map(r => ({ name: r.name, x: r.x, v: r.v, gear: r.gear, rpm: r.rpm, launched: r.launched, finished: r.finished, crashed: r.crashed })), result };
 };
 show('title'); requestAnimationFrame(t => { last = t; frame(t); });
