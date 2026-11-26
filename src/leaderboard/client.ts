@@ -69,10 +69,11 @@ export function createLeaderboardClient(o: ClientOptions) {
       return rec && rec.class === cls ? { record: rec, online: true, note: '' } : fallback('LEADERBOARD ANSWERED OUT OF ORDER: RACING THE BUNDLED TIME');
     },
     /** a board: the best time per player, fastest first */
-    async board(scope: 'overall' | 'class', cls: ClassId, category: Category, limit = LEADERBOARD_API.boardRows): Promise<Board | Failure> {
+    async board(scope: 'overall' | 'class', cls: ClassId, category: Category, limit: number = LEADERBOARD_API.boardRows): Promise<Board | Failure> {
       const q = `scope=${scope}&category=${category}&limit=${Math.max(1, Math.min(100, Math.floor(limit)))}${scope === 'class' ? `&class=${encodeURIComponent(cls)}` : ''}`;
       const r = await request(`/leaderboard?${q}`, { method: 'GET' });
       if ('kind' in r) return r;
+      if (r.status === 429) return fail('rate-limited', 'TOO MANY REQUESTS: TRY AGAIN IN A MINUTE');
       if (!r.ok || !isObj(r.body) || !Array.isArray(r.body.entries)) return fail(r.status >= 500 || r.ok ? 'server' : 'rejected', `BOARD UNAVAILABLE: ${errorText(r.body, 'TRY LATER')}`);
       const entries: BoardEntry[] = [];
       for (const e of r.body.entries.slice(0, 100)) {

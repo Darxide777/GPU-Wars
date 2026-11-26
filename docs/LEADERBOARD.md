@@ -32,4 +32,5 @@ Unlikely on Free. A quarter-mile run is roughly 4-6 simulated seconds; at a 120 
 - CORS: reads (`GET /classes`, `/leaderboard`, `/leader`) answer ANY origin with `Access-Control-Allow-Origin: *` (public data, no cookies; itch.io games run from several hosts) and may be cached by the browser for 10 s (`/classes`: 1 h). The preflight of a GET is answered for any origin. `POST /scores` and its preflight stay limited to `ALLOWED_ORIGINS` and the itch.zone wildcard. The game sends no custom header on GETs, so they need no preflight at all.
 - One row per (player, class, category), best ET kept; overall board = best row per player.
 - Rate limit: per hashed IP and per `X-Client-Id`, fixed one-minute window in D1 (`RATE_LIMIT_PER_MINUTE`).
+- The game's LEADERBOARD screen reads `GET /leaderboard?scope=overall|class&category=...&limit=100` (one request per board per minute, cached in the client; see `docs/ARCHITECTURE.md`). A 429 from the board is shown as "slow down, retry". The screen needs no backend change; a "my rank when outside the top 100" line would need a new endpoint.
 - Ghost samples are optional `[seconds, feet]` pairs, max 256.
