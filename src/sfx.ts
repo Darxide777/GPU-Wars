@@ -3,7 +3,7 @@
 // The files are in assets/sfx. The three engine loops have their seam crossfaded into the file, so a loop never clicks.
 
 /** the files, relative to index.html (itch.io serves the game from a folder). `tree` is one beep per light: three ambers, then the green. */
-export const SFX_FILES = { idle: 'assets/sfx/idle.ogg', throttle: 'assets/sfx/throttle.ogg', full: 'assets/sfx/full.ogg', tree: ['assets/sfx/tree-1.ogg', 'assets/sfx/tree-2.ogg', 'assets/sfx/tree-3.ogg', 'assets/sfx/tree-4.ogg'] } as const;
+export const SFX_FILES = { idle: 'assets/sfx/idle.ogg', throttle: 'assets/sfx/throttle.ogg', full: 'assets/sfx/full.ogg', lift: 'assets/sfx/lift.ogg', tree: ['assets/sfx/tree-1.ogg', 'assets/sfx/tree-2.ogg', 'assets/sfx/tree-3.ogg', 'assets/sfx/tree-4.ogg'] } as const;
 
 /** how fast the engine sound follows the pedal (seconds): the crossfade between the idle and throttle loops */
 export const ENGINE_FADE = 0.12;
@@ -25,7 +25,7 @@ export const treeFileFor = (light: 'amber' | 'green', n = 1): number => (light =
  *  a Web Audio context stayed locked for some players and the effects were silent). */
 export function createSfx(vol: { sfx: number }) {
   type Mix = { idle: number; throttle: number; full: number };
-  let loops: { idle: HTMLAudioElement; throttle: HTMLAudioElement; full: HTMLAudioElement } | null = null, beeps: HTMLAudioElement[] = [];
+  let loops: { idle: HTMLAudioElement; throttle: HTMLAudioElement; full: HTMLAudioElement } | null = null, beeps: HTMLAudioElement[] = [], liftSound: HTMLAudioElement | null = null;
   const shown: Mix = { idle: 0, throttle: 0, full: 0 };
   let lastFrame = 0;
   const loopOf = (file: string): HTMLAudioElement => { const a = new Audio(file); a.loop = true; a.preload = 'auto'; a.volume = 0; return a; };
@@ -39,6 +39,7 @@ export function createSfx(vol: { sfx: number }) {
       try {
         if (!loops) {
           loops = { idle: loopOf(SFX_FILES.idle), throttle: loopOf(SFX_FILES.throttle), full: loopOf(SFX_FILES.full) };
+          liftSound = new Audio(SFX_FILES.lift); liftSound.preload = 'auto';
           beeps = SFX_FILES.tree.map(file => { const a = new Audio(file); a.preload = 'auto'; return a; });
         }
         keepPlaying();
@@ -56,6 +57,8 @@ export function createSfx(vol: { sfx: number }) {
     treeLight(light: 'amber' | 'green', n = 1): void {
       try { const a = beeps[treeFileFor(light, n)]; if (!a) return; a.currentTime = 0; a.volume = level(1); play(a); } catch (e) { /* ignore */ }
     },
+    /** the car has crossed the finish and the gas came off: one lift-off sound */
+    liftOff(): void { try { if (!liftSound) return; liftSound.currentTime = 0; liftSound.volume = level(1); play(liftSound); } catch (e) { /* ignore */ } },
     /** `vol.sfx` changed */
     volumesChanged(): void { setVolumes(); },
   };
