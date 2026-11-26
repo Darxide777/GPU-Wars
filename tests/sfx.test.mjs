@@ -28,7 +28,7 @@ test('the sound effects volume is an option (0 mutes), kept in range, and the pa
   assert.match(page, /sfx\.unlock\(\)/); assert.match(page, /sfx\.treeLight\('amber'/); assert.match(page, /sfx\.engine\(/);
 });
 
-test('before the green only the idle sound plays, then the throttle is allowed', () => {
-  assert.deepEqual(engineMix(1, true, false), { idle: 1, throttle: 0 }, 'full gas in staging is still the idle sound');
+test('only the idle sound plays in staging; the throttle is allowed in the burnout and after the green', () => {
+  assert.deepEqual(engineMix(1, true, false), { idle: 1, throttle: 0 }, 'full gas in the run-out, back up and stage is still the idle sound');
   const after = engineMix(1, true, true); assert.ok(after.idle < 1e-9 && Math.abs(after.throttle - 1) < 1e-9);
 });
