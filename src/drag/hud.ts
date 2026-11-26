@@ -149,7 +149,7 @@ export function guidePrompt(me: Runner, s: DragHudState, keys: DragKeyLabels): G
   if (keys.auto) return me.finished || me.crashed ? null : { variants: ['AUTOPILOT'], col: C.cyan, alpha: 0.55 };
   if (me.launched || me.aborted || me.foul || me.crashed || me.rolling) return null;
   const k = (v: string | undefined, fallback: string): string => v ?? fallback;
-  const gas = k(keys.gas, 'GAS'), brake = k(keys.brake, 'BRAKE'), backUp = k(keys.backUp, 'BACK UP'), burn = k(keys.burnout, 'BURNOUT'), launch = keys.launch, deep = keys.deepStage;
+  const gas = k(keys.gas, 'GAS'), brake = k(keys.brake, 'BRAKE'), backUp = k(keys.backUp, 'BACK UP'), burn = k(keys.burnout, 'BURNOUT');
   // the burnout is gas + brake (on a phone, gas + the BURN button), so those are the pair to hold and the one to let go
   const hold = keys.touch ? burn : brake, burnText = [`HOLD ${gas} + ${hold}: BURNOUT`, `${gas} + ${hold}: BURNOUT`];
   const say = (variants: string[], col: string = C.cyan, alpha = 0.95): GuidePrompt => ({ variants, col, alpha });
@@ -173,10 +173,10 @@ export function guidePrompt(me: Runner, s: DragHudState, keys: DragKeyLabels): G
       return me.overstaged ? say([`BACK UP (${backUp}) TO RE-STAGE`, `BACK UP (${backUp})`], C.red) : say([`TAP ${gas}: CREEP TO STAGE`, 'CREEP TO STAGE'], C.yel);
     case 'staged': case 'deepStaged': {
       if (s.green) return null;
-      const deepIsAChoice = me.stage === 'staged' && !!deep && !me.overstaged && !me.deepStage;
       // (the panel's stage line already says STAGED or DEEP STAGED, so the line only says what to do)
-      if (me.stage === 'deepStaged') return say([`WAIT FOR GREEN, THEN ${launch}`, `${launch} ON GREEN`], C.yel);
-      return say([...(deepIsAChoice ? [`WAIT FOR GREEN, THEN ${launch} (${deep}: DEEP)`, `${launch} ON GREEN (${deep}: DEEP)`] : []), `WAIT FOR GREEN, THEN ${launch}`, `${launch} ON GREEN`], C.yel);
+      // staged or deep staged: the only thing left to do is wait, so the prompt says just that (the launch and deep-stage keys are in OPTIONS)
+      if (me.stage === 'deepStaged') return say(['WAIT FOR GREEN'], C.yel);
+      return say(['WAIT FOR GREEN'], C.yel);
     }
     default: return null;
   }
