@@ -32,7 +32,7 @@ export function createLeaderboardUi(o: UiOptions) {
   const playerClass = (): ClassId => { const b = o.benchmark(); return b && isClassId(b.class) ? b.class : DEFAULT_CLASS; };
   const leaderRecord = (): LeaderRecord => (leader && leader.record.class === playerClass() && leader.record.category === runCategory ? leader.record : fallbackLeader(playerClass(), runCategory));
   const api = {
-    configured: client.configured,
+    configured: client.configured, client,
     playerClass, className: (): string => classLabel(playerClass()),
     get profile(): Profile { return profile; },
     get category(): Category { return runCategory; }, setCategory(c: Category): void { runCategory = c; },

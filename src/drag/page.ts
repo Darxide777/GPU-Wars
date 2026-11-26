@@ -1,5 +1,6 @@
-// The GPU Wars page: the title menu (BENCHMARK, CLASS, TUNE, RACE CLASS LEADER, RECORDS, OPTIONS), the tune screen with a predicted timeslip, the top-down race, and the timeslip after it.
+// The GPU Wars page: the title menu (BENCHMARK, CLASS, TUNE, RACE CLASS LEADER, RECORDS, LEADERBOARD, OPTIONS), the tune screen with a predicted timeslip, the top-down race, and the timeslip after it.
 // The rules are in model.ts and physics.ts; this file shows them and reads the keys. There is no hub, shop, points, 3D view or other game: only the top-down strip.
+// LEADERBOARD is a wide screen with the online top 100 (board and category pickers; logic in src/leaderboard/board-screen.ts; the list scrolls inside a fixed-height box so the card never resizes).
 // Rows that are not built yet say COMING SOON and say which phase brings them. Everything is drawn on one canvas with the neon menu card over it.
 import { loadSave, writeSave, type Save } from '../save.ts';
 import { browserStore } from '../browser-store.ts';
@@ -32,6 +33,7 @@ import { createLeaderboardUi } from '../leaderboard/ui.ts';
 import { RANKED, densityAltitudeFt, rankedStart, rankedStrip } from '../leaderboard/ranked.ts';
 import { deltaRowsHtml, markDeltas } from '../leaderboard/delta.ts';
 import { classLabel } from '../classes.ts';
+import { BOARD_ROWS, createBoardScreen, escapeHtml, failureText, formatRow, scrollKeyRows, scrollTarget } from '../leaderboard/board-screen.ts';
 import type { DragGhost, DragRaceKind, DragSpec, Runner, Timeslip, Tune } from './types.ts';
 
 const $ = (id: string): HTMLElement => document.getElementById(id) as HTMLElement;
@@ -121,14 +123,14 @@ void readGpuIdentity().then(g => {
 });
 
 // ---- the screens ----
-type Screen = 'title' | 'soon' | 'bench' | 'records' | 'name' | 'tune' | 'options' | 'race' | 'slip';
+type Screen = 'title' | 'soon' | 'bench' | 'records' | 'leaderboard' | 'name' | 'tune' | 'options' | 'race' | 'slip';
 type TuneTab = 'tuning' | 'stats';
 let screenBefore: Screen = 'title', screen: Screen = 'title', menu: Menu | null = null, msg = '', raceKind: DragRaceKind = 'solo', sel: Record<string, number> = {}, tuneTab: TuneTab = 'tuning';
 let soon: { title: string; text: string; help?: string } = { title: '', text: '' };
 let race: Drag = createDrag({ seed: raceSeed, strip, entrants: [myEntrant(), ...ghostList()] }), banked = true, overT = 0, acc = 0;
 let result: { category: RunCategory; won: boolean; crashed: boolean; records: string[]; slips: Timeslip[]; reason: string; winner: number; kind: DragRaceKind; hp: number[]; da: number } | null = null;
 function ghostList(): Entrant[] { const g = ghostToRace(); return g ? [ghostEntrant(g)] : []; }
-const WIDE: Screen[] = ['tune', 'slip', 'records', 'options'];
+const WIDE: Screen[] = ['tune', 'slip', 'records', 'leaderboard', 'options'];
 const setTuneTab = (tab: TuneTab): void => { if (tuneTab === tab) return; tuneTab = tab; show('tune'); };
 
 function statsTable(spec: DragSpec, tune: Tune, seed = raceSeed, kg = fuelOf()): string {
@@ -137,6 +139,38 @@ function statsTable(spec: DragSpec, tune: Tune, seed = raceSeed, kg = fuelOf()):
   const pred: [string, string][] = [['60 FT', sec(s.ft60)], ['330 FT', sec(s.ft330)], ['1/8 MILE', sec(s.eighth)], ['1000 FT', sec(s.ft1000)], ['1/4 MILE', sec(s.quarter)], ['TRAP', kmh(s.trap)], ['BOOST PEAK', s.boostPeak !== undefined ? `${Math.round(s.boostPeak * 100)}%` : '-'], ['ENGINE PEAK', s.enginePeakTemp !== undefined ? `${Math.round(s.enginePeakTemp)}C  -${Math.round((s.peakRetard ?? 0) * 100)}% TIMING` : '-'], ['SPIN', spinCell(s)], ['TIRE WEAR', s.tireWearL !== undefined && s.tireWearR !== undefined ? `L${Math.round(s.tireWearL * 100)}% R${Math.round(s.tireWearR * 100)}%` : '-'], ['NITRO SHOT', s.nitroUsed ? `${s.nitroUsed.toFixed(2)} S  +${Math.round((s.nitroPeakGain ?? 0) * 100)}% PEAK` : '-'], ['NITRO DELTA', spec.nitroSecs > 0 && p.nitroDelta !== undefined ? `${p.nitroDelta >= 0 ? '+' : ''}${p.nitroDelta.toFixed(3)} S WITH BOTTLE` : '-'], ['FUEL LEFT', fuelCell(s)], ['REAR WEIGHT', rearCell(s)], ['BRAKE', brakeCell(s)], ['CHUTE', chuteCell(s)]];
   const t = (title: string, r: [string, string][]): string => `<table><tr><th>${title}</th><th></th></tr>${r.map(([a, b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join('')}</table>`;
   return `${dynoSvg(spec, tune.shiftRpm)}<div class="slips">${t(spec.name, rows)}${t('PREDICTED: PERFECT R/T, AUTO SHIFTS, WARM TIRES, NO BURNOUT, START ENGINE HEAT, AUTO RUN-OUT, SESSION RUBBER', pred)}</div>`;
+}
+// ---- the LEADERBOARD screen: the boards are cached for a minute, so flipping between them asks the server once each ----
+const boards = createBoardScreen({ client: lb.client, playerName: () => lb.profile.playerName, onChange: () => { if (screen === 'leaderboard') { drawBoard(); render(); } } });
+let drawnBoard = '';
+/** the board as a fixed-height scrolling list (loading, failure and empty states fill the same box) */
+function drawBoard(): void {
+  const box = $('lbscroll'); if (!box) return;
+  const view = boards.view(), overall = boards.overall, top = box.scrollTop, shown = boards.key + view.state;
+  $('lbhead').textContent = `${boards.choice.label}  ${boards.category.toUpperCase()}`;
+  box.className = 'lbscroll' + (overall ? ' overall' : '');
+  const cols = `<div class="lbrow lbcols"><span>#</span><span>NAME</span><span>1/4 MILE</span><span>TRAP</span><span class="c">CLASS</span></div>`;
+  const message = (title: string, detail: string): string => `<div class="lbmsg"><b>${escapeHtml(title)}</b>${escapeHtml(detail)}</div>`;
+  let foot = '';
+  if (view.state === 'loading') box.innerHTML = cols + message('LOADING...', '');
+  else if (view.state === 'failed') { const f = failureText(view.failure); box.innerHTML = cols + message(f.title, f.detail + (view.retryable ? ' PRESS ENTER TO RETRY.' : '')); }
+  else {
+    box.innerHTML = cols + (view.entries.length ? view.entries.map((e, i) => { const r = formatRow(e, overall); return `<div class="lbrow${i === view.ownIndex ? ' me' : ''}"><span>${escapeHtml(r.rank)}</span><span>${escapeHtml(r.name)}</span><span>${r.et}</span><span>${r.trap}</span><span class="c">${escapeHtml(r.cls)}</span></div>`; }).join('') : message('NO TIMES YET', 'BE THE FIRST'));
+    foot = view.ownRank !== null ? `YOU ARE RANK ${view.ownRank}` : view.entries.length >= BOARD_ROWS ? `YOU ARE NOT IN THE TOP ${BOARD_ROWS}` : '';
+  }
+  $('lbfoot').textContent = foot;
+  box.scrollTop = shown === drawnBoard ? top : 0; drawnBoard = shown;
+}
+/** the keys of the LEADERBOARD screen; true when one was used. Left/right flip boards, up/down and page keys scroll (a gamepad's d-pad sends the same keys). */
+function boardKey(k: string): boolean {
+  if (k === 'arrowleft' || k === 'a') { boards.step(-1); return true; }
+  if (k === 'arrowright' || k === 'd') { boards.step(1); return true; }
+  if (k === 'tab' || k === 'c') { boards.toggleCategory(); return true; }
+  if (k === 'enter' || k === ' ') { boards.refresh(); return true; }
+  const box = $('lbscroll'), first = box.querySelector('.lbrow:not(.lbcols)') as HTMLElement | null; if (!first) return false;
+  const rowHeight = first.offsetHeight || 1, total = box.querySelectorAll('.lbrow:not(.lbcols)').length, visible = Math.floor((box.clientHeight - rowHeight) / rowHeight);
+  const rows = scrollKeyRows(k, visible, total); if (rows === 0) return false;
+  box.scrollTop = scrollTarget(box.scrollTop / rowHeight, rows, total, visible) * rowHeight; return true;
 }
 let backFrom: Partial<Record<Screen, Screen>> = {}, isBackdrop = true, backdropKey = '';
 /** behind the menus: your car and the ghost on the line */
@@ -169,6 +203,7 @@ function show(next: Screen): void {
       { id: 'tune', label: 'TUNE', hint: () => 'Set up the car: gearing, launch, boost, nitro and more. Your tune is kept on this computer.', enter: () => show('tune') },
       raceItem(), driverItem(),
       { id: 'records', label: 'RECORDS', hint: () => 'Your own best times on this computer.', enter: () => show('records') },
+      { id: 'leaderboard', label: 'LEADERBOARD', hint: () => 'The online top 100: overall or by class, manual or autopilot.', enter: () => show('leaderboard') },
       { id: 'options', label: 'OPTIONS', hint: () => 'Rebind every control (keyboard and gamepad), volume, touch controls, input delay and fullscreen.', enter: () => show('options') },
       ...exitRows(),
     ], sel.title ?? 3);
@@ -190,6 +225,17 @@ function show(next: Screen): void {
       { id: 'back', label: 'BACK', enter: () => show('title') },
     ]);
     void lb.sendPending(); board();
+  } else if (next === 'leaderboard') {
+    title('LEADERBOARD');
+    $('extra').innerHTML = '<div class="lbhead" id="lbhead"></div><div class="lbscroll" id="lbscroll"></div><div class="lbfoot" id="lbfoot"></div>';
+    const flip = (d: number) => (): void => boards.step(d), category = (): void => boards.toggleCategory();
+    menu = createMenu([
+      { id: 'board', label: 'BOARD', value: () => boards.choice.label, hint: () => 'Left and right: next board. Up and down, page keys, wheel or drag: scroll. C or Tab: manual or autopilot. Enter: refresh. Esc: back.', left: flip(-1), right: flip(1) },
+      { id: 'category', label: 'CATEGORY', value: () => boards.category.toUpperCase(), hint: () => 'Manual: you drive. Autopilot: the driver AI races for you. They are separate boards.', left: category, right: category },
+      { id: 'refresh', label: 'REFRESH', hint: () => 'Ask the leaderboard again (also the way to retry after an error).', enter: () => boards.refresh() },
+      { id: 'back', label: 'BACK', enter: () => show('title') },
+    ]);
+    void lb.sendPending(); void boards.load(); drawBoard();
   } else if (next === 'name') {
     const pk = lb.picker; if (!pk) { show('records'); return; }
     title('YOUR NAME');
@@ -334,6 +380,7 @@ addEventListener('keydown', e => {
   if (screen === 'race') { if (k === 'escape') show(screenBefore); return; }      // (leaving a race records nothing; the driving keys are read by src/input)
   if (screen === 'tune' && k === 'tab') { setTuneTab(tuneTab === 'tuning' ? 'stats' : 'tuning'); return; }
   if (k === 'escape') { if (screen === 'tune') show(backFrom.tune ?? 'title'); else if (screen === 'name') { lb.cancelNameEdit(); show('records'); } else if (screen !== 'title') show('title'); return; }
+  if (screen === 'leaderboard' && boardKey(k)) { e.preventDefault(); return; }
   if (menu && menu.key(k)) render(true);
 });
 input.attach(window, cv);

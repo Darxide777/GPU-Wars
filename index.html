@@ -32,6 +32,15 @@
     .info p { margin: 4px 0 8px; font-size: 12px; color: #bdf7ff; line-height: 1.5; } .info .taunt { color: #ff2bd6; font-style: italic; font-size: 14px; margin: 6px 0 10px; }
     .card.wide { width: min(920px, 94vw); } .rows-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 8px; } .dyno { display: block; max-width: 420px; margin: 0 auto 6px; } .opt small { color: #8a9ac0; font-size: 11px; margin-left: 6px; }
     .slips { display: flex; gap: 16px; } .slips table { flex: 1; } .slips th { text-align: left; } .slips td:first-child { text-align: left; color: #8a9ac0; }
+    .lbhead { color: #21e6ff; font-size: 12px; letter-spacing: .2em; margin: 2px 0 4px; }
+    .lbscroll { height: min(44vh, 400px); overflow-y: auto; scrollbar-gutter: stable; overscroll-behavior: contain; border: 1px solid #2a1a4a; background: rgba(10,4,26,.5); }
+    .lbrow { display: grid; grid-template-columns: 3.5em 1fr 7em 7em; gap: 0 8px; padding: 3px 8px; font-size: 12px; letter-spacing: .08em; color: #8a9ac0; border-top: 1px solid #2a1a4a; }
+    .lbscroll.overall .lbrow { grid-template-columns: 3.5em 1fr 7em 7em 7.5em; } .lbrow .c { display: none; } .lbscroll.overall .lbrow .c { display: block; }
+    .lbrow > :nth-child(n+3) { text-align: right; } .lbrow > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .lbrow.me { color: #ffe14d; background: rgba(255,225,77,.1); }
+    .lbcols { position: sticky; top: 0; z-index: 1; background: #0a0420; color: #21e6ff; font-size: 11px; letter-spacing: .2em; border-top: 0; }
+    .lbmsg { padding: 28px 12px; text-align: center; color: #bdf7ff; font-size: 12px; letter-spacing: .12em; line-height: 1.6; } .lbmsg b { display: block; color: #ff2bd6; font-size: 14px; }
+    .lbfoot { min-height: 1.4em; margin: 4px 2px 6px; font-size: 11px; letter-spacing: .1em; color: #ffe14d; }
     .pts { color: #ffe14d; font-size: 13px; letter-spacing: .1em; }
   </style>
 </head>
