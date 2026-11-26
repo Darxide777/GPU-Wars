@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { handle, type Env } from '../src/index';
-import { CLASS_IDS } from '../src/classes';
+import { CLASS_BOUNDS, CLASS_IDS, CLASS_SCORE_CAP } from '../src/classes';
+import { plausibleWindow } from '../src/plausible';
 import { makeDb, makeDbWithRaw, MIGRATION_FILES } from './d1shim';
 
 const ORIGIN = 'https://html-classic.itch.zone';
@@ -26,16 +27,60 @@ describe('classes', () => {
 });
 
 describe('class bounds catch impossible runs and accept what the simulation really gives', () => {
-  // [class, a real run's ET and trap (mph) from the simulation's top card of the class (docs/CALIBRATION.md), an impossible ET for the class]
-  const cases: [string, number, number, number][] = [
-    ['integrated', 9.5, 139, 7.9], ['integrated', 12.3, 106, 7.9], ['discrete', 6.9, 184, 3.2], ['discrete', 5.0, 260, 3.2], ['discrete', 4.03, 338, 3.2],
+  // [class, benchmark score, a real run's ET and trap (mph) from the simulation at that score (docs/CALIBRATION.md), an ET below the class-wide bound]
+  const cases: [string, number, number, number, number][] = [
+    ['integrated', 8000, 9.5, 139, 7.9], ['integrated', 0, 12.3, 106, 7.9], ['discrete', 0, 6.9, 184, 3.2], ['discrete', 5000, 5.0, 260, 3.2], ['discrete', 10000, 4.03, 338, 3.2],
   ];
-  const run = (cls: string, et: number, mph: number) => sub({ class: cls, splits: { ft60: +(et * 0.2).toFixed(3), ft330: +(et * 0.44).toFixed(3), eighth: +(et * 0.65).toFixed(3), ft1000: +(et * 0.84).toFixed(3), quarter: et }, trapSpeed: mph });
-  it.each(cases)('%s: a real %f s run at %f mph is accepted', async (cls, et, mph) => { expect((await post(mkEnv(), run(cls, et, mph))).status).toBe(200); });
-  it.each(cases)('%s: an impossible time is refused', async (cls, _et, mph, impossible) => { expect((await post(mkEnv(), run(cls, impossible, mph))).status).toBe(422); });
+  const run = (cls: string, score: number, et: number, mph: number) => sub({ class: cls, benchmarkScore: score, splits: { ft60: +(et * 0.2).toFixed(3), ft330: +(et * 0.44).toFixed(3), eighth: +(et * 0.65).toFixed(3), ft1000: +(et * 0.84).toFixed(3), quarter: et }, trapSpeed: mph });
+  it.each(cases)('%s score %f: a real %f s run at %f mph is accepted', async (cls, score, et, mph) => { expect((await post(mkEnv(), run(cls, score, et, mph))).status).toBe(200); });
+  it.each(cases)('%s score %f: an impossible time is refused', async (cls, score, _et, mph, impossible) => { expect((await post(mkEnv(), run(cls, score, impossible, mph))).status).toBe(422); });
   it('refuses a trap speed beyond the class', async () => {
-    expect((await post(mkEnv(), run('integrated', 9.6, 250))).status).toBe(422);
-    expect((await post(mkEnv(), run('discrete', 4.0, 420))).status).toBe(422);
+    expect((await post(mkEnv(), run('integrated', 8000, 9.6, 250))).status).toBe(422);
+    expect((await post(mkEnv(), run('discrete', 10000, 4.0, 420))).status).toBe(422);
+  });
+});
+
+describe('score-aware plausibility: a weak card cannot post a high-end card time', () => {
+  const run = (cls: string, score: number, et: number, mph: number, extra: Record<string, unknown> = {}) =>
+    sub({ class: cls, benchmarkScore: score, splits: { ft60: +(et * 0.2).toFixed(3), ft330: +(et * 0.44).toFixed(3), eighth: +(et * 0.65).toFixed(3), ft1000: +(et * 0.84).toFixed(3), quarter: et }, trapSpeed: mph, ...extra });
+  const reason = async (o: unknown) => { const r = await post(mkEnv(), o); return { status: r.status, error: ((await r.json()) as any).error as string }; };
+  it('refuses 3.7 s at score 1000 with a clear reason', async () => {
+    const r = await reason(run('discrete', 1000, 3.7, 330));
+    expect(r.status).toBe(422);
+    expect(r.error).toMatch(/faster than plausible.*class discrete with benchmark score 1000.*fastest 5\.\d\d s/);
+  });
+  it('accepts 4.1 s at score 10000', async () => { expect((await post(mkEnv(), run('discrete', 10000, 4.1, 330))).status).toBe(200); });
+  it('refuses 9 s at integrated score 0, accepts the weakest card slow', async () => {
+    expect((await post(mkEnv(), run('integrated', 0, 9, 140))).status).toBe(422);
+    expect((await post(mkEnv(), run('integrated', 0, 12.9, 102))).status).toBe(200);
+    expect((await post(mkEnv(), run('discrete', 0, 7.5, 180))).status).toBe(200);
+  });
+  it('accepts a good tune (0.5 s under the default) and an autopilot-slow run', async () => {
+    expect((await post(mkEnv(), run('discrete', 4000, 4.91, 260))).status).toBe(200);
+    expect((await post(mkEnv(), run('integrated', 4000, 10.7, 124, { category: 'autopilot' }))).status).toBe(200);
+  });
+  it('refuses a score above the class cap', async () => {
+    const r = await reason(run('integrated', 8001, 9.6, 139));
+    expect(r.status).toBe(422);
+    expect(r.error).toMatch(/class cap of 8000/);
+    expect((await post(mkEnv(), run('discrete', 10001, 4.1, 330))).status).toBe(422);
+  });
+  it('refuses a trap speed or 60 ft that does not fit the score', async () => {
+    expect((await reason(run('discrete', 1000, 6.2, 340))).error).toMatch(/trap speed/);
+    expect((await reason(run('discrete', 1000, 6.2, 205, { splits: { ft60: 0.5, ft330: 2.6, eighth: 3.94, ft1000: 5.15, quarter: 6.2 } }))).error).toMatch(/60 ft/);
+  });
+  it('the window grows slower with a lower score and never leaves the class bounds', () => {
+    for (const cls of CLASS_IDS) {
+      let lastMin = Infinity;
+      for (let score = 0; score <= CLASS_SCORE_CAP[cls]; score += 250) {
+        const w = plausibleWindow(cls, score);
+        expect(w.minEt).toBeLessThanOrEqual(lastMin + 1e-9);
+        expect(w.minEt).toBeGreaterThanOrEqual(CLASS_BOUNDS[cls].minQuarterEt);
+        expect(w.maxEt).toBeLessThanOrEqual(CLASS_BOUNDS[cls].maxQuarterEt);
+        expect(w.minEt).toBeLessThan(w.maxEt);
+        lastMin = w.minEt;
+      }
+    }
   });
 });
 
@@ -72,9 +117,9 @@ describe('validation', () => {
 
 describe('bounds', () => {
   it('rejects impossible ET for class but allows it for a faster class', async () => {
-    const fast = { splits: { ft60: 0.6, ft330: 1.4, eighth: 2.2, ft1000: 3.0, quarter: 3.7 }, trapSpeed: 330 };
+    const fast = { splits: { ft60: 0.65, ft330: 1.4, eighth: 2.4, ft1000: 3.0, quarter: 3.7 }, trapSpeed: 330 };
     expect((await post(mkEnv(), sub({ ...fast, class: 'integrated' }))).status).toBe(422);
-    expect((await post(mkEnv(), sub({ ...fast, class: 'discrete' }))).status).toBe(200);
+    expect((await post(mkEnv(), sub({ ...fast, class: 'discrete', benchmarkScore: 10000 }))).status).toBe(200);
   });
   it('rejects trap speed inconsistent with splits', async () => {
     expect((await post(mkEnv(), sub({ trapSpeed: 120 }))).status).toBe(422);
@@ -103,7 +148,7 @@ describe('ranking and categories', () => {
   it('overall board has one entry per player across classes', async () => {
     const env = mkEnv({ RATE_LIMIT_PER_MINUTE: '100' });
     await post(env, sub());
-    await post(env, sub({ class: 'integrated', trapSpeed: 139, splits: { ft60: 1.7, ft330: 4.1, eighth: 6.2, ft1000: 8.1, quarter: 9.6 } }));
+    await post(env, sub({ class: 'integrated', benchmarkScore: 8000, trapSpeed: 139, splits: { ft60: 1.7, ft330: 4.1, eighth: 6.2, ft1000: 8.1, quarter: 9.6 } }));
     const o = await (await get(env, '/leaderboard?scope=overall')).json() as any;
     expect(o.entries.length).toBe(1); expect(o.entries[0].quarterEt).toBe(5.6);
     const i = await (await get(env, '/leaderboard?scope=class&class=integrated')).json() as any;

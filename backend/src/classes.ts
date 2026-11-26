@@ -27,6 +27,9 @@ export const CLASS_BOUNDS: Record<ClassId, ClassBounds> = {
   discrete: { minQuarterEt: 3.6, maxQuarterEt: 30, minTrapSpeed: 60, maxTrapSpeed: 370 },
 };
 
+/** The highest benchmark score each class may report (the game's CLASS_SCORE_SHARE x maxScore 10000; tests/score-bounds.test.mjs keeps them equal). The server refuses a higher score. */
+export const CLASS_SCORE_CAP: Record<ClassId, number> = { integrated: 8000, discrete: 10000 };
+
 export function isClassId(value: unknown): value is ClassId {
   return typeof value === 'string' && (CLASS_IDS as readonly string[]).includes(value);
 }
