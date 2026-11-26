@@ -197,8 +197,8 @@ test('the one instruction line says the right thing in every staging phase, with
   assert.equal(first('backup', -2, { v: 0 }), 'TAP W: CREEP TO PRE-STAGE', 'backed too far');
   assert.equal(first('preStage', -0.6), 'TAP W: CREEP TO STAGE');
   assert.equal(first('preStage', -0.01, { overstaged: true }), 'BACK UP (R) TO RE-STAGE', 'over-staged: back out past the stage beam');
-  assert.equal(first('staged', -0.4), 'WAIT FOR GREEN, THEN X (H: DEEP)', 'deep staging is a real choice from the stage beam');
-  assert.equal(first('deepStaged', -0.1), 'WAIT FOR GREEN, THEN X', 'already deep: no deep option');
+  assert.equal(first('staged', -0.4), 'WAIT FOR GREEN', 'staged: just wait for green');
+  assert.equal(first('deepStaged', -0.1), 'WAIT FOR GREEN', 'deep staged: just wait for green');
   assert.ok(!say('staged', -0.4, {}, { ...keys, deepStage: undefined }).some(t => /DEEP/.test(t)), 'no deep key bound: no deep option');
   // nothing after the launch, at a foul, an abort, the roll-out, a crash, or at the green
   for (const over of [{ launched: true, stage: 'launched' }, { rolling: true, stage: 'rolling' }, { foul: true }, { aborted: true }, { crashed: true }]) assert.equal(say('staged', -0.4, over), null, JSON.stringify(over));
@@ -209,10 +209,10 @@ test('the one instruction line says the right thing in every staging phase, with
 test('the line uses the keys the player bound, and the touch buttons\' names on a phone', () => {
   const mine = { ...keys, gas: 'UP', brake: 'DOWN', backUp: 'B', launch: 'SPACE', deepStage: 'D' };
   assert.equal(first('waterBoxApproach', -20, {}, mine), 'HOLD UP + DOWN: BURNOUT'); assert.equal(first('waterBoxApproach', -30, {}, mine), 'HOLD UP: ROLL INTO THE WATER BOX');
-  assert.equal(first('runOut', 10, { v: 0 }, mine), 'BACK UP (B) 11 M'); assert.equal(first('staged', -0.4, {}, mine), 'WAIT FOR GREEN, THEN SPACE (D: DEEP)');
+  assert.equal(first('runOut', 10, { v: 0 }, mine), 'BACK UP (B) 11 M'); assert.equal(first('staged', -0.4, {}, mine), 'WAIT FOR GREEN');
   assert.equal(first('preStage', -0.6, {}, mine), 'TAP UP: CREEP TO STAGE');
   assert.equal(first('waterBoxApproach', -20, {}, touchKeys), 'HOLD GAS + BURN: BURNOUT'); assert.equal(first('runOut', 10, { v: 0 }, touchKeys), 'BACK UP (BACK UP) 11 M');
-  assert.equal(first('staged', -0.4, {}, touchKeys), 'WAIT FOR GREEN, THEN GO (DEEP: DEEP)');
+  assert.equal(first('staged', -0.4, {}, touchKeys), 'WAIT FOR GREEN');
 });
 
 test('the autopilot shows one quiet word and no keys, in every phase', () => {
