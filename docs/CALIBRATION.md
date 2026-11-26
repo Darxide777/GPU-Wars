@@ -117,7 +117,7 @@ The benchmark screen's neon look and its show phase (the rest of the song after 
 
 ## Formula lap times (phase 3)
 
-Formula is calibrated the way Drag is: **the class sets the range, the score sets the place in it, the tune is worth a few percent.** The number is the lap of a PERFECT DRIVER (the autopilot's standing-start lap, `predictFormula`, from the green) on BEACH (4828 m, banked oval) with the DEFAULT tune.
+Formula is calibrated the way Drag is: **the class sets the range, the score sets the place in it, the tune is worth a few percent.** The number is the lap of a PERFECT DRIVER (the autopilot's standing-start lap, `predictFormula`, from the green) on BEACH (4828 m, a plain banked oval you can drive flat out) with the DEFAULT tune. (BEACH was a tri-oval with a kink; it became a plain oval at the owner's request. The best car's lap is the same 38.07 s, flat out. A weak car now gains up to about 2 percent with no downforce, since it never needs it on a flat-out oval; the best card still needs it.)
 
 **The targets (the owner's constants, one table: `TARGETS` in `tests/formula-calibration.test.mjs`; the test pins each within 0.3 s):**
 
