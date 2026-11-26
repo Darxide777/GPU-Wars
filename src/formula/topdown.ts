@@ -2,7 +2,7 @@
 // your car, the ghost car (see-through), and, when asked for, the racing line in green, yellow and red. The camera is on your car, always north up, and pulls back as you go faster; a small map of the whole oval is in the
 // bottom left corner. It only reads the view and draws; the lap HUD (hud.ts) is drawn over it by `draw`. The only words are the HUD's. Nothing here uses Math.random (the picture is the same for the same lap).
 import { C } from '../sim/constants.ts';
-import { drawGearBox, drawLapPanel, drawLights, type HudOptions } from './hud.ts';
+import { drawGearBox, drawLapPanel, drawLights, overlaps, type HudOptions, type Rect } from './hud.ts';
 import type { FormulaView } from './race.ts';
 import { LINE_COLOURS, type RacingLine } from './racingLine.ts';
 import { roadEdges, shoreLine } from './road.ts';
@@ -31,15 +31,18 @@ export function cameraOf(view: FormulaView, W: number, H: number): { cx: number;
   return { cx: car.x + Math.cos(car.a) * car.speed * CAMERA.lookAhead, cy: car.y + Math.sin(car.a) * car.speed * CAMERA.lookAhead, scale: Math.min(H, W * CAMERA.narrowShare) / span };
 }
 /** the whole picture: the track, the line, the cars, the map and the HUD */
-export function draw(ctx: CanvasRenderingContext2D, W: number, H: number, view: FormulaView, options: DrawOptions = {}): void {
+export function draw(ctx: CanvasRenderingContext2D, W: number, H: number, view: FormulaView, options: DrawOptions = {}): { panel: Rect; gearBox: Rect; map: Rect | null } {
   const cam = cameraOf(view, W, H), sx = (x: number): number => W / 2 + (x - cam.cx) * cam.scale, sy = (y: number): number => H / 2 + (y - cam.cy) * cam.scale, k = cam.scale, S = Math.max(0.7, Math.min(1.6, H / 720));
   ctx.fillStyle = '#05010f'; ctx.fillRect(0, 0, W, H);
   drawTrack(ctx, view.track, sx, sy, k);
   if (options.showLine && options.line) drawLine(ctx, options.line, sx, sy, k);
   if (view.ghost) drawCar(ctx, sx(view.ghost.x), sy(view.ghost.y), view.ghost.a, k, C.cyan, C.vio, 0.4, false);
   drawCar(ctx, sx(view.car.x), sy(view.car.y), view.car.a, k, C.cyan, C.mag, 1, view.car.nitroT > 0);
-  drawMap(ctx, W, H, view);
-  drawLapPanel(ctx, W, H, S, view, options); drawLights(ctx, W, S, view); drawGearBox(ctx, W, H, S, view, options.time ?? 0);
+  // (the small map sits in the bottom left, where the touch steering buttons are: it is left out when a button is in its place)
+  const map = mapBox(W, H, view.track), mapShown = !(options.avoid ?? []).some(r => overlaps(map, r));
+  if (mapShown) drawMap(ctx, W, H, view);
+  const panel = drawLapPanel(ctx, W, H, S, view, options); drawLights(ctx, W, S, view); const gearBox = drawGearBox(ctx, W, H, S, view, options.time ?? 0, options.avoid);
+  return { panel, gearBox, map: mapShown ? map : null };
 }
 function ring(ctx: CanvasRenderingContext2D, pts: Point[], sx: (x: number) => number, sy: (y: number) => number): void { pts.forEach((p, i) => (i ? ctx.lineTo(sx(p.x), sy(p.y)) : ctx.moveTo(sx(p.x), sy(p.y)))); ctx.closePath(); }
 /** the ground, the sea, the asphalt, its neon edges, the bank, the middle dashes and the gates */
@@ -95,6 +98,10 @@ function drawCar(ctx: CanvasRenderingContext2D, x: number, y: number, a: number,
   ctx.restore();
 }
 /** the small map of the whole oval in the bottom left corner: the road, the start line, your dot and the ghost's */
+function mapBox(W: number, H: number, track: FormulaTrack): Rect {
+  const side = Math.max(MAP.minSide, Math.min(MAP.maxSide, Math.min(W, H) * MAP.share)), k = Math.min(side / track.w, side / track.h);
+  return { x: MAP.margin - 4, y: H - MAP.margin - track.h * k - 4, w: track.w * k + 8, h: track.h * k + 8 };
+}
 function drawMap(ctx: CanvasRenderingContext2D, W: number, H: number, view: FormulaView): void {
   const track = view.track, side = Math.max(MAP.minSide, Math.min(MAP.maxSide, Math.min(W, H) * MAP.share)), k = Math.min(side / track.w, side / track.h), x0 = MAP.margin, y0 = H - MAP.margin - track.h * k;
   const mx = (x: number): number => x0 + x * k, my = (y: number): number => y0 + y * k;

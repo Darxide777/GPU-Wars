@@ -16,7 +16,7 @@ import { benchmarkItem, classItem } from '../src/benchmark/menu.ts';
 import { REFERENCE_CARDS } from '../src/benchmark/reference.ts';
 import { predictDrag } from '../src/drag/physics.ts';
 import { RANKED, rankedStart, rankedStrip } from '../src/leaderboard/ranked.ts';
-import { sanitizeSave, emptySave, cleanBenchmark } from '../src/save.ts';
+import { sanitizeSave, emptySave, cleanBenchmark, SAVE_VERSION } from '../src/save.ts';
 import { readyCar } from '../src/drag/model.ts';
 import { createDrag, createDragStrip, DRAG } from '../src/drag/physics.ts';
 import { cleanTune } from '../src/drag/tune.ts';
@@ -259,7 +259,7 @@ test('the benchmark is re-run only when the card, the benchmark version or the d
 });
 test('an old save is repaired: its classLock is dropped and a result in another class is removed, a matching result stays', () => {
   const old = sanitizeSave({ version: 1, classLock: { class: 'discrete', gpuId: 'g', date: 5 }, benchmark: result({ class: 'discrete', gpuId: 'g' }), tune: { final: 3.5 } });
-  assert.equal('classLock' in old, false); assert.equal(old.version, 2); assert.equal(old.tune.final, 3.5, 'the tune is kept');
+  assert.equal('classLock' in old, false); assert.equal(old.version, SAVE_VERSION, 'it is rewritten as the current version'); assert.equal(old.tune.final, 3.5, 'the tune is kept');
   assert.equal(repairBenchmark(old, { gpuClass: 'integrated', ready: true }).benchmark, null);
   assert.equal(repairBenchmark(old, { gpuClass: 'discrete', ready: true }), null, 'nothing to repair when the class matches');
   assert.equal(repairBenchmark(old, { gpuClass: 'integrated', ready: false }), null, 'nothing is judged before the card has been read');

@@ -12,8 +12,11 @@ export const HUD = {
   /** the shift lamps: how many, and the share of the shift light's revs at which the first one comes on */ lamps: 5, lampsFrom: 0.6,
 } as const;
 
-/** options for the panel: show the gap to the ghost (off by default: Drag keeps ghost words off the race screen) */
-export interface HudOptions { showDelta?: boolean }
+export interface Rect { x: number; y: number; w: number; h: number }
+/** whether two boxes share any pixels */
+export const overlaps = (a: Rect, b: Rect): boolean => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+/** options for the panel: show the gap to the ghost (off by default: Drag keeps ghost words off the race screen); `avoid` are boxes the page draws over the HUD (the touch buttons): the HUD moves clear of them */
+export interface HudOptions { showDelta?: boolean; avoid?: Rect[] }
 const glow = (ctx: CanvasRenderingContext2D, col: string | null, b: number): void => { ctx.shadowColor = col ?? 'transparent'; ctx.shadowBlur = col ? b : 0; };
 const text = (ctx: CanvasRenderingContext2D, s: string, x: number, y: number, size: number, col: string, align: CanvasTextAlign = 'left'): void => { ctx.font = `bold ${Math.round(size)}px monospace`; ctx.textAlign = align; glow(ctx, col, 6); ctx.fillStyle = col; ctx.fillText(s, x, y); glow(ctx, null, 0); };
 /** a time as m:ss.mmm (or s.mmm under a minute) */
@@ -43,7 +46,10 @@ export function panelBox(W: number, H: number, S: number, rows: number): { x: nu
 }
 /** the left panel */
 export function drawLapPanel(ctx: CanvasRenderingContext2D, W: number, H: number, S: number, view: FormulaView, options: HudOptions = {}): { x: number; y: number; w: number; h: number } {
-  const rows = panelRows(view, options), box = panelBox(W, H, S, rows.length), size = Math.max(HUD.minFont, box.row * HUD.fontShare);
+  const rows = panelRows(view, options), box = panelBox(W, H, S, rows.length);
+  // (a touch button in the corner, the MENU button, pushes the panel down below it)
+  for (let n = 0; n < 4; n++) { const hit = (options.avoid ?? []).find(r => overlaps(box, r)); if (!hit) break; box.y = hit.y + hit.h + HUD.margin; }
+  const size = Math.max(HUD.minFont, box.row * HUD.fontShare);
   ctx.fillStyle = 'rgba(5,1,15,0.55)'; ctx.fillRect(box.x, box.y, box.w, box.h);
   rows.forEach(([s, col], i) => text(ctx, s, box.x + HUD.pad, box.y + HUD.pad + (i + 0.8) * box.row, i === 1 ? size * 1.15 : size, col));
   return { x: box.x, y: box.y, w: box.w, h: box.h };
@@ -59,8 +65,11 @@ export function drawLights(ctx: CanvasRenderingContext2D, W: number, S: number, 
   }
 }
 /** the gear box at the bottom right: the gear, the speed and the shift lamps (they fill as the revs climb and all light at the shift light) */
-export function drawGearBox(ctx: CanvasRenderingContext2D, W: number, H: number, S: number, view: FormulaView, time: number): { x: number; y: number; w: number; h: number } {
-  const car = view.car, w = 120 * S, h = 84 * S, x = W - w - HUD.margin, y = H - h - HUD.margin, lampW = (w - 2 * HUD.pad) / HUD.lamps;
+export function drawGearBox(ctx: CanvasRenderingContext2D, W: number, H: number, S: number, view: FormulaView, time: number, avoid: Rect[] = []): Rect {
+  const car = view.car, w = 120 * S, h = 84 * S, lampW = (w - 2 * HUD.pad) / HUD.lamps;
+  // the corner it likes is the bottom right; with touch buttons there it goes to the top right (under the fullscreen button), and if that is taken too, to the top middle's right
+  const spots: [number, number][] = [[W - w - HUD.margin, H - h - HUD.margin], [W - w - HUD.margin, 50 * S], [W - w - HUD.margin, 50 * S + h + HUD.margin]];
+  const [x, y] = spots.find(([sx, sy]) => !avoid.some(r => overlaps({ x: sx, y: sy, w, h }, r))) ?? (spots[0] as [number, number]);
   ctx.fillStyle = 'rgba(5,1,15,0.55)'; ctx.fillRect(x, y, w, h);
   const filled = Math.max(0, Math.min(HUD.lamps, Math.ceil(((car.rev - HUD.lampsFrom) / Math.max(0.05, 1 - HUD.lampsFrom)) * HUD.lamps))), blink = car.shiftLight && Math.floor(time * 10) % 2 === 0;
   for (let i = 0; i < HUD.lamps; i++) { const on = car.shiftLight ? blink : i < filled, col = i < 2 ? '#34ff7a' : i < 4 ? C.yel : C.red; ctx.fillStyle = on ? col : '#1a0b33'; glow(ctx, on ? col : null, 8); ctx.fillRect(x + HUD.pad + i * lampW + 1, y + HUD.pad, lampW - 3, 8 * S); glow(ctx, null, 0); }

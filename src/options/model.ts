@@ -9,7 +9,7 @@ export type PadBinds = Record<string, number[]>;
 export type TouchShow = 'auto' | 'on' | 'off';
 export type DriverKind = 'manual' | 'autopilot';
 export interface TouchOptions { show: TouchShow; /** 0.7 (small) to 1.5 (large) */ size: number; /** the gas pedal reads where on it your thumb is (and the pressure where the screen reports it) */ analog: boolean; haptics: boolean }
-export interface Options { music: number; /** the engine and tree sound effects, 0 (mute) to 1 */ sfx: number; binds: Binds; padBinds: PadBinds; touch: TouchOptions; /** extra milliseconds before a press reaches the car (calibration, 0 to 100) */ latencyOffsetMs: number; driver: DriverKind }
+export interface Options { music: number; /** the engine and tree sound effects, 0 (mute) to 1 */ sfx: number; binds: Binds; padBinds: PadBinds; touch: TouchOptions; /** extra milliseconds before a press reaches the car (calibration, 0 to 100) */ latencyOffsetMs: number; driver: DriverKind; /** Formula: show the green, yellow and red driving line (also a rebindable key, `drivingLine`) */ drivingLine: boolean }
 
 /** each action has up to two keys. A key does one thing: no two actions share a default. */
 export const DEFAULT_BINDS: Binds = {
@@ -17,18 +17,19 @@ export const DEFAULT_BINDS: Binds = {
   chute: ['n', ''], shiftUp: ['e', ''], shiftDown: ['q', ''], burnout: ['j', ''], nitro: ['Shift', ''],
   launch: ['u', ' '], deepStage: ['h', ''],
   /** reverse slowly after the burnout run-out, back to the pre-stage beam */ backUp: ['r', ''],
+  /** Formula only: show or hide the driving line while racing (Drag ignores it) */ drivingLine: ['l', ''],
 };
 /** the gamepad's default buttons (standard layout: 0 A, 1 B, 2 X, 3 Y, 4 LB, 5 RB, 6 LT, 7 RT, 10 left stick press). The gas and brake read the triggers as analog. Steering is the stick or d-pad, not a button. */
 export const DEFAULT_PAD_BINDS: PadBinds = {
   gas: [7, -1], brake: [6, -1], steerLeft: [-1, -1], steerRight: [-1, -1], chute: [3, -1], shiftUp: [5, -1], shiftDown: [4, -1], burnout: [-1, -1], nitro: [1, -1],
-  launch: [0, -1], deepStage: [10, -1], backUp: [2, -1],
+  launch: [0, -1], deepStage: [10, -1], backUp: [2, -1], drivingLine: [8, -1],
 };
 export const DEFAULT_TOUCH: TouchOptions = { show: 'auto', size: 1, analog: true, haptics: true };
 export const LATENCY_MAX_MS = 100;
 /** the actions the OPTIONS screen will let you rebind, in order, with their names */
 export const BIND_ROWS: [string, string][] = [
   ['gas', 'GAS'], ['brake', 'BRAKE'], ['steerLeft', 'TURN LEFT'], ['steerRight', 'TURN RIGHT'], ['chute', 'CHUTE (AFTER THE LINE) / ABORT (BEFORE)'], ['shiftUp', 'SHIFT UP (MANUAL)'], ['shiftDown', 'SHIFT DOWN (MANUAL)'],
-  ['burnout', 'BURNOUT (OR HOLD GAS + BRAKE)'], ['nitro', 'NITRO'], ['launch', 'LAUNCH / ROLL OUT'], ['deepStage', 'DEEP STAGE (HOLD)'], ['backUp', 'BACK UP (HOLD)'],
+  ['burnout', 'BURNOUT (OR HOLD GAS + BRAKE)'], ['nitro', 'NITRO'], ['launch', 'LAUNCH / ROLL OUT'], ['deepStage', 'DEEP STAGE (HOLD)'], ['backUp', 'BACK UP (HOLD)'], ['drivingLine', 'DRIVING LINE (FORMULA)'],
 ];
 /** keys the menus need, so they cannot be given to an action */
 export const RESERVED_KEYS: string[] = ['Escape', 'Enter', 'Tab'];
@@ -52,7 +53,7 @@ export function sanitizeOptions(raw: unknown): Options {
   const t = (r.touch && typeof r.touch === 'object' ? r.touch : {}) as Record<string, any>;
   const touch: TouchOptions = { show: t.show === 'on' || t.show === 'off' ? t.show : 'auto', size: typeof t.size === 'number' && Number.isFinite(t.size) ? Math.max(0.7, Math.min(1.5, Math.round(t.size * 10) / 10)) : 1, analog: t.analog !== false, haptics: t.haptics !== false };
   const latencyOffsetMs = typeof r.latencyOffsetMs === 'number' && Number.isFinite(r.latencyOffsetMs) ? Math.max(0, Math.min(LATENCY_MAX_MS, Math.round(r.latencyOffsetMs))) : 0;
-  return { music: volume(r.music, 0.5), sfx: volume(r.sfx, 0.7), binds, padBinds, touch, latencyOffsetMs, driver: r.driver === 'autopilot' ? 'autopilot' : 'manual' };
+  return { music: volume(r.music, 0.5), sfx: volume(r.sfx, 0.7), binds, padBinds, touch, latencyOffsetMs, driver: r.driver === 'autopilot' ? 'autopilot' : 'manual', drivingLine: r.drivingLine === true };
 }
 export function loadOptions(store: Store): Options { let raw: unknown = null; try { raw = JSON.parse(store.get(OPTIONS_KEY) || 'null'); } catch (e) { /* damaged: use the defaults */ } return sanitizeOptions(raw); }
 export function saveOptions(store: Required<Store>, o: Options): void { try { store.set(OPTIONS_KEY, JSON.stringify(o)); } catch (e) { /* cannot be kept */ } }

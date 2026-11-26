@@ -86,13 +86,16 @@ test('missing or broken input fields never poison the physics', () => {
   const c = r.state.car; for (const k of ['x', 'y', 'a', 'vx', 'vy']) assert.ok(Number.isFinite(c[k]), k);
 });
 
-test('nothing in src/formula uses Math.random, the clock or the page: it is pure and deterministic, and it does not touch Drag or the backend', async () => {
+const PAGE_LAYER = ['page.ts', 'online.ts', 'model.ts'];
+test('nothing in src/formula uses Math.random, the clock or the page: it is pure and deterministic (apart from the page layer), and it does not touch Drag or the backend', async () => {
   const { readdirSync, readFileSync } = await import('node:fs');
   const dir = new URL('../src/formula/', import.meta.url);
   for (const f of readdirSync(dir)) {
     const code = readFileSync(new URL(f, dir), 'utf8').split('\n').filter(l => !l.trim().startsWith('//') && !l.trim().startsWith('/**')).join('\n');
-    assert.ok(!/Math\.random|Date\.now|performance\.now|new Date|localStorage|document\.|window\./.test(code), `${f} is pure`);
-    if (f !== 'topdown.ts' && f !== 'hud.ts') assert.ok(!/CanvasRenderingContext2D/.test(code), `${f} draws nothing`);
+    // page.ts, model.ts and online.ts are the page layer (phase 2: the clock, the leaderboard and the canvas are theirs); the simulation files stay pure
+    assert.ok(!/Math\.random/.test(code), `${f} has no Math.random`);
+    if (!PAGE_LAYER.includes(f)) assert.ok(!/Date\.now|performance\.now|new Date|localStorage|document\.|window\./.test(code), `${f} is pure`);
+    if (f !== 'topdown.ts' && f !== 'hud.ts' && !PAGE_LAYER.includes(f)) assert.ok(!/CanvasRenderingContext2D/.test(code), `${f} draws nothing`);
     assert.ok(!/from '\.\.\/drag\/|from '\.\.\/\.\.\/backend/.test(code), `${f} does not import Drag or the backend`);
   }
 });

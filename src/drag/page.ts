@@ -1,4 +1,5 @@
-// The GPU Wars page: the title menu (BENCHMARK, CLASS, TUNE, RACE CLASS LEADER, RECORDS, LEADERBOARD, OPTIONS), the tune screen with a predicted timeslip, the top-down race, and the timeslip after it.
+// The GPU Wars page: the title menu (MODE, BENCHMARK, CLASS, TUNE, RACE CLASS LEADER, RECORDS, LEADERBOARD, OPTIONS), the tune screen with a predicted timeslip, the top-down race, and the timeslip after it.
+// TWO MODES share this page (one index.html, one bundle): DRAG (everything below) and FORMULA (src/formula/page.ts: its tune screen, lap, timeslip and records; this file only switches to it with `mode`). The mode is picked on the title menu and kept in the save. The benchmark, class, options, name and leaderboard screens are shared.
 // The rules are in model.ts and physics.ts; this file shows them and reads the keys. There is no hub, shop, points, 3D view or other game: only the top-down strip.
 // LEADERBOARD is a wide screen with the online top 100 (board and category pickers; logic in src/leaderboard/board-screen.ts; the list scrolls inside a fixed-height box so the card never resizes).
 // Rows that are not built yet say COMING SOON and say which phase brings them. Everything is drawn on one canvas with the neon menu card over it.
@@ -30,6 +31,10 @@ import { benchmarkItem, benchmarkLine, classItem, type BenchmarkContext } from '
 import { repairBenchmark, resultFromRun } from '../benchmark/rules.ts';
 import { dynoPeaks, dynoSvg } from '../benchmark/dyno.ts';
 import { createLeaderboardUi } from '../leaderboard/ui.ts';
+import { createFormulaMode } from '../formula/page.ts';
+import { createFormulaOnline } from '../formula/online.ts';
+import type { FormulaRaceKind } from '../formula/model.ts';
+import { DEFAULT_TRACK, type ModeId } from '../classes.ts';
 import { RANKED, densityAltitudeFt, rankedStart, rankedStrip } from '../leaderboard/ranked.ts';
 import { deltaRowsHtml, markDeltas } from '../leaderboard/delta.ts';
 import { classLabel } from '../classes.ts';
@@ -44,6 +49,8 @@ const sfx = createSfx(options);
 
 // ---- the save (kept in the browser when it can be; in memory when the page is in a blocked iframe) ----
 let save: Save = loadSave(browserStore);
+/** the game mode on screen: DRAG or FORMULA (picked on the title menu, kept in the save) */
+let mode: ModeId = save.mode;
 const commit = (next: Save): void => { save = next; writeSave(browserStore, save); };
 
 // ---- what lasts for this visit only: clutch and tire wear, the fuel load and the engine heat carry between races until you reset them ----
@@ -72,14 +79,17 @@ function predict(spec: DragSpec, tune: Tune, seed = raceSeed, kg = fuelOf(), tem
   const p = predictDrag(spec, tune, seed, undefined, kg, temp, strip), out = { slip: p.slip, spin: p.spin, withoutNitro: p.withoutNitro, nitroDelta: p.nitroDelta }; if (predictions.size > 200) predictions.clear(); predictions.set(key, out); return out;
 }
 // ---- the leaderboard: your class, the class leader's ghost, ranked runs and the boards (all in src/leaderboard/; offline it uses a bundled leader time) ----
-const lb = createLeaderboardUi({ store: browserStore, benchmark: () => save.benchmark, onChange: () => {
+const onlineChanged = (): void => {
   if (screen === 'race') return;
-  const status = document.getElementById('lbstatus'), boardBox = document.getElementById('lbboard'); if (status) status.textContent = lb.status; if (boardBox) boardBox.innerHTML = lb.boardHtml();
+  const status = document.getElementById('lbstatus'), boardBox = document.getElementById('lbboard'); if (status) status.textContent = mode === 'formula' ? online.status : lb.status; if (boardBox) boardBox.innerHTML = lb.boardHtml();
   if (isBackdrop) backdrop(); if (menu && screen !== 'name') render();
-} });
+};
+const lb = createLeaderboardUi({ store: browserStore, benchmark: () => save.benchmark, onChange: onlineChanged });
+/** FORMULA's leader and lap sending (src/formula/online.ts: the shared client with `mode: 'formula'`); its category is the driver option */
+const online = createFormulaOnline({ client: lb.client, benchmark: () => save.benchmark, playerName: () => lb.profile.playerName, category: () => (options.driver === 'autopilot' ? 'autopilot' : 'manual'), onChange: onlineChanged });
 /** the leader is fetched after your first key or tap (never at load: itch.io pages make no request on start), and again each time the title menu opens */
 let touchedPage = false;
-const askLeader = (): void => { touchedPage = true; void lb.refreshLeader(); };
+const askLeader = (): void => { touchedPage = true; void (mode === 'formula' ? online.refreshLeader() : lb.refreshLeader()); };
 addEventListener('keydown', askLeader, { once: true }); addEventListener('pointerdown', askLeader, { once: true });
 /** THE GHOST YOU RACE: a simulated ghost of your class leader (built from their ET, splits, trap speed and seed; checked with cleanDragGhost), never your own pass */
 const ghostToRace = (): DragGhost | null => lb.ghost();
@@ -141,15 +151,19 @@ function statsTable(spec: DragSpec, tune: Tune, seed = raceSeed, kg = fuelOf()):
   return `${dynoSvg(spec, tune.shiftRpm)}<div class="slips">${t(spec.name, rows)}${t('PREDICTED: PERFECT R/T, AUTO SHIFTS, WARM TIRES, NO BURNOUT, START ENGINE HEAT, AUTO RUN-OUT, SESSION RUBBER', pred)}</div>`;
 }
 // ---- the LEADERBOARD screen: the boards are cached for a minute, so flipping between them asks the server once each ----
-const boards = createBoardScreen({ client: lb.client, playerName: () => lb.profile.playerName, onChange: () => { if (screen === 'leaderboard') { drawBoard(); render(); } } });
+const boardsChanged = (): void => { if (screen === 'leaderboard') { drawBoard(); render(); } };
+const dragBoards = createBoardScreen({ client: lb.client, playerName: () => lb.profile.playerName, onChange: boardsChanged });
+/** the Formula boards: the same screen logic with the client asked for the formula mode and track (the lap time comes back as `quarterEt`, the ranking time in both modes) */
+const formulaBoards = createBoardScreen({ client: { configured: lb.client.configured, board: (scope, cls, category, limit) => lb.client.board(scope, cls, category, limit, { mode: 'formula', track: DEFAULT_TRACK.formula }) }, playerName: () => lb.profile.playerName, onChange: boardsChanged });
+const activeBoards = () => (mode === 'formula' ? formulaBoards : dragBoards);
 let drawnBoard = '';
 /** the board as a fixed-height scrolling list (loading, failure and empty states fill the same box) */
 function drawBoard(): void {
   const box = $('lbscroll'); if (!box) return;
-  const view = boards.view(), overall = boards.overall, top = box.scrollTop, shown = boards.key + view.state;
-  $('lbhead').textContent = `${boards.choice.label}  ${boards.category.toUpperCase()}`;
+  const view = activeBoards().view(), overall = activeBoards().overall, top = box.scrollTop, shown = activeBoards().key + view.state;
+  $('lbhead').textContent = `${mode.toUpperCase()}  ${activeBoards().choice.label}  ${activeBoards().category.toUpperCase()}`;
   box.className = 'lbscroll' + (overall ? ' overall' : '');
-  const cols = `<div class="lbrow lbcols"><span>#</span><span>NAME</span><span>1/4 MILE</span><span>TRAP</span><span class="c">CLASS</span></div>`;
+  const cols = `<div class="lbrow lbcols"><span>#</span><span>NAME</span><span>${mode === 'formula' ? 'LAP TIME' : '1/4 MILE'}</span><span>${mode === 'formula' ? 'TOP SPEED' : 'TRAP'}</span><span class="c">CLASS</span></div>`;
   const message = (title: string, detail: string): string => `<div class="lbmsg"><b>${escapeHtml(title)}</b>${escapeHtml(detail)}</div>`;
   let foot = '';
   if (view.state === 'loading') box.innerHTML = cols + message('LOADING...', '');
@@ -163,10 +177,10 @@ function drawBoard(): void {
 }
 /** the keys of the LEADERBOARD screen; true when one was used. Left/right flip boards, up/down and page keys scroll (a gamepad's d-pad sends the same keys). */
 function boardKey(k: string): boolean {
-  if (k === 'arrowleft' || k === 'a') { boards.step(-1); return true; }
-  if (k === 'arrowright' || k === 'd') { boards.step(1); return true; }
-  if (k === 'tab' || k === 'c') { boards.toggleCategory(); return true; }
-  if (k === 'enter' || k === ' ') { boards.refresh(); return true; }
+  if (k === 'arrowleft' || k === 'a') { activeBoards().step(-1); return true; }
+  if (k === 'arrowright' || k === 'd') { activeBoards().step(1); return true; }
+  if (k === 'tab' || k === 'c') { activeBoards().toggleCategory(); return true; }
+  if (k === 'enter' || k === ' ') { activeBoards().refresh(); return true; }
   const box = $('lbscroll'), first = box.querySelector('.lbrow:not(.lbcols)') as HTMLElement | null; if (!first) return false;
   const rowHeight = first.offsetHeight || 1, total = box.querySelectorAll('.lbrow:not(.lbcols)').length, visible = Math.floor((box.clientHeight - rowHeight) / rowHeight);
   const rows = scrollKeyRows(k, visible, total); if (rows === 0) return false;
@@ -175,6 +189,7 @@ function boardKey(k: string): boolean {
 let backFrom: Partial<Record<Screen, Screen>> = {}, isBackdrop = true, backdropKey = '';
 /** behind the menus: your car and the ghost on the line */
 function backdrop(): void {
+  if (mode === 'formula') { fm.backdrop(); return; }
   const g = ghostToRace(), key = `${g?.total ?? 0}|${g?.marks.quarter ?? 0}|${raceSeed}|${clutchCondition}|${tireWear.join(',')}|${fuelOf()}|${engineOf()}|${JSON.stringify(save.tune)}|${save.benchmark?.score ?? 0}`; if (isBackdrop && key === backdropKey) return;
   race = createDrag({ seed: raceSeed, strip, entrants: [myEntrant(), ...ghostList()] }); isBackdrop = true; backdropKey = key;
 }
@@ -196,22 +211,29 @@ function show(next: Screen): void {
   scr.style.display = 'flex'; card.classList.toggle('wide', WIDE.includes(next)); $('rows').className = next === 'tune' || next === 'options' ? 'rows-grid' : ''; $('extra').innerHTML = ''; card.scrollTop = 0;
   const title = (t: string, col = '#ff2bd6'): void => { $('title').textContent = t; $('title').style.color = col; };
   if (next === 'title') {
-    title('GPU WARS'); syncCategory(); if (touchedPage) void lb.refreshLeader();
+    title('GPU WARS'); syncCategory(); if (touchedPage) void (mode === 'formula' ? online.refreshLeader() : lb.refreshLeader());
     menu = createMenu([
+      modeItem(),
       benchmarkItem(benchContext),
       classItem(benchContext),
-      { id: 'tune', label: 'TUNE', hint: () => 'Set up the car: gearing, launch, boost, nitro and more. Your tune is kept on this computer.', enter: () => show('tune') },
-      raceItem(), driverItem(),
-      { id: 'records', label: 'RECORDS', hint: () => 'Your own best times on this computer.', enter: () => show('records') },
-      { id: 'leaderboard', label: 'LEADERBOARD', hint: () => 'The online top 100: overall or by class, manual or autopilot.', enter: () => show('leaderboard') },
+      { id: 'tune', label: 'TUNE', hint: () => (mode === 'formula' ? 'Set up the formula car: gearing, downforce, steering, tyre pressure, nitro and the gearbox. Your tune is kept on this computer.' : 'Set up the car: gearing, launch, boost, nitro and more. Your tune is kept on this computer.'), enter: () => show('tune') },
+      mode === 'formula' ? fm.raceItem(() => startFormula('ranked')) : raceItem(), driverItem(),
+      { id: 'records', label: 'RECORDS', hint: () => (mode === 'formula' ? 'Your own best laps on this computer.' : 'Your own best times on this computer.'), enter: () => show('records') },
+      { id: 'leaderboard', label: 'LEADERBOARD', hint: () => `The online top 100 for ${mode.toUpperCase()}: overall or by class, manual or autopilot.`, enter: () => show('leaderboard') },
       { id: 'options', label: 'OPTIONS', hint: () => 'Rebind every control (keyboard and gamepad), volume, touch controls, input delay and fullscreen.', enter: () => show('options') },
       ...exitRows(),
-    ], sel.title ?? 3);
+    ], sel.title ?? 4);
   } else if (next === 'options') {
     title('OPTIONS'); rebinder.cancel(); menu = createMenu(optionsItems(optionsHost, rebinder, optionsDevice), sel.options ?? 0);
   } else if (next === 'soon') {
     title(soon.title); $('extra').innerHTML = `<p class="help">${soon.help ?? 'COMING SOON'}</p><p>${soon.text}</p>`;
     menu = createMenu([{ id: 'back', label: 'BACK', enter: () => show('title') }]);
+  } else if (next === 'records' && mode === 'formula') {
+    title('RECORDS'); $('extra').innerHTML = fm.recordsHtml();
+    menu = createMenu([
+      { id: 'name', label: 'YOUR NAME', value: () => lb.profile.playerName, hint: () => 'The name shown on the boards. Press Enter to change it.', enter: () => { lb.startNameEdit(); show('name'); } },
+      { id: 'back', label: 'BACK', enter: () => show('title') },
+    ]);
   } else if (next === 'records') {
     title('RECORDS'); const r = save.records, row = (a: string, b: string): string => `<tr><td>${a}</td><td>${b}</td></tr>`;
     $('extra').innerHTML = `<table><tr><th>YOUR BESTS</th><th></th></tr>${row('BEST 1/4 MILE', r.bestEt ? sec(r.bestEt) + ' S' : '-')}${row('BEST 60 FT', r.best60 ? sec(r.best60) + ' S' : '-')}${row('BEST TRAP SPEED', r.bestTrap ? kmh(r.bestTrap) : '-')}${row('BEST REACTION', r.bestReaction ? sec(r.bestReaction) + ' S' : '-')}${row('RACES / WINS', `${r.races} / ${r.wins}`)}${row('RED LIGHTS / CRASHES', `${r.fouls} / ${r.crashes}`)}</table>`
@@ -228,14 +250,14 @@ function show(next: Screen): void {
   } else if (next === 'leaderboard') {
     title('LEADERBOARD');
     $('extra').innerHTML = '<div class="lbhead" id="lbhead"></div><div class="lbscroll" id="lbscroll"></div><div class="lbfoot" id="lbfoot"></div>';
-    const flip = (d: number) => (): void => boards.step(d), category = (): void => boards.toggleCategory();
+    const flip = (d: number) => (): void => activeBoards().step(d), category = (): void => activeBoards().toggleCategory();
     menu = createMenu([
-      { id: 'board', label: 'BOARD', value: () => boards.choice.label, hint: () => 'Left and right: next board. Up and down, page keys, wheel or drag: scroll. C or Tab: manual or autopilot. Enter: refresh. Esc: back.', left: flip(-1), right: flip(1) },
-      { id: 'category', label: 'CATEGORY', value: () => boards.category.toUpperCase(), hint: () => 'Manual: you drive. Autopilot: the driver AI races for you. They are separate boards.', left: category, right: category },
-      { id: 'refresh', label: 'REFRESH', hint: () => 'Ask the leaderboard again (also the way to retry after an error).', enter: () => boards.refresh() },
+      { id: 'board', label: 'BOARD', value: () => activeBoards().choice.label, hint: () => 'Left and right: next board. Up and down, page keys, wheel or drag: scroll. C or Tab: manual or autopilot. Enter: refresh. Esc: back.', left: flip(-1), right: flip(1) },
+      { id: 'category', label: 'CATEGORY', value: () => activeBoards().category.toUpperCase(), hint: () => 'Manual: you drive. Autopilot: the driver AI races for you. They are separate boards.', left: category, right: category },
+      { id: 'refresh', label: 'REFRESH', hint: () => 'Ask the leaderboard again (also the way to retry after an error).', enter: () => activeBoards().refresh() },
       { id: 'back', label: 'BACK', enter: () => show('title') },
     ]);
-    void lb.sendPending(); void boards.load(); drawBoard();
+    void lb.sendPending(); void activeBoards().load(); drawBoard();
   } else if (next === 'name') {
     const pk = lb.picker; if (!pk) { show('records'); return; }
     title('YOUR NAME');
@@ -248,7 +270,11 @@ function show(next: Screen): void {
       { id: 'cancel', label: 'CANCEL', enter: () => { lb.cancelNameEdit(); show('records'); } },
     ], sel.name ?? 1);
   } else if (next === 'tune') {
-    title('TUNE'); menu = createMenu(tuneItems(), sel[tuneTab] ?? 0);
+    title(mode === 'formula' ? 'FORMULA TUNE' : 'TUNE'); menu = createMenu(mode === 'formula' ? formulaTuneItems() : tuneItems(), sel[tuneTab] ?? 0);
+  } else if (next === 'slip' && mode === 'formula' && fm.result) {
+    const v = fm.slipView() as NonNullable<ReturnType<typeof fm.slipView>>;
+    title(v.title, v.ok ? '#34ff7a' : '#ff3355'); delete $('sub').dataset.note; $('extra').innerHTML = v.html;
+    menu = createMenu([{ id: 'again', label: 'RUN AGAIN', enter: () => startFormula(fm.kind) }, { id: 'tune', label: 'TUNE', enter: () => show('tune') }, { id: 'title', label: 'MAIN MENU', enter: () => show('title') }]);
   } else if (next === 'slip' && result) {
     const R = result, me = R.slips[0] as Timeslip, them = R.slips[1];
     const head = R.crashed ? 'You crashed' : me.aborted ? 'START ABORTED' : me.crossed ? 'CROSSED THE LINE' : me.foul ? 'RED LIGHT' : R.kind === 'test' ? 'TIMESLIP' : R.slips.length === 1 ? (R.won ? 'CLEAN PASS' : 'NO PASS') : R.won ? 'YOU WIN' : 'LEADER WINS';
@@ -269,6 +295,21 @@ function show(next: Screen): void {
   } else { show('title'); return; }
   render();
 }
+/** the FORMULA tune screen's rows (src/formula/page.ts): the tuning tab (gearing, downforce, steering, tyre pressure, nitro, gearbox, shift light, six tune slots) or the stats tab (the predicted lap in full) */
+function formulaTuneItems(): MenuItem[] {
+  const back = (): void => show(backFrom.tune ?? 'title'), test = (): void => startFormula('test');
+  const tabItem = (): MenuItem => tuneTab === 'tuning' ? { id: 'statsTab', label: 'STATS TAB', hint: () => 'The predicted lap with its sectors and the car\'s numbers.', enter: () => setTuneTab('stats') } : { id: 'tuningTab', label: 'TUNING TAB', hint: () => 'Back to the tuning rows.', enter: () => setTuneTab('tuning') };
+  if (tuneTab === 'stats') return [tabItem(), { id: 'test', label: 'TEST RUN', hint: () => 'A free lap with no ghost. Nothing is sent to the leaderboard.', enter: test }, { id: 'back', label: 'BACK', enter: back }];
+  const refresh = (id: string, m?: string): void => { if (m) msg = m; sel[tuneTab] = Math.max(0, formulaTuneItems().findIndex(it => it.id === id)); show('tune'); };
+  return [tabItem(), ...fm.tuneItems({ back, test, refresh })];
+}
+/** MODE: DRAG or FORMULA, kept in the save. The benchmark, class, options, records and leaderboard rows are shared; the rows that are one mode's (TUNE, RACE CLASS LEADER, RECORDS, LEADERBOARD) switch to the mode. */
+const modeItem = (): MenuItem => {
+  const flip = (): void => { mode = mode === 'drag' ? 'formula' : 'drag'; commit({ ...save, mode }); tuneTab = 'tuning'; backdrop(); if (mode === 'formula' && touchedPage) void online.refreshLeader(); show('title'); };
+  return { id: 'mode', label: 'MODE', value: () => mode.toUpperCase(), hint: () => (mode === 'drag' ? 'DRAG: a quarter mile in a straight line against the class leader. Left or right for FORMULA.' : 'FORMULA: one lap of a banked oval from a standing start against the class leader. Left or right for DRAG.'), left: flip, right: flip, enter: flip };
+};
+/** a Formula lap: a ranked one against the class leader (RACE CLASS LEADER) or a free test lap (from the tune screen) */
+function startFormula(kind: FormulaRaceKind): void { screenBefore = screen; msg = ''; fm.start(kind); show('race'); }
 /** the tuning rows: each change is kept at once (made safe for the car first) */
 const slotState = newSlotState();
 function tuneItems(): MenuItem[] {
@@ -315,7 +356,8 @@ function tuneItems(): MenuItem[] {
 }
 /** the panel above the rows for screens whose numbers follow the selection or the tune */
 function info(): void {
-  if (screen === 'tune' && tuneTab === 'stats') { const r = readyCar(save, clutchCondition); $('extra').innerHTML = statsTable(r.spec, r.tune, raceSeed, fuelOf()); }
+  if (screen === 'tune' && tuneTab === 'stats' && mode === 'formula') $('extra').innerHTML = fm.statsHtml();
+  else if (screen === 'tune' && tuneTab === 'stats') { const r = readyCar(save, clutchCondition); $('extra').innerHTML = statsTable(r.spec, r.tune, raceSeed, fuelOf()); }
   $('sub').textContent = msg || (screen === 'slip' && $('sub').dataset.note) || (screen === 'title' ? benchmarkLine(benchContext) : '');
 }
 function render(keepVisible = false): void {
@@ -366,8 +408,10 @@ function finishRace(): void {
 }
 // ---- input: everything goes through src/input (keys, touch, pad -> a timestamped queue -> the fixed-step loop -> one DriverInput). The autopilot returns the same shape. ----
 let autopilot: Autopilot = createAutopilot();
-const input = createInput({ options: () => options, racing: () => screen === 'race' && options.driver === 'manual', size: () => ({ w: innerWidth, h: innerHeight }), onMenu: () => { if (screen === 'race') show(screenBefore); } });
+const input = createInput({ mode: () => mode, options: () => options, racing: () => screen === 'race' && options.driver === 'manual', size: () => ({ w: innerWidth, h: innerHeight }), onMenu: () => { if (screen === 'race') show(screenBefore); } });
 const haptics = createHaptics(() => options.touch.haptics);
+/** FORMULA mode: its tune, lap and timeslip (src/formula/page.ts) */
+const fm = createFormulaMode({ options, save: () => save, commit, online, input, sfx, pad: firstPad, saveOptions: () => saveOptions(browserStore, options) });
 const padMenu = createPadMenu(() => screen !== 'race' && rebinder.pending?.device !== 'gamepad');
 /** the input for this tick goes to the car: the driver's (keys, touch, pad) or the autopilot's */
 let pedal = 0, gasWasOn = false;      // (the gas of the last tick, for the engine sound)
@@ -397,6 +441,13 @@ function touchSpots(): { id: string; x: number; y: number; w: number; h: number 
 function frame(now: number): void {
   const dt = Math.min(0.1, (now - last) / 1000); last = now; padMenu(); if (screen === 'options') rebinder.pad(firstPad());
   if (screen === 'bench') { requestAnimationFrame(frame); return; }      // (nothing else draws while the benchmark measures the card)
+  if (mode === 'formula') {
+    const racing = screen === 'race', W = innerWidth, H = innerHeight;
+    if (fm.frame(dt, now, racing)) show('slip');
+    fm.drawFrame(ctx, W, H, now / 1000, racing, racing ? touchSpots() : []);
+    if (racing) input.draw(ctx, options.driver === 'manual');      // (the touch buttons go over the HUD, which keeps clear of them)
+    requestAnimationFrame(frame); return;
+  }
   const W = innerWidth, H = innerHeight, S = Math.max(0.7, Math.min(1.6, H / 720)), s = race.state, me = s.runners[0] as Runner;
   if (screen === 'race') {
     acc += dt; let n = 0; input.startFrame(now - acc * 1000, firstPad(), now);
@@ -418,6 +469,6 @@ function frame(now: number): void {
 }
 window.__drag = () => {
   const s = race.state;
-  return { screen, tuneTab, phase: s.phase, stage: (s.runners[0] as Runner).stage, seed: raceSeed, conditions: s.conditions, menu: menu ? { sel: menu.items[menu.sel]?.id, items: menu.items.map(i => i.id) } : null, benchmark: save.benchmark, kind: raceKind, driver: options.driver, category: result?.category ?? null, clutch: clutchCondition, tireWear, fuel: fuelOf(), ghost: (() => { const g = ghostToRace(); return g ? { et: g.marks.quarter ?? 0, total: g.total, samples: g.samples.length } : null; })(), leaderboard: { class: lb.playerClass(), category: lb.category, leader: lb.leader().name, source: lb.leader().source, status: lb.status, ranked: raceKind === 'ghost', configured: lb.configured }, winner: s.winner, runners: s.runners.map(r => ({ name: r.name, x: r.x, v: r.v, gear: r.gear, rpm: r.rpm, launched: r.launched, finished: r.finished, crashed: r.crashed })), result };
+  return { screen, mode, formula: fm.result ? { kind: fm.result.kind, lapTime: fm.result.slip.lapTime, valid: fm.result.slip.valid } : null, tuneTab, phase: s.phase, stage: (s.runners[0] as Runner).stage, seed: raceSeed, conditions: s.conditions, menu: menu ? { sel: menu.items[menu.sel]?.id, items: menu.items.map(i => i.id) } : null, benchmark: save.benchmark, kind: raceKind, driver: options.driver, category: result?.category ?? null, clutch: clutchCondition, tireWear, fuel: fuelOf(), ghost: (() => { const g = ghostToRace(); return g ? { et: g.marks.quarter ?? 0, total: g.total, samples: g.samples.length } : null; })(), leaderboard: { class: lb.playerClass(), category: lb.category, leader: lb.leader().name, source: lb.leader().source, status: lb.status, ranked: raceKind === 'ghost', configured: lb.configured }, winner: s.winner, runners: s.runners.map(r => ({ name: r.name, x: r.x, v: r.v, gear: r.gear, rpm: r.rpm, launched: r.launched, finished: r.finished, crashed: r.crashed })), result };
 };
 show('title'); requestAnimationFrame(t => { last = t; frame(t); });
