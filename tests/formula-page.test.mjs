@@ -12,7 +12,13 @@ import { touchLayout, formulaTouchLayout, hitTest } from '../src/input/touch.ts'
 import { DEFAULT_FORMULA_TUNE, cleanFormulaTune, formulaSpecForBenchmark } from '../src/formula/car.ts';
 import { formulaCar, saveFormulaTune, saveToFormulaSlot, loadFormulaSlot, clearFormulaSlot, recordFormulaLap } from '../src/formula/model.ts';
 import { createFormulaMode } from '../src/formula/page.ts';
-import { buildFormulaPayload, createFormulaOnline, flattenFormulaTune, threeSectorSplits, whyFormulaNotRanked } from '../src/formula/online.ts';
+import { createFormulaOnline } from '../src/formula/online.ts';
+import { buildFormulaPayload, whyFormulaNotRanked } from '../src/leaderboard/formula-payload.ts';
+import { FORMULA_FALLBACK_LEADERS } from '../src/leaderboard/formula-leader.ts';
+import { createLeaderboardUi } from '../src/leaderboard/ui.ts';
+import { cleanPending, fasterRun, loadIdentity } from '../src/leaderboard/profile.ts';
+import { createBoardScreen } from '../src/leaderboard/board-screen.ts';
+import { memoryStore } from '../src/browser-store.ts';
 import { createFormulaAutopilot, createFormulaRace, driveAutopilotLap, draw, ghostFromLeader, FORMULA_TRACKS } from '../src/formula/index.ts';
 import { loadBackend } from './helpers/load-backend.mjs';
 
@@ -137,7 +143,7 @@ function stubHost(over = {}) {
   let save = { ...emptySave(), benchmark: benchmark() }; const options = sanitizeOptions(null), sent = [], sounds = [], commits = [];
   const input = { reset() {}, startFrame() {}, readFormula: () => ({ throttle: 0, brake: 0, steer: 0, shiftUp: false, shiftDown: false, nitro: false, toggleLine: false }), draw() {} };
   const sfx = { treeLight: (...a) => sounds.push(['tree', ...a]), engine: () => {}, liftOff: () => sounds.push(['lift']), unlock() {}, volumesChanged() {} };
-  const online = { ghost: () => ghostFromLeader(FORMULA_TRACKS[0], { name: 'LEADER', lapTime: 60 }), leader: () => null, note: () => '', className: () => 'DISCRETE', status: '', clearStatus() {}, submitLap: async (slip, tune) => { sent.push({ slip, tune }); return 'SENT'; }, refreshLeader: async () => {} };
+  const online = { ghost: () => ghostFromLeader(FORMULA_TRACKS[0], { name: 'LEADER', lapTime: 60 }), leader: () => ({ name: 'LEADER', timeS: 60 }), source: () => 'server', note: () => '', className: () => 'DISCRETE', status: '', clearStatus() {}, submitLap: async (slip, tune, trace) => { sent.push({ slip, tune, trace }); return 'SENT'; }, refreshLeader: async () => {} };
   const host = { options, save: () => save, commit: s => { save = s; commits.push(s); }, online, input, sfx, pad: () => null, saveOptions() {}, ...over };
   return { host, options, sent, sounds, commits, get save() { return save; }, input };
 }
@@ -147,13 +153,13 @@ test('a manual ranked lap runs start to timeslip: lights beeps, one lap, recorde
   ctl.input.readFormula = () => { ap ??= createFormulaAutopilot(fm.race.track, fm.race.state.car.stats); return { ...ap.decide(fm.race.view()), toggleLine: false }; };
   fm.start('ranked'); assert.ok(runLap(fm, ctl), 'the timeslip comes up after the lap');
   const R = fm.result, v = fm.slipView(); assert.ok(R.slip.finished && R.slip.valid && R.slip.lapTime > 30 && R.slip.lapTime < 60, `lap ${R.slip.lapTime}`); assert.equal(R.category, 'manual'); assert.equal(R.won, true, 'faster than the 60 s ghost');
-  assert.equal(ctl.sent.length, 1, 'a clean ranked lap is sent once'); assert.equal(ctl.save.formula.records.bestLap, R.slip.lapTime); assert.equal(ctl.save.formula.records.races, 1); assert.deepEqual(ctl.save.records, emptySave().records);
+  assert.equal(ctl.sent.length, 1, 'a clean ranked lap is sent once'); assert.ok(ctl.sent[0].trace && ctl.sent[0].trace.s.length > 100, 'with the real lap trace (race.trace()), which gives the compact ghost'); assert.equal(ctl.save.formula.records.bestLap, R.slip.lapTime); assert.equal(ctl.save.formula.records.races, 1); assert.deepEqual(ctl.save.records, emptySave().records);
   assert.equal(v.title, 'YOU WIN'); assert.ok(v.html.includes('VS LEADER') && v.html.includes('SECTOR 1') && v.html.includes('LAP TIME') && v.html.includes('TOP SPEED') && v.html.includes('R/T'));
   assert.deepEqual(ctl.sounds.filter(s => s[0] === 'tree').map(s => s.slice(1).join(':')), ['amber:1', 'amber:2', 'amber:3', 'green'], 'the three lights then the green');
   // a jump start: gas before the green
   const c2 = stubHost(), f2 = createFormulaMode(c2.host); c2.input.readFormula = () => ({ throttle: 1, brake: 0, steer: 0, shiftUp: false, shiftDown: false, nitro: false, toggleLine: false });
   f2.start('ranked'); for (let i = 0; i < 60 * 5; i++) f2.frame(1 / 60, i * 16.7, true); assert.equal(f2.race.view().jumpStart, true);
-  assert.match(whyFormulaNotRanked(benchmark(), { ...R.slip, jumpStart: true }), /JUMP START/);
+  assert.match(whyFormulaNotRanked({ benchmark: benchmark(), slip: { ...R.slip, jumpStart: true } }), /JUMP START/);
 });
 test('autopilot laps are a separate category and skip your local records; a test lap is not ranked', () => {
   const ctl = stubHost(); ctl.host.options.driver = 'autopilot'; const fm = createFormulaMode(ctl.host);
@@ -166,22 +172,83 @@ test('the driving line key flips the option and keeps it', () => {
   fm.start('test'); fm.frame(1 / 60, 16, true); assert.equal(ctl.host.options.drivingLine, true); assert.equal(saved, 1);
 });
 
-// ---- the leaderboard ----
-test('a ranked lap becomes a payload the backend accepts (formula mode, three sectors, mph), and the leader makes a ghost', async () => {
-  const { validate } = await loadBackend(); const race = driveAutopilotLap({ spec: formulaSpecForBenchmark(benchmark({ score: 9000 })) }), slip = race.timeslip(), tune = cleanFormulaTune(null);
-  const splits = threeSectorSplits(slip); assert.ok(splits.sector1 > 0 && splits.sector1 < splits.sector2 && splits.sector2 < splits.lap && splits.lap === +slip.lapTime.toFixed(3));
-  const p = buildFormulaPayload({ playerName: 'SPEEDY', category: 'manual', benchmark: benchmark({ score: 9000 }), slip, tune }); assert.equal(p.mode, 'formula'); assert.equal(p.track, 'beach'); assert.ok(Math.abs(p.topSpeed - slip.topSpeed * 0.621371) < 0.06);
-  assert.deepEqual(flattenFormulaTune(tune), { gearing: 0, downforce: 0.5, steering: 0, pressure: 0, nitro: 0, shiftLight: 0.9, gearboxAuto: 0 }); assert.equal(buildFormulaPayload({ ...{ playerName: 'SPEEDY', category: 'manual', benchmark: null, slip, tune } }), null, 'no benchmark: no payload');
-  assert.equal(buildFormulaPayload({ playerName: 'SPEEDY', category: 'manual', benchmark: benchmark(), slip: { ...slip, jumpStart: true, valid: false }, tune }), null);
-  // a real autopilot lap on a score-9000 card is inside the server's (re-seeded) formula windows
-  const accepted = validate.validateSubmission(p); assert.ok(accepted.ok, `the server's validator: ${JSON.stringify(accepted)}`);
+// ---- the leaderboard wiring ----
+const lapOf = (score = 9000) => { const race = driveAutopilotLap({ spec: formulaSpecForBenchmark(benchmark({ score })) }); return { race, slip: race.timeslip(), tune: cleanFormulaTune(null) }; };
+const serverLeader = { name: 'ACE', class: 'discrete', category: 'manual', track: 'beach', timeS: 41.5, topSpeed: 180, sectors: { sector1: 12, sector2: 25, lap: 41.5 }, seed: 1, tune: {}, ghost: null };
+const fakeClient = (leader, calls = []) => ({ configured: true, calls, leader: async (...a) => { calls.push(['leader', ...a]); return leader; }, submit: async p => { calls.push(['submit', p]); return { ok: true, classRank: 2, verified: false }; } });
+test('online uses the leaderboard modules: the server leader gives the ghost, and before an answer the bundled placeholder is raced and labelled', async () => {
+  const calls = []; const o = createFormulaOnline({ client: fakeClient({ record: serverLeader, online: true, note: '' }, calls), benchmark: () => benchmark(), playerName: () => 'SPEEDY', category: () => 'manual', onChange() {} });
+  assert.equal(o.source(), 'fallback', 'before the leader answers the bundled lap is used'); assert.equal(o.leader().timeS, FORMULA_FALLBACK_LEADERS.classLapTime.discrete); assert.ok(o.ghost(), 'so there is always a ghost');
+  await o.refreshLeader(); assert.deepEqual(calls[0], ['leader', 'discrete', 'manual', { mode: 'formula', track: 'beach' }]);
+  assert.equal(o.source(), 'server'); const g = o.ghost(); assert.equal(g.name, 'ACE'); assert.equal(g.lapTime, 41.5); assert.equal(o.ghost(), g, 'cached'); assert.equal(o.note(), '');
+  await o.refreshLeader(); assert.equal(calls.filter(c => c[0] === 'leader').length, 1, 'asked once per class and category');
 });
-test('online: the leader comes from the shared client with mode formula, a missing leader means no ghost, and a lap is sent through client.submit', async () => {
-  const calls = []; const client = { configured: true, leader: async (...a) => { calls.push(['leader', ...a]); return { record: { name: 'ACE', class: 'discrete', category: 'manual', track: 'beach', timeS: 41.5, topSpeed: 180, sectors: { sector1: 12, sector2: 25, lap: 41.5 }, seed: 1, tune: {}, ghost: null }, online: true, note: '' }; }, submit: async p => { calls.push(['submit', p]); return { ok: true, classRank: 2, verified: false }; } };
-  const o = createFormulaOnline({ client, benchmark: () => benchmark(), playerName: () => 'SPEEDY', category: () => 'manual', onChange() {} });
-  assert.equal(o.ghost(), null, 'before the leader answers there is no ghost'); await o.refreshLeader(); assert.deepEqual(calls[0], ['leader', 'discrete', 'manual', { mode: 'formula', track: 'beach' }]);
-  const g = o.ghost(); assert.equal(g.name, 'ACE'); assert.equal(g.lapTime, 41.5); assert.equal(o.ghost(), g, 'cached');
-  const race = driveAutopilotLap({}); const line = await o.submitLap(race.timeslip(), cleanFormulaTune(null)); assert.match(line, /SENT: RANK 2/); assert.equal(calls[1][1].mode, 'formula');
+test('online: offline or no leader falls back to the bundled lap with a note, per class and category; a lap time the sim refuses also falls back', async () => {
+  for (const [reply, why] of [[{ record: null, online: false, note: 'COULD NOT REACH THE LEADERBOARD' }, /COULD NOT REACH/], [{ record: null, online: false, note: '' }, /BUNDLED/], [{ record: { ...serverLeader, timeS: 1, sectors: { sector1: 0.3, sector2: 0.7, lap: 1 } }, online: true, note: '' }, /NOT PLAYABLE/]]) {
+    let category = 'manual'; const o = createFormulaOnline({ client: fakeClient(reply), benchmark: () => benchmark({ class: 'integrated' }), playerName: () => 'SPEEDY', category: () => category, onChange() {} });
+    await o.refreshLeader(); assert.equal(o.source(), 'fallback'); assert.match(o.note(), why); assert.equal(o.className(), 'INTEGRATED'); assert.equal(o.ghost().lapTime, FORMULA_FALLBACK_LEADERS.classLapTime.integrated);
+    category = 'autopilot'; assert.equal(o.ghost().lapTime, FORMULA_FALLBACK_LEADERS.classLapTime.integrated + FORMULA_FALLBACK_LEADERS.autopilotExtraLap, 'the autopilot category races the autopilot placeholder');
+  }
+});
+test('online sends the lap through buildFormulaPayload with the real trace (the compact ghost), and the backend validator accepts it', async () => {
+  const { validate } = await loadBackend(), calls = [], { race, slip, tune } = lapOf();
+  const o = createFormulaOnline({ client: fakeClient({ record: null, online: false, note: '' }, calls), benchmark: () => benchmark({ score: 9000 }), playerName: () => 'SPEEDY', category: () => 'manual', onChange() {} });
+  assert.match(await o.submitLap(slip, tune, race.trace()), /SENT: RANK 2 IN/); const p = calls.find(c => c[0] === 'submit')[1];
+  assert.equal(p.mode, 'formula'); assert.equal(p.track, 'beach'); assert.ok(Array.isArray(p.ghost) && p.ghost.length > 20, 'the compact ghost pairs are sent'); assert.deepEqual(p, buildFormulaPayload({ playerName: 'SPEEDY', category: 'manual', benchmark: benchmark({ score: 9000 }), slip, tune, seed: 0, track: FORMULA_TRACKS[0], trace: race.trace() }));
+  const accepted = validate.validateSubmission(p); assert.ok(accepted.ok, `the server's validator: ${JSON.stringify(accepted)}`);
+  const none = []; const o2 = createFormulaOnline({ client: fakeClient(null, none), benchmark: () => benchmark({ score: 9000 }), playerName: () => 'SPEEDY', category: () => 'manual', onChange() {} });
+  await o2.submitLap(slip, tune); assert.equal(none.find(c => c[0] === 'submit')[1].ghost, undefined, 'no trace, no ghost field');
+});
+test('online: a lap that cannot be ranked sends nothing and says why (no benchmark, jump start, no finish, a foul)', async () => {
+  const calls = [], { slip, tune } = lapOf(); let bench = benchmark();
+  const o = createFormulaOnline({ client: fakeClient(null, calls), benchmark: () => bench, playerName: () => 'SPEEDY', category: () => 'manual', onChange() {} });
+  assert.match(await o.submitLap({ ...slip, jumpStart: true, valid: false }, tune), /JUMP START/); assert.equal(o.status, await o.submitLap({ ...slip, jumpStart: true, valid: false }, tune), 'the status the timeslip shows');
+  assert.match(await o.submitLap({ ...slip, finished: false, valid: false }, tune), /DID NOT FINISH/); assert.match(await o.submitLap({ ...slip, valid: false }, tune), /CLEAN/);
+  bench = null; assert.match(await o.submitLap(slip, tune), /BENCHMARK/); assert.equal(calls.filter(c => c[0] === 'submit').length, 0, 'nothing was sent');
+});
+test('the timeslip shows the unranked reason and the bundled-leader note; the lap is sent with race.trace()', () => {
+  const ctl = stubHost({}); ctl.host.online.source = () => 'fallback'; ctl.host.online.note = () => 'COULD NOT REACH THE LEADERBOARD'; ctl.host.online.status = 'A JUMP START IS NOT RANKED';
+  const fm = createFormulaMode(ctl.host); let ap = null; ctl.input.readFormula = () => { ap ??= createFormulaAutopilot(fm.race.track, fm.race.state.car.stats); return { ...ap.decide(fm.race.view()), toggleLine: false }; };
+  fm.start('ranked'); assert.ok(runLap(fm, ctl)); const v = fm.slipView();
+  assert.match(v.html, /A JUMP START IS NOT RANKED/, 'the unranked reason is on the timeslip'); assert.match(v.html, /BUNDLED PLACEHOLDER/); assert.match(v.html, /COULD NOT REACH THE LEADERBOARD/);
+  const item = fm.raceItem(() => {}); assert.match(item.value(), /\(BUNDLED\)/); assert.match(item.hint(), /bundled placeholder/);
+  ctl.host.online.source = () => 'server'; const c2 = stubHost(), f2 = createFormulaMode(c2.host); let ap2 = null; c2.input.readFormula = () => { ap2 ??= createFormulaAutopilot(f2.race.track, f2.race.state.car.stats); return { ...ap2.decide(f2.race.view()), toggleLine: false }; };
+  f2.start('ranked'); runLap(f2, c2); assert.doesNotMatch(f2.slipView().html, /BUNDLED/, 'a real leader has no placeholder note');
+});
+
+// ---- an unsent Formula lap is kept and retried like Drag's ----
+const dragPending = { playerName: 'SPEEDY', class: 'discrete', category: 'manual', benchmarkScore: 5000, benchmarkVersion: '2', gpuId: 'RTX', reactionTime: 0.1, splits: { ft60: 1, ft330: 2, eighth: 3, ft1000: 4, quarter: 5 }, trapSpeed: 150, seed: 1, tune: {} };
+test('a Formula lap that could not be sent is kept in the profile (with its mode), survives a reload, and is sent next time', async () => {
+  const store = memoryStore(); let up = false; const sentBodies = [];
+  const fetchFn = async (url, init) => { if (!up) throw new TypeError('offline'); if (url.includes('/scores')) { sentBodies.push(JSON.parse(init.body)); return { ok: true, status: 200, json: async () => ({ ok: true, classRank: 1, verified: false }) }; } return { ok: false, status: 404, json: async () => ({}) }; };
+  const make = () => createLeaderboardUi({ store, benchmark: () => benchmark({ score: 9000 }), onChange() {}, fetchFn, baseUrl: 'https://example.invalid' });
+  const ui = make(), { race, slip, tune } = lapOf(); const o = createFormulaOnline({ client: ui.client, benchmark: () => benchmark({ score: 9000 }), playerName: () => ui.profile.playerName, category: () => 'manual', onChange() {}, sendRun: p => ui.sendRun(p) });
+  assert.match(await o.submitLap(slip, tune, race.trace()), /SAVED, WILL SEND NEXT TIME/); assert.equal(ui.profile.pending.mode, 'formula'); assert.equal(ui.profile.pending.splits.lap, +slip.lapTime.toFixed(3));
+  const again = make(); assert.equal(again.profile.pending.mode, 'formula', 'kept across a reload'); assert.ok(again.profile.pending.ghost.length > 20);
+  up = true; await again.sendPending(); assert.equal(sentBodies.length, 1); assert.equal(sentBodies[0].mode, 'formula'); assert.equal(again.profile.pending, null); assert.equal(make().profile.pending, null, 'and cleared in the store');
+});
+test('the waiting slot: a saved Drag pending (no mode field) still loads, junk is dropped, and the faster run of the same mode, class and category is kept', () => {
+  assert.deepEqual(cleanPending(dragPending), dragPending); assert.equal(cleanPending({ ...dragPending, mode: 'formula' }), null, 'a formula payload needs a lap time');
+  for (const junk of [null, 5, [], {}, { ...dragPending, splits: null }, { ...dragPending, splits: { quarter: 'x' } }, { mode: 'formula', splits: { quarter: 5 }, class: 'discrete', category: 'manual' }, { ...dragPending, mode: 'other' }]) assert.equal(cleanPending(junk), null, JSON.stringify(junk));
+  const f = lap => ({ mode: 'formula', track: 'beach', class: 'discrete', category: 'manual', splits: { sector1: 1, sector2: 2, lap } });
+  assert.equal(fasterRun(f(40), f(41)).splits.lap, 40); assert.equal(fasterRun(f(42), f(41)).splits.lap, 41); assert.equal(fasterRun(f(40), { ...f(41), class: 'integrated' }).class, 'integrated', 'another class replaces it');
+  assert.equal(fasterRun(dragPending, f(50)).mode, 'formula', 'another mode replaces it'); assert.equal(fasterRun(f(50), dragPending).mode, undefined); assert.equal(fasterRun(null, f(50)).splits.lap, 50);
+  assert.equal(fasterRun(dragPending, { ...dragPending, splits: { ...dragPending.splits, quarter: 6 } }).splits.quarter, 5, "Drag's own rule is unchanged");
+});
+test('loadIdentity keeps a saved Drag pending exactly (an older build wrote it with no mode)', () => {
+  const store = memoryStore(); store.set('gpuwars.leaderboard', JSON.stringify({ clientId: 'abcdefgh12345678', playerName: 'SPEEDY', pending: dragPending }));
+  assert.deepEqual(loadIdentity(store).pending, dragPending);
+});
+
+// ---- the leaderboard screen follows the mode ----
+test('the board screen: the page makes ONE screen with the current mode and a toggle, and its headings come from columns and modeLabel', async () => {
+  const page = read('src/drag/page.ts'); assert.doesNotMatch(page, /dragBoards|formulaBoards|activeBoards/); assert.match(page, /createBoardScreen\(\{[^}]*mode \}\)/, 'starts in the current mode');
+  assert.match(page, /boards\.setMode\(mode\)/, 'opening the screen shows the current mode'); assert.match(page, /boards\.toggleMode\(\)/); assert.match(page, /boards\.columns\.time/); assert.match(page, /boards\.columns\.speed/); assert.match(page, /boards\.modeLabel/); assert.match(page, /boards\.trackLabel/);
+  assert.doesNotMatch(page, /'LAP TIME' : '1\/4 MILE'|'TOP SPEED' : 'TRAP'/, 'no hard-coded column titles');
+  const asked = []; const client = { configured: true, board: async (scope, cls, cat, limit, opts) => { asked.push(opts); return { ok: true, scope, category: cat, mode: opts.mode, track: opts.track, entries: [] }; } };
+  const b = createBoardScreen({ client, playerName: () => 'X', onChange() {}, mode: 'formula' }); await b.load();
+  assert.equal(b.modeLabel, 'FORMULA'); assert.equal(b.trackLabel, 'BEACH'); assert.deepEqual(b.columns, { time: 'LAP', speed: 'TOP SPEED' }); assert.deepEqual(asked[0], { mode: 'formula', track: 'beach' });
+  b.setMode('drag'); await new Promise(r => setTimeout(r, 0)); assert.deepEqual(b.columns, { time: '1/4 MILE', speed: 'TRAP' }); assert.equal(asked[1].mode, 'drag'); b.toggleMode(); assert.equal(b.mode, 'formula');
 });
 
 // ---- the formula car from the save ----

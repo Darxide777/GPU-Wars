@@ -35,7 +35,7 @@ goto('gearing'); key('arrowright'); frames(1);
 goto('test'); key('Enter'); frames(2); log.raceScreen = snap().screen; log.testLap = { end: untilOver(20000), result: snap().formula, slip: String(els.extra.innerHTML), title: String(els.title.textContent) };
 key('Escape'); frames(2); key('Escape'); frames(2);
 goto('records'); key('Enter'); frames(2); log.records = { screen: snap().screen, html: String(els.extra.innerHTML) };
-key('Escape'); frames(1); goto('leaderboard'); key('Enter'); frames(3); log.board = { screen: snap().screen, head: String(els.lbhead.textContent) };
+key('Escape'); frames(1); goto('leaderboard'); key('Enter'); frames(3); log.board = { screen: snap().screen, head: String(els.lbhead.textContent), cols: String(els.lbscroll.innerHTML), items: snap().menu.items }; key('m'); frames(2); log.boardDrag = { head: String(els.lbhead.textContent), cols: String(els.lbscroll.innerHTML) }; key('m'); frames(2);
 key('Escape'); frames(1); goto('race'); key('Enter'); frames(2); log.ranked = { end: untilOver(20000), result: snap().formula };
 key('Escape'); frames(1); key('Escape'); frames(2);
 goto('mode'); key('arrowleft'); frames(1); log.dragMode = snap().mode;
