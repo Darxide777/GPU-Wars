@@ -43,3 +43,17 @@ export const NITRO = { maxBottles: 3, seconds: 2, pull: 1.35, top: 1.06, cooldow
 
 /** the lap trace: one sample every this many seconds from the green (so a lap is a few hundred whole numbers) */
 export const TRACE = { step: 0.1 } as const;
+
+/** HOW THE TUNE BENDS THE CAR (src/formula/car.ts `carStats`). Numbers are shares: 0.05 is 5 percent. Turn these first to make the tune matter more or less (docs/CALIBRATION.md, "Tune balance").
+ *  The source game's tune was a straight line (tall gears and hard tyres only ever made the lap quicker, up to 7 percent). Here the TOP SPEED of gearing and of tyre pressure follows a curve `top * x - curve * x^2`, so each has a best value inside its range (about +0.4)
+ *  and the extremes lose: a gear that is too tall (or a tyre too hard) cannot reach its top speed in the lap. The best tune is then worth about 2 to 3.5 percent of the lap at every score. */
+export const TUNE_EFFECT = {
+  /** gearing (-1 short .. +1 tall): top speed gained per +1 and the curve that takes it back at the ends; pull lost per +1 (a short gear gives it back) */
+  gearingTop: 0.05, gearingCurve: 0.0625, gearingPull: 0.12,
+  /** downforce (0..1, neutral 0.5): top speed lost per +1 and grip gained per +1 (as the source) */
+  downforceTop: 0.07, downforceGrip: 0.3,
+  /** tyre pressure (-1 soft .. +1 hard): top speed gained per +1 and its curve; grip lost per +1 */
+  pressureTop: 0.025, pressureCurve: 0.03125, pressureGrip: 0.08,
+  /** steering (-1 slow .. +1 quick): turn gained per +1 and grip lost per +1 (as the source; the autopilot's line barely needs the turn, so it is worth under 0.5 percent) */
+  steeringTurn: 0.15, steeringGrip: 0.08,
+} as const;

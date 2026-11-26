@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { handle, type Env } from '../src/index';
 import { DEFAULT_TRACK, MODE_IDS, TRACKS } from '../src/classes';
-import { FORMULA_PLACEHOLDER_TABLE, formulaImplausibleReason, formulaWindow } from '../src/plausible';
+import { FORMULA_LAP_TABLE, formulaImplausibleReason, formulaWindow } from '../src/plausible';
 import { validateSubmission } from '../src/validate';
 import { makeDb, makeDbWithRaw, MIGRATION_FILES } from './d1shim';
 
@@ -160,11 +160,11 @@ describe('boards, leaders and ranking per mode and track', () => {
   });
 });
 
-describe('formula plausibility (PLACEHOLDER numbers, phase 3 calibrates them)', () => {
-  it('is flagged as placeholder in the one table', () => { expect(FORMULA_PLACEHOLDER_TABLE.placeholder).toBe(true); });
+describe('formula plausibility (calibrated to the simulation in phase 3, real-hardware validation pending)', () => {
+  it('is flagged calibrated but not hardware-validated in the one table', () => { expect(FORMULA_LAP_TABLE.calibrated).toBe(true); expect(FORMULA_LAP_TABLE.hardwareValidated).toBe(false); });
   it('every class has a lap curve that gets faster with the score and a window inside the outer bounds', () => {
     for (const cls of ['integrated', 'discrete'] as const) {
-      const outer = FORMULA_PLACEHOLDER_TABLE.outer[cls];
+      const outer = FORMULA_LAP_TABLE.outer[cls];
       let last = Infinity;
       for (let score = 0; score <= 10000; score += 500) {
         const w = formulaWindow(cls, score);

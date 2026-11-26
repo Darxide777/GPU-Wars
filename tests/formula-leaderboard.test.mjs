@@ -9,7 +9,7 @@ import { buildFormulaPayload, flattenFormulaTune, sectorsOf, whyFormulaNotRanked
 import { FORMULA_FALLBACK_LEADERS, allFallbackFormulaLeaders, fallbackFormulaLeader, loadFormulaLeader } from '../src/leaderboard/formula-leader.ts';
 import { loadBackend } from './helpers/load-backend.mjs';
 
-const { validate: { validateSubmission }, plausible: { FORMULA_PLACEHOLDER_TABLE, formulaWindow } } = await loadBackend();
+const { validate: { validateSubmission }, plausible: { FORMULA_LAP_TABLE, formulaWindow } } = await loadBackend();
 const track = trackById('beach');
 const benchmark = (cls, score) => ({ score, class: cls, benchmarkVersion: 1, gpuId: 'Test GPU', date: 0 });
 const lap = (cls = 'discrete', score = 7000, tune = DEFAULT_FORMULA_TUNE) => driveAutopilotLap({ track, spec: formulaSpecForBenchmark(benchmark(cls, score)), tune, ghost: null });
@@ -17,7 +17,7 @@ const input = (race, over = {}) => ({ playerName: 'SPEEDY', category: 'autopilot
 const make = answer => { const seen = []; return { seen, client: createLeaderboardClient({ baseUrl: 'https://x.invalid', clientId: 'abcdefgh12345678', fetchFn: async url => { seen.push(url); const a = typeof answer === 'function' ? answer(url) : answer; return { ok: a.status < 400, status: a.status, json: async () => a.body }; } }) }; };
 
 test('the wire limits of the ghost match what the backend checks', () => {
-  assert.equal(FORMULA_GHOST_WIRE.maxSeconds, FORMULA_PLACEHOLDER_TABLE.ghost.maxSeconds); assert.equal(FORMULA_GHOST_WIRE.maxMetres, FORMULA_PLACEHOLDER_TABLE.ghost.maxDistanceM);
+  assert.equal(FORMULA_GHOST_WIRE.maxSeconds, FORMULA_LAP_TABLE.ghost.maxSeconds); assert.equal(FORMULA_GHOST_WIRE.maxMetres, FORMULA_LAP_TABLE.ghost.maxDistanceM);
   assert.ok(FORMULA_GHOST_WIRE.targetSamples <= FORMULA_GHOST_WIRE.maxSamples);
 });
 
@@ -77,7 +77,7 @@ test('the payload of an honest lap is accepted by the backend validator, in both
   assert.equal(manual.ghost, undefined); assert.equal(validateSubmission(manual).ok, true);
 });
 
-test('every class and score the sim can make lands inside the backend window (the placeholder table agrees with the sim)', () => {
+test('every class and score the sim can make lands inside the backend window (the calibrated table agrees with the sim; the dense sweep is tests/formula-calibration.test.mjs)', () => {
   for (const [cls, scores] of [['integrated', [0, 2000, 4000, 6000, 8000]], ['discrete', [0, 2500, 5000, 7500, 10000]]]) for (const score of scores) {
     const slip = lap(cls, score).timeslip(), w = formulaWindow(cls, score), mph = slip.topSpeed * 0.621371;
     assert.ok(slip.lapTime >= w.minLapS && slip.lapTime <= w.maxLapS, `${cls} ${score}: ${slip.lapTime} in ${w.minLapS}-${w.maxLapS}`);
@@ -108,16 +108,16 @@ test('the payload clamps what a hostile caller could stuff in it', () => {
   assert.equal(flattenFormulaTune({ ...DEFAULT_FORMULA_TUNE, gearing: 99, gearbox: 'auto' }).gearing, 1); assert.equal(flattenFormulaTune({ ...DEFAULT_FORMULA_TUNE, gearbox: 'auto' }).shiftManual, 0);
 });
 
-test('fallback leaders: both classes and categories, plausible for the backend, slower than the sim\'s best car, quicker than a typical default-tune car', () => {
+test('fallback leaders: both classes and categories, plausible for the backend, just quicker than the best card\'s default tune', () => {
   const all = allFallbackFormulaLeaders(); assert.equal(all.length, 4);
   for (const l of all) {
     assert.equal(l.track, 'beach'); assert.ok(l.sectors.sector1 < l.sectors.sector2 && l.sectors.sector2 < l.sectors.lap); assert.equal(l.timeS, l.sectors.lap);
-    const out = validateSubmission({ mode: 'formula', playerName: 'Leader One', class: l.class, category: l.category, benchmarkScore: l.class === 'discrete' ? 7000 : 5600, benchmarkVersion: '1', gpuId: 'x', splits: l.sectors, topSpeed: l.topSpeed, seed: l.seed, tune: {} });
+    const out = validateSubmission({ mode: 'formula', playerName: 'Leader One', class: l.class, category: l.category, benchmarkScore: l.class === 'discrete' ? 10000 : 8000, benchmarkVersion: '1', gpuId: 'x', splits: l.sectors, topSpeed: l.topSpeed, seed: l.seed, tune: {} });
     assert.equal(out.ok, true, `${l.class} ${l.category}: ${out.error}`);
   }
   assert.equal(FORMULA_FALLBACK_LEADERS.placeholder, true);
-  assert.ok(fallbackFormulaLeader('integrated').timeS > 45.5 && fallbackFormulaLeader('discrete').timeS > 38.1, 'a best-score default tune still gets close');
-  assert.ok(fallbackFormulaLeader('integrated').timeS < lap('integrated', 5600).timeslip().lapTime && fallbackFormulaLeader('discrete').timeS < lap('discrete', 7000).timeslip().lapTime, 'better than a typical default tune');
+  // calibrated (phase 3): a default tune on the best card of the class only just fails to beat the leader, a good tune beats it (tests/formula-calibration.test.mjs has the full check)
+  for (const [cls, cap] of [['integrated', 8000], ['discrete', 10000]]) { const best = lap(cls, cap).timeslip().lapTime, leader = fallbackFormulaLeader(cls).timeS; assert.ok(leader < best && best - leader < 0.2, `${cls}: leader ${leader} vs default best ${best}`); }
   assert.ok(fallbackFormulaLeader('discrete', 'autopilot').timeS > fallbackFormulaLeader('discrete').timeS);
   assert.deepEqual(fallbackFormulaLeader('discrete'), fallbackFormulaLeader('discrete'));
 });

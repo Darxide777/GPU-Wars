@@ -1,4 +1,4 @@
-import { FORMULA_PLACEHOLDER_TABLE, formulaImplausibleReason, implausibleReason } from './plausible';
+import { FORMULA_LAP_TABLE, formulaImplausibleReason, implausibleReason } from './plausible';
 import { CLASS_BOUNDS, CLASS_SCORE_CAP, DEFAULT_MODE, DEFAULT_TRACK, MODE_IDS, TRACKS, isCategory, isClassId, isModeId, isTrackOf, type Category, type ClassId, type ModeId } from './classes';
 
 export const MAX_BODY_BYTES = 16 * 1024;
@@ -194,15 +194,15 @@ function validateFormula(body: Record<string, unknown>, common: CommonFields): V
 
   if (common.benchmarkScore > CLASS_SCORE_CAP[common.class])
     return fail(`benchmarkScore ${Math.round(common.benchmarkScore)} is above the ${common.class} class cap of ${CLASS_SCORE_CAP[common.class]}`);
-  const outer = FORMULA_PLACEHOLDER_TABLE.outer[common.class];
+  const outer = FORMULA_LAP_TABLE.outer[common.class];
   if (sp.lap < outer.minLapS) return fail('lap time faster than possible for class');
   if (sp.lap > outer.maxLapS) return fail('lap time too slow to rank');
   if (body.topSpeed < outer.minTopMph || body.topSpeed > outer.maxTopMph) return fail('topSpeed outside class bounds');
-  // Score-aware window with the placeholder numbers (see FORMULA_PLACEHOLDER_TABLE in plausible.ts).
+  // Score-aware window with the calibrated numbers (see FORMULA_LAP_TABLE in plausible.ts).
   const implausible = formulaImplausibleReason(common.class, common.benchmarkScore, common.track, { sector1: sp.sector1, sector2: sp.sector2, lap: sp.lap, topSpeed: body.topSpeed });
   if (implausible) return fail(implausible);
 
-  const ghost = parseGhost(body.ghost, FORMULA_PLACEHOLDER_TABLE.ghost.maxSeconds, FORMULA_PLACEHOLDER_TABLE.ghost.maxDistanceM);
+  const ghost = parseGhost(body.ghost, FORMULA_LAP_TABLE.ghost.maxSeconds, FORMULA_LAP_TABLE.ghost.maxDistanceM);
   if (!ghost.ok) return fail(ghost.error);
   return {
     ok: true,

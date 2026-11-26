@@ -7,14 +7,15 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createFormulaRace, driveAutopilotLap, createFormulaAutopilot, racingLineFor, predictFormula, STOCK_SPEC, FORMULA_TRACKS, LINE, IDLE_FORMULA_INPUT } from '../src/formula/index.ts';
 
-/** the lap time (s from the green) of the source game's ace bot in the same car on BEACH, recorded from Chromium Halo: Neon (src/arena/raceBot.ts, skill 2) */
+/** PHASE 3 NOTE: the source's tune for GEARING and TYRE PRESSURE was a straight line (tall gears and hard tyres only ever got quicker), which phase 3 rebalanced on purpose (`TUNE_EFFECT`, docs/CALIBRATION.md, "Tune balance"); so the cases below tune only the settings Formula still has exactly as the source (downforce, steering) and the physics fidelity check stays at 3 percent. The three source cases that set gearing or pressure were re-recorded from the live source without them.
+ *  the lap time (s from the green) of the source game's ace bot in the same car on BEACH, recorded from Chromium Halo: Neon (src/arena/raceBot.ts, skill 2) */
 const SOURCE_ACE = [
   { label: 'stock, neutral tune', parts: 'top', tune: {}, lap: 38.53 },
-  { label: 'stock, tuned', parts: 'top', tune: { gearing: 0.6, downforce: 0.9, steering: 0.5, pressure: -0.5 }, lap: 38.52 },
+  { label: 'stock, downforce and quick steering', parts: 'top', tune: { downforce: 0.9, steering: 0.5 }, lap: 39.58 },
   { label: 'no parts', parts: {}, tune: {}, lap: 58.82 },
-  { label: 'mid parts, low gears', parts: { engine: 4, gearbox: 2, tyres: 3, steering: 2, aero: 2 }, tune: { downforce: 0.2, gearing: -0.5 }, lap: 48.95 },
+  { label: 'mid parts, low downforce', parts: { engine: 4, gearbox: 2, tyres: 3, steering: 2, aero: 2 }, tune: { downforce: 0.2 }, lap: 47.38 },
   { label: 'no downforce', parts: 'top', tune: { downforce: 0 }, lap: 45.22 },
-  { label: 'tall, hard, quick steering', parts: 'top', tune: { steering: 1, pressure: 1, gearing: 1 }, lap: 35.02 },
+  { label: 'quick steering', parts: 'top', tune: { steering: 1 }, lap: 38.48 },
 ];
 const TOP = { engine: 8, gearbox: 5, tyres: 6, steering: 5, aero: 5 };
 const specOf = parts => ({ ...STOCK_SPEC, ...(parts === 'top' ? TOP : { engine: 0, gearbox: 0, tyres: 0, steering: 0, aero: 0, ...parts }) });
@@ -83,5 +84,5 @@ test('the racing line is one flying lap: closed, 3 to 5 m between points, mostly
   assert.ok(line.kind.every(k => k === LINE.green || k === LINE.yellow || k === LINE.red) && line.kind.filter(k => k === LINE.green).length > line.x.length * 0.8);
   assert.equal(racingLineFor().x[0], line.x[0]); assert.ok(Math.min(...line.speed) > 90, 'a flying lap');
   const slip = predictFormula(), lap = driveAutopilotLap({}).timeslip(); assert.equal(slip.lapTime, lap.lapTime); assert.equal(slip.reaction, lap.reaction);
-  assert.ok(predictFormula(STOCK_SPEC, { gearing: 1 }).lapTime < slip.lapTime, 'a tuned car predicts a different lap');
+  assert.ok(predictFormula(STOCK_SPEC, { gearing: 0.4 }).lapTime < slip.lapTime, 'a tuned car predicts a different lap'); assert.ok(predictFormula(STOCK_SPEC, { gearing: 1 }).lapTime > predictFormula(STOCK_SPEC, { gearing: 0.4 }).lapTime, 'gears that are too tall lose again');
 });
