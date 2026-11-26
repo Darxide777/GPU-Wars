@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { CLASS_IDS } from '../src/classes.ts';
 import { createLeaderboardClient } from '../src/leaderboard/client.ts';
-import { BOARD_CACHE_MS, boardChoices, createBoardScreen, escapeHtml, failureText, formatRow, isOwnRow, nextCategory, ownRowIndex, scrollKeyRows, scrollTarget, stepIndex } from '../src/leaderboard/board-screen.ts';
+import { BOARD_CACHE_MS, boardChoices, columnLabels, createBoardScreen, modeLabel, nextMode, escapeHtml, failureText, formatRow, isOwnRow, nextCategory, ownRowIndex, scrollKeyRows, scrollTarget, stepIndex } from '../src/leaderboard/board-screen.ts';
 
 const entry = (rank, name, extra = {}) => ({ rank, playerName: name, class: 'discrete', category: 'manual', quarterEt: 5 + rank / 100, trapSpeed: 250.4, benchmarkScore: 9000, verified: false, ...extra });
 const wait = () => new Promise(r => setTimeout(r, 0));
@@ -93,4 +93,43 @@ test('the page has the LEADERBOARD row next to RECORDS and a size-locked list', 
   assert.match(page, /id: 'records'[^\n]*\n\s*\{ id: 'leaderboard', label: 'LEADERBOARD'/);
   assert.match(page, /WIDE: Screen\[\] = \[[^\]]*'leaderboard'/);
   assert.match(html, /\.lbscroll \{[^}]*height: min\(44vh, 400px\)[^}]*overflow-y: auto/, 'the list scrolls in a box of fixed height');
+});
+
+const formulaEntry = (rank, name, extra = {}) => ({ rank, playerName: name, class: 'discrete', category: 'manual', mode: 'formula', track: 'beach', timeS: 38 + rank / 10, quarterEt: 38 + rank / 10, trapSpeed: 288.4, benchmarkScore: 9000, verified: false, ...extra });
+
+test('the mode selector: DRAG and FORMULA, column titles and rows show the lap time and top speed for formula', () => {
+  assert.equal(modeLabel('drag'), 'DRAG'); assert.equal(modeLabel('formula'), 'FORMULA'); assert.equal(nextMode('drag'), 'formula'); assert.equal(nextMode('formula'), 'drag');
+  assert.deepEqual(columnLabels('drag'), { time: '1/4 MILE', speed: 'TRAP' }); assert.deepEqual(columnLabels('formula'), { time: 'LAP', speed: 'TOP SPEED' });
+  assert.deepEqual(formatRow(formulaEntry(2, 'ACE'), true), { rank: '2', name: 'ACE', et: '38.200 S', trap: '288 MPH', cls: 'DISCRETE' });
+});
+
+test('the screen shows one mode at a time: the page passes a mode, the requests name mode and track, each mode has its own cache and drag stays as before', async () => {
+  const calls = [];
+  const client = createLeaderboardClient({ baseUrl: 'https://x.invalid', clientId: 'abcdefgh12345678', fetchFn: async url => {
+    calls.push(url); const formula = /mode=formula/.test(url);
+    return { ok: true, status: 200, json: async () => ({ mode: formula ? 'formula' : 'drag', track: formula ? 'beach' : 'strip', entries: [formula ? formulaEntry(1, 'ACE') : entry(1, 'Ann')] }) };
+  } });
+  const screen = createBoardScreen({ client, playerName: () => 'x', onChange: () => {}, mode: 'formula' });
+  assert.equal(screen.mode, 'formula'); assert.equal(screen.track, 'beach'); assert.equal(screen.modeLabel, 'FORMULA'); assert.deepEqual(screen.columns, { time: 'LAP', speed: 'TOP SPEED' });
+  await screen.load(); await wait(); assert.match(calls[0], /scope=overall&category=manual&limit=100&mode=formula&track=beach$/);
+  let v = screen.view(); assert.equal(v.state, 'ready'); assert.equal(v.entries[0].timeS, 38.1);
+  screen.setMode('drag'); await wait(); assert.equal(calls.length, 2); assert.doesNotMatch(calls[1], /mode=/, 'drag asks exactly what an old build asked');
+  assert.equal(screen.mode, 'drag'); assert.equal(screen.track, 'strip'); assert.deepEqual(screen.columns, { time: '1/4 MILE', speed: 'TRAP' }); assert.equal(screen.view().entries[0].playerName, 'Ann');
+  screen.toggleMode(); await wait(); assert.equal(calls.length, 2, 'back to the cached formula board: no request'); assert.equal(screen.view().entries[0].playerName, 'ACE');
+  screen.setMode('formula'); assert.equal(calls.length, 2, 'setting the mode it is in changes nothing'); screen.setMode('rally'); assert.equal(screen.mode, 'formula', 'an unknown mode is ignored');
+  screen.step(1); await wait(); assert.match(calls[2], /scope=class&category=manual&limit=100&class=integrated&mode=formula&track=beach/);
+  screen.toggleTrack(); assert.equal(screen.track, 'beach', 'one track: nothing to flip to'); assert.deepEqual([...screen.tracks], ['beach']);
+  assert.equal(createBoardScreen({ client, playerName: () => 'x', onChange: () => {} }).mode, 'drag', 'drag is the default');
+  assert.equal(createBoardScreen({ client, playerName: () => 'x', onChange: () => {}, mode: 'bogus' }).mode, 'drag');
+});
+
+test('formula board failures and the offline state read the same as drag, per mode', async () => {
+  let down = true;
+  const client = createLeaderboardClient({ baseUrl: 'https://x.invalid', clientId: 'abcdefgh12345678', fetchFn: async url => { if (down) throw new TypeError('offline'); return { ok: true, status: 200, json: async () => ({ mode: 'formula', entries: [] }) }; } });
+  const screen = createBoardScreen({ client, playerName: () => 'x', onChange: () => {}, mode: 'formula' });
+  await screen.load(); let v = screen.view(); assert.equal(v.state, 'failed'); assert.equal(v.failure.kind, 'offline'); assert.equal(v.retryable, true);
+  screen.setMode('drag'); assert.equal(screen.view().state, 'loading', 'the failure belongs to the formula board only'); await wait();
+  screen.setMode('formula'); down = false; screen.refresh(); await wait(); v = screen.view(); assert.equal(v.state, 'ready'); assert.equal(v.entries.length, 0);
+  const none = createBoardScreen({ client: createLeaderboardClient({ baseUrl: '', clientId: 'abcdefgh12345678' }), playerName: () => 'x', onChange: () => {}, mode: 'formula' });
+  await none.load(); assert.equal(none.view().failure.kind, 'not-configured');
 });

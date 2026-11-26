@@ -15,7 +15,7 @@ const drag = (o: Record<string, unknown> = {}) => ({
 });
 const formula = (o: Record<string, unknown> = {}) => ({
   mode: 'formula', track: 'beach', playerName: 'Racer One', class: 'discrete', category: 'manual', benchmarkScore: 5000, benchmarkVersion: '1.0', gpuId: 'RTX 3060',
-  splits: { sector1: 22, sector2: 44, lap: 64 }, topSpeed: 177, seed: 777, tune: { downforce: 0.5 }, ...o,
+  splits: { sector1: 12, sector2: 29, lap: 41 }, topSpeed: 280, seed: 777, tune: { downforce: 0.5 }, ...o,
 });
 const post = (env: Env, body: unknown) => handle(new Request('https://x/scores', { method: 'POST', body: JSON.stringify(body),
   headers: { Origin: ORIGIN, 'CF-Connecting-IP': '1.1.1.1', 'Content-Type': 'application/json' } }), env, 1_000_000);
@@ -82,29 +82,29 @@ describe('formula validation', () => {
     expect((await post(mkEnv(), drag({ splits: formula().splits }))).status).toBe(422);
   });
   it('splits must be increasing and positive', async () => {
-    expect(await errorOf(await post(mkEnv(), formula({ splits: { sector1: 44, sector2: 22, lap: 64 } })))).toMatch(/strictly increasing/);
-    expect(await errorOf(await post(mkEnv(), formula({ splits: { sector1: 22, sector2: 44, lap: 44 } })))).toMatch(/strictly increasing/);
-    expect((await post(mkEnv(), formula({ splits: { sector1: -1, sector2: 44, lap: 64 } }))).status).toBe(422);
+    expect(await errorOf(await post(mkEnv(), formula({ splits: { sector1: 29, sector2: 12, lap: 41 } })))).toMatch(/strictly increasing/);
+    expect(await errorOf(await post(mkEnv(), formula({ splits: { sector1: 12, sector2: 29, lap: 29 } })))).toMatch(/strictly increasing/);
+    expect((await post(mkEnv(), formula({ splits: { sector1: -1, sector2: 29, lap: 41 } }))).status).toBe(422);
   });
   it('refuses a lap faster than the class outer bound, and slower than the ranking limit', async () => {
     expect(await errorOf(await post(mkEnv(), formula({ splits: { sector1: 8, sector2: 16, lap: 25 } })))).toMatch(/faster than possible/);
     expect(await errorOf(await post(mkEnv(), formula({ class: 'integrated', benchmarkScore: 100, splits: { sector1: 40, sector2: 100, lap: 250 }, topSpeed: 100 })))).toMatch(/too slow/);
   });
   it('is score aware: a weak card cannot post a strong card lap', async () => {
-    const quick = { splits: { sector1: 12, sector2: 29, lap: 45 }, topSpeed: 200 };
+    const quick = { splits: { sector1: 11, sector2: 26, lap: 38 }, topSpeed: 290 };
     expect(await errorOf(await post(mkEnv(), formula({ benchmarkScore: 1000, ...quick })))).toMatch(/faster than plausible for a card of class discrete with benchmark score 1000/);
-    expect((await post(mkEnv(), formula({ benchmarkScore: 10000, ...quick, splits: { sector1: 15, sector2: 33, lap: 52 } }))).status).toBe(200);
+    expect((await post(mkEnv(), formula({ benchmarkScore: 10000, ...quick, splits: { sector1: 11, sector2: 26, lap: 38 } }))).status).toBe(200);
   });
   it('refuses sectors that do not share the lap, and a top speed outside the window', async () => {
-    expect(await errorOf(await post(mkEnv(), formula({ splits: { sector1: 4, sector2: 44, lap: 64 } })))).toMatch(/sector 1/);
-    expect(await errorOf(await post(mkEnv(), formula({ splits: { sector1: 22, sector2: 62, lap: 64 } })))).toMatch(/sector 2/);
+    expect(await errorOf(await post(mkEnv(), formula({ splits: { sector1: 4, sector2: 29, lap: 41 } })))).toMatch(/sector 1/);
+    expect(await errorOf(await post(mkEnv(), formula({ splits: { sector1: 12, sector2: 40, lap: 41 } })))).toMatch(/sector 2/);
     expect(await errorOf(await post(mkEnv(), formula({ topSpeed: 90 })))).toMatch(/top speed 90 mph is outside/);
     // The lap-average-versus-top-speed check is a backstop: with these generous placeholder windows the window checks above fire first.
   });
   it('refuses a score above the class cap and a ghost out of range; accepts a short ghost in metres', async () => {
     expect((await post(mkEnv(), formula({ class: 'integrated', benchmarkScore: 9000 }))).status).toBe(422);
     expect((await post(mkEnv(), formula({ ghost: [[0, 0], [300, 10]] }))).status).toBe(422);
-    expect((await post(mkEnv(), formula({ ghost: [[0, 0], [10, 400], [64, 2400]] }))).status).toBe(200);
+    expect((await post(mkEnv(), formula({ ghost: [[0, 0], [10, 1000], [41, 4828]] }))).status).toBe(200);
   });
 });
 
@@ -112,17 +112,17 @@ describe('boards, leaders and ranking per mode and track', () => {
   const both = async () => {
     const env = mkEnv();
     await post(env, drag({ playerName: 'Alice' })); await post(env, formula({ playerName: 'Alice' }));
-    await post(env, formula({ playerName: 'Bob', splits: { sector1: 21, sector2: 43, lap: 62 } }));
+    await post(env, formula({ playerName: 'Bob', splits: { sector1: 11.8, sector2: 28.6, lap: 40 } }));
     return env;
   };
   it('a player has one best row per mode: the same name holds a drag and a formula row', async () => {
     const env = await both();
     expect((await getJson(env, '/leaderboard?scope=class&class=discrete')).entries.map((e: any) => e.playerName)).toEqual(['Alice']);
-    expect((await getJson(env, '/leaderboard?scope=class&class=discrete&mode=formula&track=beach')).entries.map((e: any) => [e.playerName, e.timeS])).toEqual([['Bob', 62], ['Alice', 64]]);
+    expect((await getJson(env, '/leaderboard?scope=class&class=discrete&mode=formula&track=beach')).entries.map((e: any) => [e.playerName, e.timeS])).toEqual([['Bob', 40], ['Alice', 41]]);
   });
   it('formula entries carry topSpeed and timeS, not quarterEt', async () => {
     const e = (await getJson(await both(), '/leaderboard?scope=overall&mode=formula')).entries[0];
-    expect(e).toMatchObject({ mode: 'formula', track: 'beach', timeS: 62, topSpeed: 177 });
+    expect(e).toMatchObject({ mode: 'formula', track: 'beach', timeS: 40, topSpeed: 280 });
     expect(e.quarterEt).toBeUndefined();
   });
   it('the overall board is per mode', async () => {
@@ -131,20 +131,20 @@ describe('boards, leaders and ranking per mode and track', () => {
     expect((await getJson(env, '/leaderboard?scope=overall')).entries).toHaveLength(1);
   });
   it('/leader returns the formula leader with sectors, seed, tune and ghost', async () => {
-    const env = mkEnv(); await post(env, formula({ ghost: [[0, 0], [64, 2400]] }));
+    const env = mkEnv(); await post(env, formula({ ghost: [[0, 0], [41, 4828]] }));
     expect(await getJson(env, '/leader?class=discrete&mode=formula')).toMatchObject({
-      mode: 'formula', track: 'beach', timeS: 64, topSpeed: 177, splits: { sector1: 22, sector2: 44, lap: 64 }, seed: 777, tune: { downforce: 0.5 }, ghost: [[0, 0], [64, 2400]],
+      mode: 'formula', track: 'beach', timeS: 41, topSpeed: 280, splits: { sector1: 12, sector2: 29, lap: 41 }, seed: 777, tune: { downforce: 0.5 }, ghost: [[0, 0], [41, 4828]],
     });
     expect((await get(env, '/leader?class=discrete')).status).toBe(404);
   });
   it('keeps only the better lap and ranks within the mode', async () => {
     const env = mkEnv();
-    await post(env, formula({ splits: { sector1: 22, sector2: 44, lap: 64 } }));
-    await post(env, formula({ splits: { sector1: 23, sector2: 46, lap: 67 } }));
-    expect((await getJson(env, '/leader?class=discrete&mode=formula')).timeS).toBe(64);
-    const better = await (await post(env, formula({ splits: { sector1: 21, sector2: 42, lap: 61 } }))).json() as any;
+    await post(env, formula({ splits: { sector1: 12, sector2: 29, lap: 41 } }));
+    await post(env, formula({ splits: { sector1: 12.4, sector2: 30, lap: 43 } }));
+    expect((await getJson(env, '/leader?class=discrete&mode=formula')).timeS).toBe(41);
+    const better = await (await post(env, formula({ splits: { sector1: 11.5, sector2: 28, lap: 39.5 } }))).json() as any;
     expect(better.classRank).toBe(1);
-    expect((await getJson(env, '/leader?class=discrete&mode=formula')).timeS).toBe(61);
+    expect((await getJson(env, '/leader?class=discrete&mode=formula')).timeS).toBe(39.5);
   });
   it('answers 400 for an unknown mode or a track of another mode on reads', async () => {
     const env = mkEnv();
@@ -181,9 +181,9 @@ describe('formula plausibility (PLACEHOLDER numbers, phase 3 calibrates them)', 
     expect(formulaWindow('integrated', 99999)).toEqual(formulaWindow('integrated', 8000));
   });
   it('the sample runs the tests use are plausible, an impossible one is not', () => {
-    expect(formulaImplausibleReason('discrete', 5000, 'beach', { sector1: 22, sector2: 44, lap: 64, topSpeed: 177 })).toBeNull();
-    expect(formulaImplausibleReason('discrete', 5000, 'beach', { sector1: 22, sector2: 44, lap: 40, topSpeed: 177 })).toMatch(/faster than plausible/);
-    expect(formulaImplausibleReason('discrete', 5000, 'beach', { sector1: 22, sector2: 44, lap: 120, topSpeed: 177 })).toMatch(/slower than plausible/);
+    expect(formulaImplausibleReason('discrete', 5000, 'beach', { sector1: 12, sector2: 29, lap: 41, topSpeed: 280 })).toBeNull();
+    expect(formulaImplausibleReason('discrete', 5000, 'beach', { sector1: 22, sector2: 44, lap: 30, topSpeed: 280 })).toMatch(/faster than plausible/);
+    expect(formulaImplausibleReason('discrete', 5000, 'beach', { sector1: 22, sector2: 44, lap: 120, topSpeed: 280 })).toMatch(/slower than plausible/);
   });
 });
 

@@ -114,16 +114,18 @@ export const FORMULA_PLACEHOLDER_TABLE = {
   /** a flag for readers and tests: true until phase 3 has measured these numbers */
   placeholder: true,
   /** the length of one lap per track, in metres (used to compare the lap time with the top speed) */
-  trackLengthM: { beach: 2400 } as Record<string, number>,
+  trackLengthM: { beach: 4828 } as Record<string, number>,
   /** the outer limits of a ranked lap per class (like CLASS_BOUNDS for drag): the fastest and slowest lap (s) and the top speed window (mph) */
   outer: {
-    integrated: { minLapS: 60, maxLapS: 200, minTopMph: 60, maxTopMph: 170 },
-    discrete: { minLapS: 38, maxLapS: 200, minTopMph: 60, maxTopMph: 260 },
+    integrated: { minLapS: 38, maxLapS: 200, minTopMph: 60, maxTopMph: 300 },
+    discrete: { minLapS: 32, maxLapS: 200, minTopMph: 60, maxTopMph: 360 },
   } as Record<ClassId, { minLapS: number; maxLapS: number; minTopMph: number; maxTopMph: number }>,
   /** lap time and top speed for a default-tune car by benchmark score, linear between knots (a strong card is a quick car). Integrated is scored 0 to 8000, discrete 0 to 10000. */
   curve: {
-    integrated: [[0, 90, 120], [4000, 84, 130], [8000, 78, 140]],
-    discrete: [[0, 76, 150], [5000, 64, 177], [10000, 52, 205]],
+    // RE-SEEDED from the src/formula simulation (stock car on BEACH, default tune, the autopilot's lap, top speed in mph) so honest sim laps are accepted at all: the first guesses were 40 percent off the sim.
+    // Still placeholders: phase 3 measures the real window (good tunes, manual laps).
+    integrated: [[0, 51.5, 212], [4000, 48.3, 226], [8000, 45.5, 240]],
+    discrete: [[0, 44.6, 245], [5000, 41.1, 266], [10000, 38.1, 288]],
   } as Record<ClassId, readonly FormulaKnot[]>,
   /** the allowances around the curve */
   tolerance: {
