@@ -1,10 +1,11 @@
 WHAT THIS IS:
 
-A top-down drag racing simulator and GPU benchmark.
+A top-down racing simulator and GPU benchmark with two modes: DRAG (a quarter mile in a straight line) and FORMULA (one lap of a banked oval from a standing start).
+Pick the mode with the MODE row at the top of the title screen; the game remembers it. The benchmark, your class, the options, the controls and your name are the same in both modes.
 
 Players benchmark their GPU and are provided with a score. That score is then used as your base horsepower for the drag car.
 The car must then be tuned and adjusted for maximum performance.
-Players are competing against ghost versions of the top leaderboard spots.
+Players are competing against ghost versions of the top leaderboard spots (in each mode, on its own boards).
 The car may be driven manually or use the ingame autopilot.
 
 Run it: npm install, npm run build, then open index.html in a browser (or npm run package for the itch.io zip).
@@ -25,6 +26,11 @@ nitro (Shift) - fire the bottle by hand. A tune can also fire it by itself from 
 back up (R) - hold it to reverse slowly after the burnout, back to the pre-stage beam.
 launch / roll out (Space or U) - once you are staged, press it when the tree is lit to roll in and launch.
 deep stage (H) - hold it from stage to creep closer to the line. Closer means a quicker reaction but a red light is easier to get.
+
+driving line (L) - FORMULA only: show or hide the best line round the track (green: gas, yellow: lift, red: brake). Also an option, DRIVING LINE.
+
+In FORMULA the pedals and steering are the same keys: gas, brake, turn left and right, shift up (E) and shift down (Q) with the shift light, and nitro (Shift).
+The drag-only keys (chute, burnout, back up, launch, deep stage) do nothing there. On a phone Formula shows its own buttons: steering left and right, gas, brake, nitro, shift up and down, LINE and MENU.
 
 There is no clutch button. A top fuel car has no manual clutch: the clutch engages by itself and wears out.
 REPLACE CLUTCH in the tune screen puts in a new one (free).
@@ -55,3 +61,16 @@ THE FLOW OF THE RACE:
    A clean pass in a class is sent to the leaderboard: you are on the overall board and on your class board.
 7. DRIVER can be switched to AUTOPILOT: the car does the whole staging and the pass for you with the same controls. Autopilot runs are their own leaderboard category.
 8. RECORDS keeps your own best times on this computer, and the boards.
+
+FORMULA MODE:
+
+Choose FORMULA on the MODE row. The rest of the title menu then means Formula: TUNE, RACE CLASS LEADER, RECORDS and LEADERBOARD all switch to it (your Drag tune, records and boards are kept apart and come back when you pick DRAG).
+The car: the same two classes, and your benchmark score sets the engine's power inside your class (a strong built-in GPU is a slow car, the best separate card a fast one; skip the benchmark and you have the slowest car).
+There is no money and nothing to buy: you only tune. Formula's TUNE screen has gearing, downforce, steering, tyre pressure, nitro bottles, MANUAL or AUTO gearbox, the shift light, six tune slots and TEST RUN, and shows the PREDICTED LAP of a perfect driver (the STATS tab has its sectors).
+The tyres do not wear, so there is no REPLACE TIRES.
+The race: RACE CLASS LEADER is one lap of the BEACH oval from a standing start against the ghost of your class leader (a see-through car). Three red lights come on one a second and go out together: leave on the green.
+Pressing gas before the green is a JUMP START and the lap is not ranked. The lap is timed from the start line to the start line again; the yellow gates round the track are the sector times.
+On screen: a small panel at the left (state, lap time, sector, last split, nitro), the three lights at the top, the gear, speed and shift lamps at the bottom right (they all blink when it says shift), and a small map. Turn the DRIVING LINE on if you want help.
+The timeslip shows your reaction, the sector times, the lap time and top speed beside the leader's, how far ahead or behind you are in each, and any personal bests (kept per mode in RECORDS).
+A clean lap is sent to the Formula leaderboard. DRIVER can be AUTOPILOT here too: its laps are their own category and never touch your records.
+There is no music in a race; the only song plays during the benchmark.
