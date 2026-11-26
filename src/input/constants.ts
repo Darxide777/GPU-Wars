@@ -6,10 +6,6 @@ export const INPUT = {
   touchAnalogCurve: 1.6,
   /** the least gas a touch on the pedal gives, so a touch always does something */
   touchMinGas: 0.2,
-  /** the steering slider ignores this share of its half width around the middle */
-  touchSteerDead: 0.08,
-  /** touch steering curve: above 1 gives finer control near the middle */
-  touchSteerCurve: 1.3,
   /** most events kept waiting (a stuck loop must not grow memory without limit) */
   maxQueued: 512,
   /** gamepad stick ignores this much around the middle, and a trigger counts as pressed above this */
