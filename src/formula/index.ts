@@ -6,7 +6,8 @@
 //   createFormulaAutopilot(track, stats)              the autopilot (a driver: view in, FormulaInput out)
 export { createFormulaRace, stepLap, newLapState, viewOf, timeslipOf, lightsLit, isGreen, type FormulaRace, type FormulaRaceOptions, type FormulaView } from './race.ts';
 export { driveStep, gearPull, cornerSpeed, gripLimit, bankedLimit, revOf, shiftLightOn, placeOnTrack } from './physics.ts';
-export { carStats, cleanFormulaTune, cleanFormulaSlots, formulaSpecForBenchmark, STOCK_SPEC, DEFAULT_FORMULA_TUNE, FORMULA_TUNE_LIMITS, FORMULA_TUNE_HELP, FORMULA_CLASS_WINDOWS } from './car.ts';
+export { carStats, cleanFormulaTune, cleanFormulaSlots, formulaSpecForBenchmark, STOCK_SPEC, DEFAULT_FORMULA_TUNE, FORMULA_TUNE_LIMITS, FORMULA_TUNE_HELP, FORMULA_CLASS_WINDOWS, FORMULA_SCORE_TO_ENGINE, UNBENCHMARKED_ENGINE, engineShareFor } from './car.ts';
+export { TUNE_EFFECT } from './constants.ts';
 export { FORMULA_TRACKS, TRACK_SPECS, buildTrack, trackById } from './tracks.ts';
 export { createFormulaAutopilot, driveAutopilotLap, AUTOPILOT, AUTOPILOT_CATEGORY } from './autopilot.ts';
 export { racingLineFor, solveLap, LINE, LINE_COLOURS } from './racingLine.ts';

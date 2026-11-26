@@ -20,7 +20,7 @@ export const MODE_IDS = ['drag', 'formula'] as const;
 export type ModeId = (typeof MODE_IDS)[number];
 export const DEFAULT_MODE: ModeId = 'drag';
 
-/** The tracks of each mode, as data so more can be added (a city or mountain circuit later). The first track is the default one for the mode. A new track needs a row here and, for formula, a row in FORMULA_PLACEHOLDER_TABLE (plausible.ts). */
+/** The tracks of each mode, as data so more can be added (a city or mountain circuit later). The first track is the default one for the mode. A new track needs a row here and, for formula, a row in FORMULA_LAP_TABLE (plausible.ts). */
 export const TRACKS: Record<ModeId, readonly string[]> = { drag: ['strip'], formula: ['beach'] };
 export const DEFAULT_TRACK: Record<ModeId, string> = { drag: 'strip', formula: 'beach' };
 

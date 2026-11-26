@@ -28,6 +28,8 @@ test('tune safety: no tune a player can set (or send) makes the car faster than 
   const lap = tune => predictFormula(STOCK_SPEC, tune);
   // the corners of the tune box, and some wild values: every lap finishes, is finite and is no quicker than the best corner
   const corners = []; for (const gearing of [-1, 1]) for (const downforce of [0, 1]) for (const pressure of [-1, 1]) for (const steering of [-1, 1]) corners.push({ gearing, downforce, pressure, steering, nitro: 3 });
+  // (gearing and pressure now have their best value inside the range, so the box's corners are not the quickest cars: the default and a good tune count as candidates for "the best")
+  corners.push({}, { gearing: 0.4, downforce: 0.3, pressure: 0.4, nitro: 3 });
   const times = corners.map(c => lap(c).lapTime); assert.ok(times.every(t => Number.isFinite(t) && t > 30 && t < 80), times.join(' '));
   const best = Math.min(...times);
   for (const wild of [{ gearing: 1e9, downforce: 1e9, pressure: 1e9, steering: 1e9, nitro: 1e9, shiftLight: 1e9 }, { gearing: -1e9, downforce: -1e9, pressure: -1e9, steering: -1e9, nitro: -1e9 }, { gearing: NaN, nitro: NaN }, 'x', null]) { const t = lap(wild); assert.ok(t.finished && t.lapTime >= best - 0.05, `${JSON.stringify(wild)} -> ${t.lapTime} (best corner ${best})`); }
@@ -37,10 +39,10 @@ test('tune safety: no tune a player can set (or send) makes the car faster than 
 
 test('each tune setting is a trade, in the direction the help text says', () => {
   const base = carStats(STOCK_SPEC, DEFAULT_FORMULA_TUNE), with_ = t => carStats(STOCK_SPEC, { ...DEFAULT_FORMULA_TUNE, ...t });
-  assert.ok(with_({ gearing: 1 }).vmax > base.vmax && with_({ gearing: 1 }).accel < base.accel, 'tall gears: top speed for pull');
+  assert.ok(with_({ gearing: 0.4 }).vmax > base.vmax && with_({ gearing: 0.4 }).accel < base.accel, 'tall gears: top speed for pull (inside their best range, +0.4: past it the top speed falls again, see formula-calibration.test.mjs)');
   assert.ok(with_({ downforce: 1 }).grip > base.grip && with_({ downforce: 1 }).vmax < base.vmax && with_({ downforce: 1 }).aero > base.aero, 'downforce: grip for top speed');
   assert.ok(with_({ steering: 1 }).turn > base.turn && with_({ steering: 1 }).grip < base.grip, 'quick steering: turn for grip');
-  assert.ok(with_({ pressure: 1 }).vmax > base.vmax && with_({ pressure: 1 }).grip < base.grip, 'hard tyres: top speed for grip');
+  assert.ok(with_({ pressure: 0.4 }).vmax > base.vmax && with_({ pressure: 0.4 }).grip < base.grip, 'hard tyres: top speed for grip (inside their best range, +0.4)');
   assert.ok(with_({ nitro: 3 }).grip < base.grip && with_({ nitro: 3 }).nitroShots === 3, 'nitro bottles cost grip');
 });
 

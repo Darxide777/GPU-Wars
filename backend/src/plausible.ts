@@ -101,39 +101,40 @@ export function implausibleReason(cls: ClassId, benchmarkScore: number, run: { q
 // ====================================================================================================================================================
 // FORMULA MODE: THE ONE TABLE OF FORMULA NUMBERS.
 //
-// !!! EVERY NUMBER IN THIS TABLE IS A PLACEHOLDER (phase 1). !!! They are rough guesses so the server can accept and reject formula laps in the right
-// SHAPE today. Phase 3 replaces them with numbers measured from the formula physics (the same way SCORE_CURVE above comes from docs/CALIBRATION.md).
-// Until then they are deliberately generous: a real lap should never be refused, only the plainly impossible ones.
-// To calibrate: change only this table (and the track length), nothing else in the formula checks has a number in it.
+// CALIBRATED (phase 3) against the formula simulation, the way SCORE_CURVE above is for Drag: the lap time and top speed of a perfect driver (the autopilot) on BEACH with the DEFAULT tune, by benchmark score
+// (docs/CALIBRATION.md, "Formula lap times"; `PRINT_LAP_TABLE=1 node --test tests/formula-calibration.test.mjs` prints the rows). tests/formula-calibration.test.mjs sweeps every score densely with the default tune, a good tune and the
+// extreme tunes and fails if a lap or top speed leaves the window, so this table cannot drift from the physics unnoticed. After a physics or constants change, copy the new rows from the printed table.
+// NOT YET VALIDATED ON REAL HARDWARE: the owner's Radeon 8060S (benchmark score about 5005) and S24 Ultra (1302) are the two measured scores; the discrete scores are still estimates (the card rates are placeholders).
+// To re-calibrate: change only this table (and the track length); nothing else in the formula checks has a number in it.
 // ====================================================================================================================================================
 
 /** one knot of a formula curve: the benchmark score, the lap time (s) and the top speed (mph) the default tune gives */
 type FormulaKnot = readonly [score: number, lapS: number, topMph: number];
 
-export const FORMULA_PLACEHOLDER_TABLE = {
-  /** a flag for readers and tests: true until phase 3 has measured these numbers */
-  placeholder: true,
+export const FORMULA_LAP_TABLE = {
+  /** true: the numbers below come from the simulation (phase 3). false would mean guesses. */
+  calibrated: true,
+  /** false until the owner's real cards (the 8060S and the S24 Ultra) have been raced for these laps; the ranges below are generous enough to survive a small difference */
+  hardwareValidated: false,
   /** the length of one lap per track, in metres (used to compare the lap time with the top speed) */
   trackLengthM: { beach: 4828 } as Record<string, number>,
-  /** the outer limits of a ranked lap per class (like CLASS_BOUNDS for drag): the fastest and slowest lap (s) and the top speed window (mph) */
+  /** the outer limits of a ranked lap per class (like CLASS_BOUNDS for drag): the fastest and slowest lap (s) and the top speed window (mph). The fast limit sits a little outside the best card's best tune and a driver 3 percent better than the autopilot (integrated 43.3 s at the cap with a good tune, discrete 37.2 s). */
   outer: {
-    integrated: { minLapS: 38, maxLapS: 200, minTopMph: 60, maxTopMph: 300 },
-    discrete: { minLapS: 32, maxLapS: 200, minTopMph: 60, maxTopMph: 360 },
+    integrated: { minLapS: 41.5, maxLapS: 200, minTopMph: 60, maxTopMph: 300 },
+    discrete: { minLapS: 35.5, maxLapS: 200, minTopMph: 60, maxTopMph: 340 },
   } as Record<ClassId, { minLapS: number; maxLapS: number; minTopMph: number; maxTopMph: number }>,
-  /** lap time and top speed for a default-tune car by benchmark score, linear between knots (a strong card is a quick car). Integrated is scored 0 to 8000, discrete 0 to 10000. */
+  /** lap time and top speed for a default-tune car by benchmark score, linear between knots (a strong card is a quick car). Integrated is scored 0 to 8000, discrete 0 to 10000. The knots are the same scores as `FORMULA_SCORE_TO_ENGINE` (src/formula/car.ts): the 1302 row is the S24 Ultra, the 5005 row the Radeon 8060S. */
   curve: {
-    // RE-SEEDED from the src/formula simulation (stock car on BEACH, default tune, the autopilot's lap, top speed in mph) so honest sim laps are accepted at all: the first guesses were 40 percent off the sim.
-    // Still placeholders: phase 3 measures the real window (good tunes, manual laps).
-    integrated: [[0, 51.5, 212], [4000, 48.3, 226], [8000, 45.5, 240]],
-    discrete: [[0, 44.6, 245], [5000, 41.1, 266], [10000, 38.1, 288]],
+    integrated: [[0, 55.02, 199], [650, 53.0, 206], [1302, 51.02, 214], [3000, 49.17, 222], [5005, 47.0, 233], [6500, 45.77, 239], [8000, 44.5, 246]],
+    discrete: [[0, 43.0, 254], [2000, 40.95, 267], [4000, 39.68, 276], [6000, 38.9, 282], [8000, 38.35, 286], [10000, 38.08, 288]],
   } as Record<ClassId, readonly FormulaKnot[]>,
   /** the allowances around the curve */
   tolerance: {
-    /** fastest lap = curve lap x (1 - this): a very good tune plus the autopilot's line */
-    fastShare: 0.12,
+    /** fastest lap = curve lap x (1 - this): the best tune is worth up to about 3.7 percent of the lap (a full search, weakest cards most), and a driver may beat the autopilot's line by about 3 percent */
+    fastShare: 0.07,
     /** slowest lap = curve lap x (1 + share) + seconds: a clumsy but honest drive */
     slowShare: 0.4, slowExtra: 10,
-    /** top speed window: lowest = curve x (1 - low share); highest = curve x (1 + high share) + mph */
+    /** top speed window: lowest = curve x (1 - low share); highest = curve x (1 + high share) + mph (the extreme tunes: no downforce adds about 4 percent, three bottles of nitro about 6 percent for a moment) */
     topLowShare: 0.3, topHighShare: 0.12, topExtraMph: 5,
     /** the end of sector 1 as a share of the lap time, and the end of sector 2 as a share of the lap time */
     sector1Share: [0.15, 0.5], sector2Share: [0.45, 0.85],
@@ -153,14 +154,19 @@ export interface FormulaWindow {
   maxTopMph: number;
 }
 
-/** the formula window for a class and benchmark score (placeholder numbers, see FORMULA_PLACEHOLDER_TABLE); the outer limits are applied on top */
-export function formulaWindow(cls: ClassId, benchmarkScore: number): FormulaWindow {
-  const t = FORMULA_PLACEHOLDER_TABLE.tolerance, outer = FORMULA_PLACEHOLDER_TABLE.outer[cls], knots = FORMULA_PLACEHOLDER_TABLE.curve[cls];
-  const score = Math.min(Math.max(benchmarkScore, knots[0][0]), Math.min(CLASS_SCORE_CAP[cls], knots[knots.length - 1][0]));
+/** the default-tune lap time (s) and top speed (mph) the table gives a class and score: straight lines between knots, a score outside the class's range uses its nearest end */
+export function formulaCurveAt(cls: ClassId, benchmarkScore: number): { lap: number; top: number } {
+  const knots = FORMULA_LAP_TABLE.curve[cls];
+  const score = Math.min(Math.max(Number.isFinite(benchmarkScore) ? benchmarkScore : 0, knots[0][0]), Math.min(CLASS_SCORE_CAP[cls], knots[knots.length - 1][0]));
   let i = 1;
   while (i < knots.length - 1 && knots[i][0] < score) i++;
   const a = knots[i - 1], b = knots[i], u = b[0] === a[0] ? 0 : (score - a[0]) / (b[0] - a[0]);
-  const lap = a[1] + (b[1] - a[1]) * u, top = a[2] + (b[2] - a[2]) * u;
+  return { lap: a[1] + (b[1] - a[1]) * u, top: a[2] + (b[2] - a[2]) * u };
+}
+
+/** the formula window for a class and benchmark score (see FORMULA_LAP_TABLE); the outer limits are applied on top */
+export function formulaWindow(cls: ClassId, benchmarkScore: number): FormulaWindow {
+  const t = FORMULA_LAP_TABLE.tolerance, outer = FORMULA_LAP_TABLE.outer[cls], { lap, top } = formulaCurveAt(cls, benchmarkScore);
   return {
     minLapS: Math.max(outer.minLapS, lap * (1 - t.fastShare)),
     maxLapS: Math.min(outer.maxLapS, lap * (1 + t.slowShare) + t.slowExtra),
@@ -171,7 +177,7 @@ export function formulaWindow(cls: ClassId, benchmarkScore: number): FormulaWind
 
 /** null when a formula lap is plausible for the score, otherwise a clear reason (the 422 message). Checks the lap time, the top speed, how the sectors share the lap, and lap average speed against top speed. */
 export function formulaImplausibleReason(cls: ClassId, benchmarkScore: number, track: string, run: { sector1: number; sector2: number; lap: number; topSpeed: number }): string | null {
-  const w = formulaWindow(cls, benchmarkScore), t = FORMULA_PLACEHOLDER_TABLE.tolerance, score = Math.round(benchmarkScore), f = (n: number) => n.toFixed(2);
+  const w = formulaWindow(cls, benchmarkScore), t = FORMULA_LAP_TABLE.tolerance, score = Math.round(benchmarkScore), f = (n: number) => n.toFixed(2);
   const who = `a card of class ${cls} with benchmark score ${score}`;
   if (run.lap < w.minLapS) return `lap time ${f(run.lap)} s is faster than plausible for ${who} (fastest ${f(w.minLapS)} s)`;
   if (run.lap > w.maxLapS) return `lap time ${f(run.lap)} s is slower than plausible for ${who} (slowest ${f(w.maxLapS)} s)`;
@@ -180,7 +186,7 @@ export function formulaImplausibleReason(cls: ClassId, benchmarkScore: number, t
   const s1 = run.sector1 / run.lap, s2 = run.sector2 / run.lap;
   if (s1 < t.sector1Share[0] || s1 > t.sector1Share[1]) return `sector 1 (${f(run.sector1)} s) is not a believable share of a ${f(run.lap)} s lap`;
   if (s2 < t.sector2Share[0] || s2 > t.sector2Share[1]) return `sector 2 (${f(run.sector2)} s) is not a believable share of a ${f(run.lap)} s lap`;
-  const lengthM = FORMULA_PLACEHOLDER_TABLE.trackLengthM[track];
+  const lengthM = FORMULA_LAP_TABLE.trackLengthM[track];
   if (lengthM) {
     const averageMph = (lengthM / run.lap) * 2.236936;
     if (averageMph > run.topSpeed + t.averageOverTopMph || averageMph < run.topSpeed * t.averageMinShare)

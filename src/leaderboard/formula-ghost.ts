@@ -2,7 +2,7 @@
 //
 //   The simulation's ghost (src/formula/ghost.ts, `FormulaGhost`): a lap TRACE every 0.1 s from the green, in whole decimetres along the lap (negative behind the start line), across the road and speed. Rich, but it
 //   also holds the grid approach, the wander across the road and the rollout after the finish, and a lap is about 500 samples.
-//   The wire format (backend `parseGhost`, `FORMULA_PLACEHOLDER_TABLE.ghost`): `[seconds, metres along the lap]` pairs, ordered, at most 256, within 240 s and 20000 m. It is the same shape as Drag's
+//   The wire format (backend `parseGhost`, `FORMULA_LAP_TABLE.ghost`): `[seconds, metres along the lap]` pairs, ordered, at most 256, within 240 s and 20000 m. It is the same shape as Drag's
 //   `[seconds, feet]`, so the backend has ONE ghost parser for both modes.
 //
 // DECISION: the backend keeps the generic `[seconds, metres]` shape and the client converts. Reasons: (1) the server never needs to know the sim's trace (decimetres, three parallel arrays, a 0.1 s step tied
@@ -13,7 +13,7 @@
 import { alongOf } from '../formula/road.ts';
 import { cleanGhost, ghostFromLeader, type FormulaGhost, type FormulaTrack, type LapTrace } from '../formula/index.ts';
 
-/** the limits of the wire format (the backend's `parseGhost` and `FORMULA_PLACEHOLDER_TABLE.ghost`; a test checks they agree) */
+/** the limits of the wire format (the backend's `parseGhost` and `FORMULA_LAP_TABLE.ghost`; a test checks they agree) */
 export const FORMULA_GHOST_WIRE = { maxSamples: 256, maxSeconds: 240, maxMetres: 20000, targetSamples: 240 } as const;
 export type GhostPairs = Array<[number, number]>;
 

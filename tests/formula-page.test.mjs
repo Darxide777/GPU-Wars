@@ -187,7 +187,7 @@ test('online: offline or no leader falls back to the bundled lap with a note, pe
   for (const [reply, why] of [[{ record: null, online: false, note: 'COULD NOT REACH THE LEADERBOARD' }, /COULD NOT REACH/], [{ record: null, online: false, note: '' }, /BUNDLED/], [{ record: { ...serverLeader, timeS: 1, sectors: { sector1: 0.3, sector2: 0.7, lap: 1 } }, online: true, note: '' }, /NOT PLAYABLE/]]) {
     let category = 'manual'; const o = createFormulaOnline({ client: fakeClient(reply), benchmark: () => benchmark({ class: 'integrated' }), playerName: () => 'SPEEDY', category: () => category, onChange() {} });
     await o.refreshLeader(); assert.equal(o.source(), 'fallback'); assert.match(o.note(), why); assert.equal(o.className(), 'INTEGRATED'); assert.equal(o.ghost().lapTime, FORMULA_FALLBACK_LEADERS.classLapTime.integrated);
-    category = 'autopilot'; assert.equal(o.ghost().lapTime, FORMULA_FALLBACK_LEADERS.classLapTime.integrated + FORMULA_FALLBACK_LEADERS.autopilotExtraLap, 'the autopilot category races the autopilot placeholder');
+    category = 'autopilot'; assert.equal(o.ghost().lapTime, Math.round((FORMULA_FALLBACK_LEADERS.classLapTime.integrated + FORMULA_FALLBACK_LEADERS.autopilotExtraLap) * 1000) / 1000, 'the autopilot category races the autopilot placeholder');
   }
 });
 test('online sends the lap through buildFormulaPayload with the real trace (the compact ghost), and the backend validator accepts it', async () => {
