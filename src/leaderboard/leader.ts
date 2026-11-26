@@ -1,6 +1,6 @@
 // The class leader as the game uses it: a name, the ET and splits, the trap speed, a reaction time and a seed. It comes from the server (GET /leader) or, when there is
 // no server or no leader yet, from the bundled fallback list below, so the ghost works from the first run. All the numbers are plain data: nothing here runs physics.
-import { CLASS_BOUNDS, CLASS_IDS, eraOf, isCategory, isClassId, type Category, type ClassId } from '../classes.ts';
+import { CLASS_BOUNDS, CLASS_IDS, isCategory, isClassId, type Category, type ClassId } from '../classes.ts';
 
 export interface LeaderSplits { ft60?: number; ft330?: number; eighth?: number; ft1000?: number; quarter: number }
 export interface LeaderRecord {
@@ -31,12 +31,11 @@ export function parseLeader(raw: unknown): LeaderRecord | null {
 }
 
 /** The bundled leader times. They are PLAUSIBLE PLACEHOLDERS (not real players): turn these first when real numbers exist. docs/CALIBRATION.md says how they were made.
- * `eraEt` is the quarter-mile time of a made-up leader of that generation on the ranked class day: a card at about 70% of its class's top score with a GOOD tune (a shorter final drive, a higher launch rpm and a firmer launch than the defaults) plus 0.04 s.
- * So a good tune of a typical (70% to 80%) card beats it (the 80% card by more), a card at the class's top score beats it with room to spare, and a default tune does not beat it. A vendor adds or takes a little; autopilot runs are a little slower than hand-driven ones.
+ * `classEt` is the quarter-mile time of a made-up leader of that class on the ranked class day: a card at about 70% of its class's top score with a GOOD tune (a shorter final drive, a higher launch rpm and a firmer launch than the defaults) plus 0.04 s.
+ * So a good tune of a typical (70% to 80%) card beats it (the 80% card by more), a card at the class's top score beats it with room to spare, and a default tune does not beat it. Autopilot runs are a little slower than hand-driven ones.
  * tests/calibration.test.mjs checks every leader against the ET bands and against the physics. */
 export const FALLBACK_LEADERS = {
-  eraEt: { integrated: 10.0, retro: 6.09, classic: 5.36, modern: 4.72, current: 4.11 } as Record<string, number>,
-  vendorEt: { amd: 0, nvidia: -0.02, intel: 0.05, other: 0.08 } as Record<string, number>,
+  classEt: { integrated: 9.7, discrete: 4.33 } as Record<string, number>,
   autopilotExtraEt: 0.12,
   /** trap speed in mph is about this many mph-seconds divided by the ET (the simulation's quarter mile gives 1310 to 1380 from the 10 s class to the 4 s class) */ trapMphSeconds: 1340,
   reaction: 0.064,
@@ -50,8 +49,8 @@ export function textSeed(text: string): number {
 }
 /** the fallback leader of a class and category: only the ET, trap speed, reaction and seed are known, so the ghost generates every split */
 export function fallbackLeader(cls: ClassId, category: Category = 'manual'): LeaderRecord {
-  const f = FALLBACK_LEADERS, vendor = cls === 'integrated' ? '' : cls.split('-')[1] as string, bounds = CLASS_BOUNDS[cls];
-  const base = (f.eraEt[eraOf(cls) ?? 'integrated'] ?? 8) + (f.vendorEt[vendor] ?? 0) + (category === 'autopilot' ? f.autopilotExtraEt : 0);
+  const f = FALLBACK_LEADERS, bounds = CLASS_BOUNDS[cls];
+  const base = (f.classEt[cls] ?? 8) + (category === 'autopilot' ? f.autopilotExtraEt : 0);
   const quarter = Math.round(Math.max(bounds.minQuarterEt + 0.4, base) * 1000) / 1000;
   const trap = Math.round(Math.max(bounds.minTrapSpeed + 10, Math.min(bounds.maxTrapSpeed - 5, f.trapMphSeconds / quarter)) * 10) / 10;
   return { name: category === 'autopilot' ? 'AUTO LEADER' : 'CLASS LEADER', class: cls, category, reactionTime: f.reaction, splits: { quarter }, trapSpeed: trap, seed: textSeed(`${cls}|${category}`), source: 'fallback' };

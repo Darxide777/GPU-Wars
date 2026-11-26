@@ -4,7 +4,7 @@
 // nitro by hand or in a set gear. A ghost replays your best pass from saved samples instead of driving a second car.
 import { createRng } from '../arena/rng.ts';
 import { STOCK_PARTS, DRAG_CARS } from './data.ts';
-import { BOOST, CLUTCH, DRIVETRAIN, ENGINE, LIMITS, NITRO, SHIFT_QUALITY, TIRE, defaultTune, limiterTorqueShare, specFor, torqueShape } from './tune.ts';
+import { BOOST, CLUTCH, DRIVETRAIN, ENGINE, LIMITS, NITRO, SHIFT_POINT, SHIFT_QUALITY, TIRE, defaultTune, limiterTorqueShare, specFor, torqueShape } from './tune.ts';
 import type { DragCarDef, DragConditions, DragEvent, DragGhost, DragInput, DragSpec, DragStrip, DragTire, GhostSample, Mark, Runner, Skill, StagePhase, Timeslip, Tune } from './types.ts';
 
 export const DRAG = {
@@ -462,7 +462,7 @@ export function createDrag(o: { seed: number; entrants: Entrant[]; conditions?: 
     r.burnout = false;
     const since = s.t - r.launchT;
     // shifting: up a gear by hand (a press), or at the tune's shift point; torque interrupts during the shift and revs match the next gear's wheel speed
-    const top = r.gear >= tu.ratios.length, sense = (r.ai?.fuelSense ?? 0) * fuelTrim(r), autoAt = r.ai ? (r.plan.shifts[r.gear - 1] ?? tu.shiftRpm) * (1 - sense * FUEL.shiftTrim) : tu.shiftRpm;
+    const top = r.gear >= tu.ratios.length, sense = (r.ai?.fuelSense ?? 0) * fuelTrim(r), autoAt = r.ai ? (r.plan.shifts[r.gear - 1] ?? tu.shiftRpm) * (1 - sense * FUEL.shiftTrim) : Math.min(tu.shiftRpm, sp.redline - SHIFT_POINT.lampRpm);
     const upWanted = !top && ((tu.shift === 'manual' && !r.ai) ? press('shiftUp') : r.rpm >= autoAt);
     /** a manual downshift: refused if the lower gear would spin the engine past the redline at this speed */
     const downWanted = !upWanted && tu.shift === 'manual' && !r.ai && r.gear > 1 && !!inp.shiftDown && !r.prev.shiftDown && wheelRpm(r.v, tu.ratios[r.gear - 2] as number, tu.final, sp.tire) <= sp.redline;

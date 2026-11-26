@@ -42,8 +42,7 @@ COOL ENGINE and CLEAR STRIP put the engine temperature and the rubber on the str
 
 THE FLOW OF THE RACE:
 
-1. BENCHMARK from the title screen (never automatic). It scores your GPU, then your class is set from it (integrated or discrete,
-   split by generation and by maker: AMD, NVIDIA, Intel and others). Run it again only if you change your GPU or overclock it: the game cannot see an overclock.
+1. BENCHMARK from the title screen (never automatic). It scores your GPU, then your class is set from it (INTEGRATED or DISCRETE: two classes for now, detected automatically; a split by generation and maker can be added later, the class list is one file, backend/src/classes.ts). Run it again only if you change your GPU or overclock it: the game cannot see an overclock.
    The CLASS row shows the class the game detected from your graphics card; it cannot be picked or changed (when the card is masked the game assumes integrated). Skip the benchmark and you race with the weakest car.
 2. RACE CLASS LEADER. You race a ghost of the fastest player in your class. Everyone races the same ranked class day (same weather, a fresh strip).
    The ghost follows the leader's time, not the physics, so it is the time to beat.
