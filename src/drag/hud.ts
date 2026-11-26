@@ -1,11 +1,11 @@
-// What is drawn over the drag strip DURING a run. Everything a player reads sits in ONE panel down the left of the screen (`drawRunPanel`): the stage, reaction time and run timer,
-// the shift lights with the rpm, gear and speed, the warnings (wheelspin, clutch, front wheels up), nitro, boost, tire temperatures and your place in the lane. Nothing else carries data:
-// conditions, pressures, fuel, engine heat, weights, splits, ET and trap speed are on the timeslip, and the ghost car has no text at all. In the middle of the screen only the
-// tree (a graphic), the key to press next and the alerts (crash, centre line, stop before the end) are written. It only reads the race; drawing is all it does.
+// What is drawn over the drag strip DURING a run. The left panel (`drawRunPanel`) holds the stage, reaction time and run timer, the warnings (wheelspin, clutch, front wheels up), nitro, boost,
+// tire temperatures and your place in the lane. The round tachometer (rpm, gear, km/h and the shift lamps) is at the bottom right (`drawTach`, placed clear of the touch buttons). ONE short
+// instruction line (`guidePrompt`, drawn by `drawPrompt` in the top row beside the panel) names the next action of the staging sequence, with the player's own key or touch button names.
+// Nothing else carries data: conditions, pressures, fuel, engine heat, weights, splits, ET and trap speed are on the timeslip, and the ghost car has no text at all. It only reads the race; drawing is all it does.
 import { C } from '../sim/constants.ts';
 import { DRAG, LANE, SHUTDOWN, STAGE, boostLimitOf, stageLabel } from './physics.ts';
 import { BOOST, CLUTCH } from './tune.ts';
-import { carNoseY } from './topdown.ts';
+import { CAR_Y_SHARE, LANE_M, carNoseY } from './topdown.ts';
 import type { DragConditions, DragStrip, Runner } from './types.ts';
 
 export interface DragHudState { t: number; greenAt: number; /** the tree is armed once every live car is in final stage (missing on old states: counts as armed) */ armed?: boolean; ambers: number; green: boolean; phase: string; conditions: DragConditions; weather?: DragConditions; strip?: DragStrip; runners: Runner[] }
@@ -18,7 +18,7 @@ const LANE_HUD = { slideAt: 0.15, markerW: 16, markerH: 28, turnGain: 6 } as con
  * The left panel. Sizes are in `unit`s (one text row) that shrink to fit the window: `minUnit`/`maxUnit` are px per row (the max grows with the window, `fontShare` of a row is the text),
  * `chars` is the widest line the panel is built for, `widthShare` the most of a narrow window it may take. The row counts are fixed so nothing jumps when a row appears.
  */
-const PANEL = { margin: 8, pad: 6, gap: 0.3, minUnit: 10, maxUnit: 16, fontShare: 0.84, chars: 22, charW: 0.6, widthShare: 0.5, notesRows: 5, rows: { stage: 1.4, timing: 1, lamps: 1, rpmBar: 0.8, drive: 2.3, nitro: 1.7, boost: 1.7, tires: 1.7, lane: 2.8 } } as const;
+const PANEL = { margin: 8, pad: 6, gap: 0.3, minUnit: 10, maxUnit: 16, fontShare: 0.84, chars: 22, charW: 0.6, widthShare: 0.5, notesRows: 5, rows: { stage: 1.4, timing: 1, nitro: 1.7, boost: 1.7, tires: 1.7, lane: 2.8 } } as const;
 /** half the tree's width in px at S = 1 (two lanes of 26 px and the 6 px of backing) */
 const TREE_HALF = 32;
 /** the panel's box on the screen and the row height used: tests check every readout lies inside it */
@@ -30,9 +30,14 @@ export interface PanelLayout { lane: boolean; tires: boolean; boost: boolean; ni
  * (the least useful first: the lane gauge, then the notes cut to 2 rows, the tire bars, the boost bar, the nitro bar, the notes cut to 1 row). `hiddenWithTouch` are dropped at once whenever
  * the touch buttons are on screen. The panel also stays clear of every touch button: its rows only use the space above the first button under it.
  */
-export const PHONE_HUD = { minFont: 10, hiddenWithTouch: ['lane'], dropOrder: ['lane', 'notes2', 'tires', 'boost', 'nitro', 'notes1'], touchGap: 4 } as const;
+export const PHONE_HUD = { minFont: 10, hiddenWithTouch: ['lane'], dropOrder: ['lane', 'notes2', 'tires', 'boost', 'nitro', 'notes1'], touchGap: 4,
+  /** the one instruction line: its text px at S = 1 (never under `minFont`), the backing's padding, the gap to the panel, and the room kept at the top right for the fullscreen button */
+  prompt: { font: 15, pad: 4, gap: 8, fullscreenRoom: 54 },
+  /** the tachometer: shrinks from 1 down to `minScale` (steps of `step`) and is moved left or up only as far as needed to stay clear (every px moved costs 1, losing the whole size costs `shrinkCost` px, the cheapest place wins) of the touch buttons, the panel, the tree and the cars; `touchGap` px from a button, `cell` px between tried places */
+  tach: { minScale: 0.55, step: 0.05, shrinkCost: 300, touchGap: 6, cell: 8, numbersFromK: 0.65 } } as const;
 /** the names of the keys the HUD tells the player to press; `avoid` is the touch buttons on screen (empty when touch is off): the panel stays clear of every one */
-export interface DragKeyLabels { launch: string; nitro: string; manual: boolean; auto?: boolean; burnout?: string; gas?: string; brake?: string; chute?: string; deepStage?: string; clutch?: string; backUp?: string; avoid?: TouchSpot[] }
+/** `touch` says the names are the on-screen buttons' (GAS, BRAKE, BURN, BACK UP, GO, DEEP) rather than keys */
+export interface DragKeyLabels { launch: string; nitro: string; manual: boolean; auto?: boolean; burnout?: string; gas?: string; brake?: string; chute?: string; deepStage?: string; clutch?: string; backUp?: string; touch?: boolean; avoid?: TouchSpot[] }
 /** a touch button's rectangle (the page passes the layout of src/input/touch.ts) */
 export interface TouchSpot { id: string; x: number; y: number; w: number; h: number }
 
@@ -49,7 +54,7 @@ function layoutAt(me: Runner, level: number, touch: boolean): PanelLayout {
 }
 /** the rows (in units) a layout needs, with the gaps between its blocks */
 function rowsOf(l: PanelLayout): number {
-  const R = PANEL.rows, blocks = [R.stage, R.timing, R.lamps, R.rpmBar, R.drive, l.notes, l.nitro ? R.nitro : 0, l.boost ? R.boost : 0, l.tires ? R.tires : 0, l.lane ? R.lane : 0].filter(v => v > 0);
+  const R = PANEL.rows, blocks = [R.stage, R.timing, l.notes, l.nitro ? R.nitro : 0, l.boost ? R.boost : 0, l.tires ? R.tires : 0, l.lane ? R.lane : 0].filter(v => v > 0);
   return blocks.reduce((a, b) => a + b, 0) + (blocks.length - 1) * PANEL.gap;
 }
 /** the panel's size for this window: the row height, its width and which blocks fit (text never goes under PHONE_HUD.minFont and never under a touch button) */
@@ -72,7 +77,7 @@ export function runPanelBox(W: number, H: number, S: number, me: Runner, avoid: 
 
 /** the left panel: see the comment on PANEL for what is in it and why nothing else is */
 export function drawRunPanel(ctx: CanvasRenderingContext2D, W: number, H: number, s: DragHudState, mine: number, S: number, keys: DragKeyLabels): RunPanelBox {
-  const me = (s.runners[mine] ?? s.runners[0]) as Runner, box = runPanelBox(W, H, S, me, keys.avoid), L = box.layout, u = box.unit, font = u * PANEL.fontShare, x = box.x + PANEL.pad, w = box.w - 2 * PANEL.pad, R = PANEL.rows, time = s.t;
+  const me = (s.runners[mine] ?? s.runners[0]) as Runner, box = runPanelBox(W, H, S, me, keys.avoid), L = box.layout, u = box.unit, font = u * PANEL.fontShare, x = box.x + PANEL.pad, w = box.w - 2 * PANEL.pad, R = PANEL.rows, time = s.t, sp = me.spec;
   ctx.save(); ctx.fillStyle = 'rgba(5,1,15,0.72)'; ctx.fillRect(box.x, box.y, box.w, box.h);
   let y = box.y + PANEL.pad;
   /** a line of writing, shrunk so it never leaves the panel */
@@ -86,20 +91,10 @@ export function drawRunPanel(ctx: CanvasRenderingContext2D, W: number, H: number
   const run = me.finished && me.marks.quarter !== undefined ? me.marks.quarter : me.launched ? Math.max(0, s.t - me.launchT) : null;
   if (me.reaction !== null && me.reaction >= 0 && !me.foul) line(`R/T ${me.reaction.toFixed(3)}`, R.timing, C.white);
   if (run !== null) line(`T ${run.toFixed(2)}`, R.timing, C.yel, font, 'right'); next(R.timing);
-  // the shift light: five lamps that fill as you near the shift point, all flashing at it, then the rpm bar with its redline
-  const sp = me.spec, target = me.tune.shiftRpm, fill = (me.rpm - (target - 1500)) / 1500, flash = me.rpm >= target - 80, lampR = u * 0.32;
-  for (let i = 0; i < 5; i++) { const on = flash ? Math.floor(time * 16) % 2 === 0 : fill > i / 5, col = i < 2 ? '#34ff7a' : i < 4 ? '#ffe14d' : C.red; ctx.beginPath(); ctx.arc(x + lampR + i * (w - 2 * lampR) / 4, y + u * 0.5, lampR, 0, Math.PI * 2); ctx.fillStyle = on ? col : 'rgba(255,255,255,0.1)'; glow(ctx, on ? col : null, 10); ctx.fill(); glow(ctx, null, 0); }
-  next(R.lamps);
-  { const max = Math.ceil(sp.redline / 1000 + 1) * 1000, f = Math.min(1, me.rpm / max), redFrom = Math.min(1, sp.redline / max), bh = u * 0.6; ctx.fillStyle = 'rgba(255,43,69,0.35)'; ctx.fillRect(x + w * redFrom, y, w * (1 - redFrom), bh); bar(y, x, w, bh, f, me.limiter && Math.floor(time * 20) % 2 ? C.red : C.cyan); }
-  next(R.rpmBar);
-  // the gear (big), the speed and the rpm
-  { const shiftLabel = me.shiftT > 0 ? (me.shiftMissed ? 'MISS' : '-') : String(me.gear), gearW = u * 2.4; line(shiftLabel, R.drive * 0.85, me.shiftMissed ? C.red : C.yel, u * 2, 'center', 1, x, gearW); line(`${Math.round(me.v * 3.6)} KM/H`, 1.1, C.white, font * 1.15, 'left', 1, x + gearW + 4, w - gearW - 4); line(`${Math.round(me.rpm)} RPM`, 2.1, C.cyan, font, 'left', 0.85, x + gearW + 4, w - gearW - 4); }
-  next(R.drive);
-  // the notes rows share one place: before the launch the keys to press next (the staging prompt), during the run the warnings that change what you do (wheelspin, a hot or slipping
+  // the notes rows: during the run the warnings that change what you do (wheelspin, a hot or slipping
   // clutch, front wheels up, the nitro and shift keys), after the finish how to stop. Each line is wrapped to the panel and the whole block never takes more than `notesRows` rows.
   { const notes: [string, string, number][] = [];
-    if (!me.launched && !me.aborted) { if (!keys.auto) { const p = stagingPrompt(me, s, keys); if (p.title) notes.push([p.title, p.col, 1]); for (const [l, c, a] of p.lines) notes.push([l, c, a]); } }
-    else if (me.finished && !me.stopped) { notes.push([`STOP IN ${Math.round(Math.max(0, SHUTDOWN.end - me.x))} M`, C.yel, 1], [`${keys.brake ?? 'BRAKE'}: BRAKE  ${keys.chute ?? 'CHUTE'}: CHUTE`, C.cyan, 1]); if (me.chute) notes.push(['CHUTE OUT', C.mag, 1]); }
+    if (me.launched && !me.aborted && me.finished && !me.stopped) { notes.push([`STOP IN ${Math.round(Math.max(0, SHUTDOWN.end - me.x))} M`, C.yel, 1], [`${keys.brake ?? 'BRAKE'}: BRAKE  ${keys.chute ?? 'CHUTE'}: CHUTE`, C.cyan, 1]); if (me.chute) notes.push(['CHUTE OUT', C.mag, 1]); }
     else if (me.launched && !me.finished) {
       if (me.spin || me.spinL || me.spinR) notes.push([me.spin ? 'WHEELSPIN' : me.spinR ? 'RIGHT REAR SLIPPING' : 'LEFT REAR SLIPPING', C.org, 0.6 + 0.4 * Math.sin(time * 20)]);
       const temp = Number.isFinite(me.clutchTemp) ? me.clutchTemp : CLUTCH.ambient; if (me.clutchLocked) notes.push(['CLUTCH LOCKED', C.org, 1]); else if (temp >= CLUTCH.fadeFrom) notes.push([temp >= CLUTCH.wearHotTemp ? 'CLUTCH BURNING' : 'CLUTCH HOT', temp >= CLUTCH.wearHotTemp ? C.red : C.org, 1]);
@@ -125,8 +120,6 @@ export function drawRunPanel(ctx: CanvasRenderingContext2D, W: number, H: number
   return box;
 }
 
-/** the names of the keys the HUD tells the player to press */
-export interface DragKeyLabels { launch: string; nitro: string; manual: boolean; auto?: boolean; burnout?: string; gas?: string; brake?: string; chute?: string; deepStage?: string; clutch?: string; backUp?: string }
 /** the Christmas tree from above, top middle: each lane's pre-stage and stage bulbs, the three ambers (dark until the tree is armed by final stage), the green, and the red for a red light */
 export function drawTree(ctx: CanvasRenderingContext2D, W: number, s: DragHudState, S: number): void {
   const radius = 6 * S, gap = 15 * S, x0 = W / 2, y0 = 74 * S, lanes = s.runners.length, colX = (i: number): number => x0 + (i - (lanes - 1) / 2) * 26 * S;
@@ -140,32 +133,145 @@ export function drawTree(ctx: CanvasRenderingContext2D, W: number, s: DragHudSta
   ctx.restore();
 }
 
-/** what to press now (the stage's NAME is in the panel's stage line, so the title is only the launch key at the staged tree): a colour and the lines (distance to the beam, the keys) */
-export function stagingPrompt(me: Runner, s: DragHudState, keys: DragKeyLabels): { title: string; col: string; lines: [string, string, number][] } {
-  const label = stageLabel(me), lines: [string, string, number][] = [], toPre = me.x + STAGE.preStageRollout, toStage = me.x + DRAG.stageRollout;
+/** a place on the screen that other drawing keeps clear of */
+export interface Rect { x: number; y: number; w: number; h: number }
+const overlap = (a: Rect, b: Rect, gap = 0): boolean => a.x < b.x + b.w + gap && b.x < a.x + a.w + gap && a.y < b.y + b.h + gap && b.y < a.y + a.h + gap;
+
+/** the one instruction line: its candidate texts (the longest that fits is drawn), its colour and how bold */
+export interface GuidePrompt { variants: string[]; col: string; alpha: number }
+/**
+ * The ONE line telling the player the next action of the staging sequence (null when there is nothing to say: after the launch, at a foul or abort, at the green). It reads the same stage
+ * the physics runs (`stagingStep`): the gas rolls the car, gas + brake (or the BURN button) is the burnout, the back up key reverses, the beams are at `STAGE.preStageRollout` and
+ * `DRAG.stageRollout` behind the final beam. Key names come from `keys` (the player's own bindings, or the touch buttons' names). Each phase lists a long text and shorter ones for a narrow screen.
+ * The autopilot is driving: one quiet word instead of keys.
+ */
+export function guidePrompt(me: Runner, s: DragHudState, keys: DragKeyLabels): GuidePrompt | null {
+  if (keys.auto) return me.finished || me.crashed ? null : { variants: ['AUTOPILOT'], col: C.cyan, alpha: 0.55 };
+  if (me.launched || me.aborted || me.foul || me.crashed || me.rolling) return null;
   const k = (v: string | undefined, fallback: string): string => v ?? fallback;
-  if (me.rolling) return { title: '', col: '#34ff7a', lines };
-  if (label === 'STAGED' || label === 'DEEP STAGED') {
-    const deepRow = !!keys.deepStage && !me.deepStage;
-    if (deepRow) lines.push([`${keys.deepStage}: DEEP STAGE`, C.yel, 0.7]);
-    if (keys.chute) lines.push([`${keys.chute}: ABORT`, C.red, 0.8]);
-    return { title: s.green ? `${keys.launch}: ROLL OUT NOW` : `${keys.launch} ON GREEN`, col: s.green ? '#34ff7a' : C.yel, lines };
+  const gas = k(keys.gas, 'GAS'), brake = k(keys.brake, 'BRAKE'), backUp = k(keys.backUp, 'BACK UP'), burn = k(keys.burnout, 'BURNOUT'), launch = keys.launch, deep = keys.deepStage;
+  // the burnout is gas + brake (on a phone, gas + the BURN button), so those are the pair to hold and the one to let go
+  const hold = keys.touch ? burn : brake, burnText = [`HOLD ${gas} + ${hold}: BURNOUT`, `${gas} + ${hold}: BURNOUT`];
+  const say = (variants: string[], col: string = C.cyan, alpha = 0.95): GuidePrompt => ({ variants, col, alpha });
+  const toPre = me.x + STAGE.preStageRollout, slowest = STAGE.stopSpeed, brakeDistance = me.v * me.v / (2 * STAGE.brakeDecel);
+  const backUpText = (): GuidePrompt => say(toPre >= 1 ? [`BACK UP (${backUp}) ${Math.round(toPre)} M`, `BACK UP (${backUp})`] : [`BACK UP (${backUp})`]);
+  const creepText = (): GuidePrompt => say([`TAP ${gas}: CREEP TO PRE-STAGE`, 'CREEP TO PRE-STAGE']);
+  switch (me.stage) {
+    case 'waterBoxApproach': return me.x < STAGE.waterBoxStart ? say([`HOLD ${gas}: ROLL INTO THE WATER BOX`, 'ROLL INTO THE WATER BOX', 'ROLL INTO WATER BOX']) : say(burnText);
+    case 'burnout': {
+      const t = me.tires.map(w => w.temp).filter(Number.isFinite), warm = t.length > 0 && t.reduce((a, b) => a + b, 0) / t.length >= DRAG.tire.windowLo;
+      return warm ? say([`RELEASE ${hold}: TIRES HOT`, 'RELEASE: TIRES HOT'], C.org) : say(burnText);
+    }
+    case 'runOut':
+      if (me.v > slowest) return me.x + brakeDistance < STAGE.runOutPastTree ? say(['LET OFF: STOP PAST THE TREE', 'STOP PAST THE TREE']) : say([`${brake}: STOP`]);
+      return me.x < -STAGE.preStageRollout ? creepText() : backUpText();
+    case 'backup':
+      if (me.v < -slowest) return me.x - brakeDistance <= -STAGE.preStageRollout + 0.15 ? say([`RELEASE ${backUp}, BRAKE: STOP`, `RELEASE ${backUp}, STOP`], C.yel) : backUpText();
+      return me.x < -STAGE.preStageRollout ? creepText() : backUpText();
+    case 'preStage':
+      // over-staged: the stage bulb went out because the nose rolled past the stage beam, so back out past it
+      return me.overstaged ? say([`BACK UP (${backUp}) TO RE-STAGE`, `BACK UP (${backUp})`], C.red) : say([`TAP ${gas}: CREEP TO STAGE`, 'CREEP TO STAGE'], C.yel);
+    case 'staged': case 'deepStaged': {
+      if (s.green) return null;
+      const deepIsAChoice = me.stage === 'staged' && !!deep && !me.overstaged && !me.deepStage;
+      // (the panel's stage line already says STAGED or DEEP STAGED, so the line only says what to do)
+      if (me.stage === 'deepStaged') return say([`WAIT FOR GREEN, THEN ${launch}`, `${launch} ON GREEN`], C.yel);
+      return say([...(deepIsAChoice ? [`WAIT FOR GREEN, THEN ${launch} (${deep}: DEEP)`, `${launch} ON GREEN (${deep}: DEEP)`] : []), `WAIT FOR GREEN, THEN ${launch}`, `${launch} ON GREEN`], C.yel);
+    }
+    default: return null;
   }
-  if (label === 'WATER BOX') { lines.push([`${k(keys.gas, 'GAS')}: ROLL IN`, C.cyan, 0.8], [`${k(keys.burnout, 'BURNOUT')} + ${k(keys.gas, 'GAS')}: BURNOUT`, C.cyan, 0.8]); return { title: me.wet > 0.05 ? 'WET SLICKS' : '', col: C.cyan, lines }; }
-  if (label === 'BURNOUT') { lines.push([`${me.burnDistance.toFixed(0)} M${me.wet > 0.05 ? '  WET' : ''}`, C.org, 0.9], [`RELEASE ${k(keys.burnout, 'BURNOUT')}: RUN OUT`, C.cyan, 0.7]); return { title: '', col: C.org, lines }; }
-  if (label === 'RUN OUT') { lines.push([`${k(keys.brake, 'BRAKE')}: STOP`, C.cyan, 0.8], [`THEN ${k(keys.backUp, 'BACK UP')}: BACK UP`, C.cyan, 0.8]); return { title: '', col: C.yel, lines }; }
-  if (label === 'BACK UP') { lines.push([`${toPre.toFixed(2)} M TO PRE-STAGE`, toPre > 0 ? C.yel : C.org, 0.9], [`${k(keys.backUp, 'BACK UP')}: REVERSE  ${k(keys.brake, 'BRAKE')}: STOP`, C.cyan, 0.7]); return { title: '', col: C.yel, lines }; }
-  if (label === 'OVER-STAGED') { lines.push([`BULB OUT: ${k(keys.backUp, 'BACK UP')} PAST THE BEAM`, C.red, 0.9]); return { title: '', col: C.red, lines }; }
-  if (label === 'PRE-STAGE') { lines.push([`${toStage.toFixed(2)} M TO STAGE`, C.cyan, 0.8], [`TAP ${k(keys.gas, 'GAS')}: CREEP  ${k(keys.brake, 'BRAKE')}: STOP`, C.cyan, 0.8]); if (keys.deepStage) lines.push([`${keys.deepStage}: DEEP STAGE`, C.yel, 0.7]); return { title: '', col: C.yel, lines }; }
-  return { title: '', col: C.white, lines };
 }
 
+/** where the instruction line goes: the top row, left-aligned just right of the left panel (and the MENU button), never under the fullscreen button; the text is the longest candidate that fits at `minFont` or more */
+/** the instruction line's backing height (also the top row the gauge never uses) */
+const promptHeight = (S: number): number => Math.max(PHONE_HUD.minFont, PHONE_HUD.prompt.font * S) * 1.3 + 2 * PHONE_HUD.prompt.pad;
+export interface PromptBox extends Rect { text: string; size: number; col: string; alpha: number }
+export function promptBox(W: number, H: number, S: number, prompt: GuidePrompt, panel: Rect | null, avoid: TouchSpot[] = []): PromptBox {
+  const P = PHONE_HUD.prompt, size = Math.max(PHONE_HUD.minFont, P.font * S), h = promptHeight(S), y = PANEL.margin, row: Rect = { x: 0, y, w: W, h };
+  let left: number = PANEL.margin; for (const r of [panel, ...avoid.filter(t => t.id === 'menu')]) if (r && overlap(row, r)) left = Math.max(left, r.x + r.w + P.gap);
+  const room = W - PANEL.margin - P.fullscreenRoom - left - 2 * P.pad;
+  let text = prompt.variants[prompt.variants.length - 1] as string, fit = size;
+  for (const v of prompt.variants) { const f = Math.min(size, room / (v.length * PANEL.charW)); if (f >= PHONE_HUD.minFont - 1e-9) { text = v; fit = f; break; } }
+  fit = Math.max(PHONE_HUD.minFont, Math.floor(fit));      // (whole px: that is the size `text` draws)
+  return { x: left, y, w: text.length * fit * PANEL.charW + 2 * P.pad, h, text, size: fit, col: prompt.col, alpha: prompt.alpha };
+}
+/** draws the instruction line (a see-through backing and one line of text) */
+export function drawPrompt(ctx: CanvasRenderingContext2D, box: PromptBox): void {
+  ctx.save(); ctx.fillStyle = 'rgba(5,1,15,0.72)'; ctx.fillRect(box.x, box.y, box.w, box.h);
+  text(ctx, box.text, box.x + PHONE_HUD.prompt.pad, box.y + box.h / 2 + box.size * 0.33, box.size, box.col, 'left', box.alpha); ctx.restore();
+}
+
+/** the tachometer's look (px at S = 1, as it was before the left panel): the dial's radius, its distance from the screen edges, and where the shift lamps and the numbers sit */
+const TACH_HUD = { radius: 92, edge: 20, ring: 14, shiftLift: 30, shiftRadius: 7, rpmRow: -36, gearRow: 14, speedRow: 44, numberFont: 11, rpmFont: 12, speedFont: 16, gearFont: 46 } as const;
+/** the tachometer's place: its dial centre and radius, the whole box it takes (dial, ring and shift lamps) and the scale it was shrunk to */
+export interface TachBox { cx: number; cy: number; R: number; k: number; scale: number; box: Rect }
+function tachAt(S: number, scale: number, right: number, bottom: number): TachBox {
+  const k = S * scale, R = TACH_HUD.radius * k, ring = TACH_HUD.ring * k, up = R + (TACH_HUD.shiftLift + TACH_HUD.shiftRadius) * k, w = 2 * (R + ring), h = up + R + ring;
+  return { cx: right - R - ring, cy: bottom - R - ring, R, k, scale, box: { x: right - w, y: bottom - h, w, h } };
+}
+/** the boxes the round gauge keeps clear of when it is placed: where the cars are (both lanes, from the nose to the tail at the largest scale), found from the screen size alone so the gauge never jumps */
+export function carBand(W: number, H: number): Rect {
+  const scale = H / 28, yBase = H * CAR_Y_SHARE, half = (LANE_M + 1.3) * scale;
+  return { x: W / 2 - half, y: yBase - 2.8 * scale, w: 2 * half, h: 5.7 * scale };
+}
+/** the tree's backing box */
+export const treeRect = (W: number, S: number, lanes: number): Rect => ({ x: W / 2 - (lanes * 13 + 6) * S, y: 60 * S, w: (lanes * 26 + 12) * S, h: 15 * S * 7 + 12 * S });
+/** the boxes the gauge keeps clear of, for the tests and for `drawProgress`: `hard` always (panel, tree, cars, the instruction line, the touch buttons with a gap), `soft` (the road, with touch buttons on screen) when possible */
+export function tachObstacles(W: number, H: number, S: number, lanes: number, panel: Rect, avoid: TouchSpot[]): { hard: Rect[]; soft: Rect[] } {
+  const gap = PHONE_HUD.tach.touchGap, road = (2 * LANE_M + 0.5) * H / 28;
+  return { hard: [panel, treeRect(W, S, lanes), carBand(W, H), { x: 0, y: 0, w: W, h: PANEL.margin + promptHeight(S) }, ...avoid.map(t => ({ x: t.x - gap, y: t.y - gap, w: t.w + 2 * gap, h: t.h + 2 * gap }))], soft: avoid.length ? [{ x: W / 2 - road, y: 0, w: 2 * road, h: H }] : [] };
+}
+let tachCache: { key: string; at: TachBox | null } = { key: '', at: null };
+/**
+ * Where the tachometer goes: the bottom right, full size (92 px radius at S = 1). When something is there (a touch button, the panel on a short window, the cars on a narrow one) it shrinks
+ * (down to `PHONE_HUD.tach.minScale`) and is moved left or up the least that clears every box in `obstacles`. Null only when nothing fits even at the smallest scale.
+ */
+export function tachPlacement(W: number, H: number, S: number, hard: Rect[], soft: Rect[] = []): TachBox | null {
+  const T = PHONE_HUD.tach, rectKey = (list: Rect[]): string => list.map(o => `${Math.round(o.x)},${Math.round(o.y)},${Math.round(o.w)},${Math.round(o.h)}`).join(';'), key = `${W}|${H}|${S}|${rectKey(hard)}|${rectKey(soft)}`;
+  if (tachCache.key === key) return tachCache.at;
+  const right = W - TACH_HUD.edge * S, bottom = H - TACH_HUD.edge * S;
+  let found: TachBox | null = null;
+  // the soft boxes are kept clear when there is a place that does (the road, on a phone); if there is none the gauge may cover them
+  for (const obstacles of soft.length ? [[...hard, ...soft], hard] : [hard]) {
+    // the best place is the one that costs least: px moved from the corner (left plus up) and `shrinkCost` px for losing the whole size
+    let best = Infinity;
+    for (let scale = 1; scale >= T.minScale - 1e-9; scale -= T.step) {
+      const base = (1 - scale) * T.shrinkCost;
+      for (let dy = 0; base + dy < best && dy <= H; dy += T.cell) for (let dx = 0; base + dx + dy < best && dx <= W; dx += T.cell) {
+        const at = tachAt(S, scale, right - dx, bottom - dy), b = at.box;
+        if (b.x >= PANEL.margin && b.y >= PANEL.margin && !obstacles.some(o => overlap(b, o, 0))) { best = base + dx + dy; found = at; break; }
+      }
+    }
+    if (found) break;
+  }
+  tachCache = { key, at: found }; return found;
+}
+/** the round tachometer: rpm needle arc with the redline, the dial numbers, the five shift lamps above it, and in the middle the rpm, the gear and km/h. Text is never under the minimum font. */
+export function drawTach(ctx: CanvasRenderingContext2D, at: TachBox, me: Runner, time: number): void {
+  const sp = me.spec, { cx, cy, R, k } = at, a0 = Math.PI * 0.8, a1 = Math.PI * 2.2, max = Math.ceil(sp.redline / 1000 + 1) * 1000, ang = (rpm: number): number => a0 + (a1 - a0) * Math.min(1, rpm / max), size = (v: number): number => Math.max(PHONE_HUD.minFont, v * k);
+  ctx.save(); ctx.fillStyle = 'rgba(5,1,15,0.72)'; ctx.beginPath(); ctx.arc(cx, cy, R + TACH_HUD.ring * k, 0, Math.PI * 2); ctx.fill();
+  ctx.lineWidth = 10 * k; ctx.strokeStyle = 'rgba(33,230,255,0.18)'; ctx.beginPath(); ctx.arc(cx, cy, R, a0, a1); ctx.stroke();
+  ctx.strokeStyle = C.red; glow(ctx, C.red, 10); ctx.beginPath(); ctx.arc(cx, cy, R, ang(sp.redline), a1); ctx.stroke(); glow(ctx, null, 0);
+  ctx.strokeStyle = me.limiter && Math.floor(time * 20) % 2 ? C.red : C.cyan; glow(ctx, C.cyan, 12); ctx.beginPath(); ctx.arc(cx, cy, R, a0, ang(me.rpm)); ctx.stroke(); glow(ctx, null, 0);
+  // (the dial's numbers need room: a small dial leaves them out rather than draw them under the minimum size or over the middle readouts)
+  if (k >= PHONE_HUD.tach.numbersFromK) for (let m = 0; m <= max; m += 1000) { const a = ang(m), x = cx + Math.cos(a) * (R - 22 * k), y = cy + Math.sin(a) * (R - 22 * k); text(ctx, String(m / 1000), x, y + 4 * k, size(TACH_HUD.numberFont), m >= sp.redline ? C.red : C.white, 'center', 0.8); }
+  // the shift light: five lamps that fill as you near the shift point, all flashing at it
+  const target = me.tune.shiftRpm, fill = (me.rpm - (target - 1500)) / 1500, flash = me.rpm >= target - 80;
+  for (let i = 0; i < 5; i++) { const on = flash ? Math.floor(time * 16) % 2 === 0 : fill > i / 5, col = i < 2 ? '#34ff7a' : i < 4 ? '#ffe14d' : C.red, x = cx - 44 * k + i * 22 * k, y = cy - R - TACH_HUD.shiftLift * k; ctx.beginPath(); ctx.arc(x, y, TACH_HUD.shiftRadius * k, 0, Math.PI * 2); ctx.fillStyle = on ? col : 'rgba(255,255,255,0.1)'; glow(ctx, on ? col : null, 12); ctx.fill(); glow(ctx, null, 0); }
+  const shiftLabel = me.shiftT > 0 ? (me.shiftMissed ? 'MISS' : '-') : String(me.gear);
+  text(ctx, shiftLabel, cx, cy + TACH_HUD.gearRow * k, size(TACH_HUD.gearFont), me.shiftMissed ? C.red : C.yel, 'center'); text(ctx, `${Math.round(me.v * 3.6)} KM/H`, cx, cy + TACH_HUD.speedRow * k + (size(TACH_HUD.speedFont) - TACH_HUD.speedFont * k), size(TACH_HUD.speedFont), C.white, 'center');
+  text(ctx, `${Math.round(me.rpm)} RPM`, cx, cy + TACH_HUD.rpmRow * k, size(TACH_HUD.rpmFont), C.cyan, 'center', 0.8);
+  ctx.restore();
+}
 
 /** everything drawn over the strip during a run: the tree (a graphic), the left panel with all the readouts, and the one centre alert (a crash) */
 export function drawProgress(ctx: CanvasRenderingContext2D, W: number, H: number, s: DragHudState, mine: number, S: number, keys: DragKeyLabels): void {
-  const me = (s.runners[mine] ?? s.runners[0]) as Runner;
+  const me = (s.runners[mine] ?? s.runners[0]) as Runner, avoid = keys.avoid ?? [];
   drawTree(ctx, W, s, S);
-  drawRunPanel(ctx, W, H, s, mine, S, keys);
+  const panel = drawRunPanel(ctx, W, H, s, mine, S, keys), guide = guidePrompt(me, s, keys), line = guide ? promptBox(W, H, S, guide, panel, avoid) : null;
+  const o = tachObstacles(W, H, S, s.runners.length, panel, avoid), tach = tachPlacement(W, H, S, o.hard, o.soft);
+  if (tach) drawTach(ctx, tach, me, s.t);
+  if (line) drawPrompt(ctx, line);
   if (me.crashed) { const size = Math.min(54 * S, (W - 24) / (11 * PANEL.charW)); text(ctx, 'You crashed', W / 2, H * 0.42, size, C.red, 'center', 0.6 + 0.4 * Math.sin(s.t * 20)); }
 }
 
