@@ -24,7 +24,7 @@ export function createSfx(vol: { sfx: number }) {
   const buffers: Record<string, AudioBuffer> = {};
   let wantedThrottle = 0, wantedRacing = false;
   async function load(file: string): Promise<void> {
-    try { const response = await fetch(file); buffers[file] = await (ctx as Ctx).decodeAudioData(await response.arrayBuffer()); } catch (e) { /* this sound is simply missing */ }
+    try { const response = await fetch(file); buffers[file] = await (ctx as Ctx).decodeAudioData(await response.arrayBuffer()); } catch (e) { console.warn('[GPU Wars] sound effect not loaded: ' + file, e); }
   }
   function loop(file: string, gain: GainNode): void {
     const buffer = buffers[file]; if (!buffer || !ctx) return;
@@ -36,7 +36,7 @@ export function createSfx(vol: { sfx: number }) {
     idleGain.gain.setTargetAtTime(mix.idle, now, ENGINE_FADE / 3); throttleGain.gain.setTargetAtTime(mix.throttle, now, ENGINE_FADE / 3);
   }
   return {
-    /** call from the first key press or touch: makes the audio context, loads the files and starts the (silent) loops */
+    /** call from every key press or touch (it is safe to repeat: it keeps trying to wake a locked audio context, and loads the files once): makes the audio context, loads the files and starts the (silent) loops */
     unlock(): void {
       try {
         if (!ctx) {
@@ -44,13 +44,13 @@ export function createSfx(vol: { sfx: number }) {
           ctx = new AudioCtor() as Ctx; master = ctx.createGain(); master.gain.value = vol.sfx; master.connect(ctx.destination);
           idleGain = ctx.createGain(); throttleGain = ctx.createGain(); idleGain.gain.value = 0; throttleGain.gain.value = 0; idleGain.connect(master); throttleGain.connect(master);
         }
-        if (ctx.state === 'suspended') void ctx.resume();
+        if (ctx.state !== 'running') void ctx.resume().then(() => console.log('[GPU Wars] sound effects: audio ' + (ctx as Ctx).state), () => console.warn('[GPU Wars] sound effects: the browser kept audio locked'));
         if (started) return; started = true;
         void Promise.all([load(SFX_FILES.idle), load(SFX_FILES.throttle), ...SFX_FILES.tree.map(load)]).then(() => { loop(SFX_FILES.idle, idleGain as GainNode); loop(SFX_FILES.throttle, throttleGain as GainNode); applyEngine(); });
       } catch (e) { /* no audio available */ }
     },
     /** every frame: the pedal (0 to 1) and whether a race is on screen; the engine crossfades between idle (off the gas) and throttle (on it) */
-    engine(throttle: number, racing: boolean): void { wantedThrottle = throttle; wantedRacing = racing; applyEngine(); },
+    engine(throttle: number, racing: boolean): void { if (racing && ctx && ctx.state === 'suspended') void ctx.resume(); wantedThrottle = throttle; wantedRacing = racing; applyEngine(); },
     /** one beep for a tree light: `n` is the amber's number (1 to 3), or the green */
     treeLight(light: 'amber' | 'green', n = 1): void {
       try {

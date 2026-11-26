@@ -10,7 +10,7 @@ import { createRebinder, optionsItems, type Device } from '../options/screen.ts'
 import { createInput } from '../input/index.ts';
 import { createHaptics } from '../input/haptics.ts';
 import { createAutopilot, viewOf, AUTOPILOT_CATEGORY, type Autopilot, type RunCategory } from './autopilot.ts';
-import { fullscreenAvailable, isFullscreen, leaveFullscreen, onFirstGesture, toggleFullscreen, watchViewport } from '../platform.ts';
+import { fullscreenAvailable, isFullscreen, leaveFullscreen, toggleFullscreen, watchViewport } from '../platform.ts';
 import { createMenu, type Menu, type MenuItem } from '../arena/view/menu.ts';
 import { createPadMenu } from '../gamepad.ts';
 import { firstPad } from '../arena/view/pad.ts';
@@ -341,7 +341,7 @@ input.attach(window, cv);
 // ---- drawing: the strip from above (see topdown.ts), sized to the window (an itch.io frame can be any size, and can be resized or made fullscreen at any time) ----
 function resize(): void { const dpr = Math.min(2, devicePixelRatio || 1); cv.width = Math.floor(innerWidth * dpr); cv.height = Math.floor(innerHeight * dpr); cv.style.width = innerWidth + 'px'; cv.style.height = innerHeight + 'px'; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); }
 watchViewport(resize); resize();
-onFirstGesture(() => { sfx.unlock(); });      // (audio stays locked until the first touch or key)
+for (const gesture of ['pointerdown', 'keydown', 'touchend'] as const) addEventListener(gesture, () => sfx.unlock(), true);      // (audio stays locked until a touch or key; every one retries, in case the first did not unlock it)
 const fsButton = $('fs'); if (fullscreenAvailable()) { fsButton.style.display = 'block'; fsButton.onclick = toggleFullscreen; }
 const topDown = createDragTopDown();
 let last = performance.now();
