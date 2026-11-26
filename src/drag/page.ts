@@ -20,7 +20,7 @@ import { clearSaveSlot, loadFromSlot, readyCar, recordRace, saveToSlot, saveTune
 import { DRAG, FUEL, boostLimitOf, clutchAfterRun, conditionsForSeed, forecastText, createDrag, createDragStrip, clearDragStrip, fuelKg, fuelShareOf, ghostFromRunner, predictDrag, rubberShare, timeslip, type Drag, type Entrant } from './physics.ts';
 import { BOOST, defaultTune } from './tune.ts';
 import { tuneHint } from './tune-help.ts';
-import { drawLane, drawProgress, drawTach } from './hud.ts';
+import { drawProgress } from './hud.ts';
 import { createDragTopDown } from './topdown.ts';
 import { PENDING_GPU, gpuLine, readGpuIdentity, type GpuIdentity } from '../benchmark/gpu.ts';
 import { openBenchmarkScreen, type BenchmarkScreen } from '../benchmark/screen.ts';
@@ -29,8 +29,8 @@ import { repairBenchmark, resultFromRun } from '../benchmark/rules.ts';
 import { dynoPeaks, dynoSvg } from '../benchmark/dyno.ts';
 import type { ClassId } from '../classes.ts';
 import { createLeaderboardUi } from '../leaderboard/ui.ts';
-import { RANKED, conditionsBanner, densityAltitudeFt, rankedStart, rankedStrip } from '../leaderboard/ranked.ts';
-import { deltaRowsHtml, drawBanner, drawDeltas, markDeltas } from '../leaderboard/delta.ts';
+import { RANKED, densityAltitudeFt, rankedStart, rankedStrip } from '../leaderboard/ranked.ts';
+import { deltaRowsHtml, markDeltas } from '../leaderboard/delta.ts';
 import { classLabel } from '../classes.ts';
 import type { DragGhost, DragRaceKind, DragSpec, Runner, Timeslip, Tune } from './types.ts';
 
@@ -206,7 +206,7 @@ function show(next: Screen): void {
     const tireCell = (s: Timeslip): string => s.tireWearL === undefined || s.tireWearR === undefined ? '-' : `L${Math.round(s.tireTempL ?? 0)}C ${Math.round(s.tireWearL * 100)}%  R${Math.round(s.tireTempR ?? 0)}C ${Math.round(s.tireWearR * 100)}%`;
     const nitroCell = (s: Timeslip): string => !s.nitroUsed ? '-' : `${s.nitroUsed.toFixed(2)} S  +${Math.round((s.nitroPeakGain ?? 0) * 100)}% PEAK`;
     const bottleCell = (s: Timeslip): string => !s.nitroUsed ? '-' : `${Math.round(s.nitroTemp ?? 0)}C ${Math.round((s.nitroPressure ?? 0) * 100)}%`;
-    $('extra').innerHTML = `<p class="help">DENSITY ALT ${R.da} FT</p><table><tr><th></th>${R.slips.map((s, i) => `<th${i === R.winner ? ' style="color:#34ff7a"' : ''}>${s.name}</th>`).join('')}</tr>`
+    $('extra').innerHTML = `<p class="help">DENSITY ALT ${R.da} FT  ${forecastText(race.state.conditions)}</p><table><tr><th></th>${R.slips.map((s, i) => `<th${i === R.winner ? ' style="color:#34ff7a"' : ''}>${s.name}</th>`).join('')}</tr>`
       + line('R/T', s => (s.aborted ? '<span style="color:#ff3355">ABORT</span>' : s.foul ? '<span style="color:#ff3355">RED LIGHT</span>' : sec(s.reaction))) + line('60 FT', s => sec(s.ft60)) + line('330 FT', s => sec(s.ft330)) + line('1/8 MILE', s => sec(s.eighth)) + line('1000 FT', s => sec(s.ft1000)) + line('1/4 MILE', s => sec(s.quarter)) + line('TRAP', s => kmh(s.trap)) + line('SPIN', spinCell) + `<tr><td>POWER</td>${R.hp.map(h => `<td>${h} HP</td>`).join('')}</tr>` + line('TOTAL', s => (s.crossed || s.foul || s.crashed ? '<span style="color:#ff3355">DQ</span>' : sec(s.total))) + line('BOOST', s => (s.boostPeak !== undefined ? Math.round(s.boostPeak * 100) + '%' : '-')) + line('ENGINE', s => (s.enginePeakTemp !== undefined ? `${Math.round(s.enginePeakTemp)}C  -${Math.round((s.peakRetard ?? 0) * 100)}% TIMING` : '-')) + line('CLUTCH', s => `${s.clutchTemp !== undefined ? Math.round(s.clutchTemp) + 'C ' : ''}${s.clutchCondition !== undefined ? Math.round(s.clutchCondition * 100) + '%' : ''}`) + line('HOT PSI', s => (s.hotPsi !== undefined ? s.hotPsi.toFixed(1) + ' PSI' : '-')) + line('TIRES', tireCell) + line('FUEL', fuelCell) + line('REAR WEIGHT', rearCell) + line('BRAKE', brakeCell) + line('CHUTE', chuteCell) + line('NITRO', nitroCell) + line('BOTTLE', bottleCell)
       + `</table><div class="pts">${R.records.length ? 'NEW: ' + R.records.join(', ') : ''}</div>`
       + (R.kind === 'ghost' && them ? `<table><tr><th>VS ${them.name} (${classLabel(lb.playerClass())})</th><th>DELTA</th></tr>${deltaRowsHtml(markDeltas(me, them, me.reaction, them.reaction))}</table><p class="help" id="lbstatus">${lb.status}</p>` : '');
@@ -325,6 +325,8 @@ onFirstGesture(() => { if (screen === 'race') music.startMusic(); });      // (a
 const fsButton = $('fs'); if (fullscreenAvailable()) { fsButton.style.display = 'block'; fsButton.onclick = toggleFullscreen; }
 const topDown = createDragTopDown();
 let last = performance.now();
+/** the touch buttons the left panel must stay clear of (none when the touch controls are not on screen) */
+function touchSpots(): { id: string; x: number; y: number; w: number; h: number }[] { return options.driver === 'manual' && input.touchVisible() ? input.touch.layout : []; }
 function frame(now: number): void {
   const dt = Math.min(0.1, (now - last) / 1000); last = now; padMenu(); if (screen === 'options') rebinder.pad(firstPad());
   if (screen === 'bench') { requestAnimationFrame(frame); return; }      // (nothing else draws while the benchmark measures the card)
@@ -336,12 +338,10 @@ function frame(now: number): void {
   }
   topDown.draw(ctx, W, H, race.state, 0, dt, now / 1000);
   if (screen === 'race') {
-    drawTach(ctx, W, H, me, S, now / 1000, s.weather); drawLane(ctx, W, H, me, 0, S);
     const label = (id: string, fallback: string): string => keyLabel((options.binds[id] ?? [])[0] ?? fallback);
+    drawProgress(ctx, W, H, s, 0, S, { launch: label('launch', ' '), nitro: label('nitro', 'Shift'), manual: me.tune.shift === 'manual' && options.driver === 'manual', auto: !!me.ai || options.driver === 'autopilot', burnout: label('burnout', 'j'), gas: label('gas', 'w'), brake: label('brake', 's'), chute: label('chute', 'n'), deepStage: label('deepStage', 'h'), backUp: label('backUp', 'r'), avoid: touchSpots() });
+    // the touch controls go on top of the panel, unchanged
     input.draw(ctx, options.driver === 'manual');
-    drawBanner(ctx, W, S, conditionsBanner(s.weather ?? s.conditions, raceKind === 'ghost'), raceKind === 'ghost');
-    const rival = s.runners[1]; if (rival) drawDeltas(ctx, W, S, rival.name, markDeltas(me.marks, rival.marks, me.reaction, rival.reaction));
-    drawProgress(ctx, W, H, s, 0, S, { launch: label('launch', ' '), nitro: label('nitro', 'Shift'), manual: me.tune.shift === 'manual' && options.driver === 'manual', auto: !!me.ai || options.driver === 'autopilot', burnout: label('burnout', 'j'), gas: label('gas', 'w'), brake: label('brake', 's'), chute: label('chute', 'n'), deepStage: label('deepStage', 'h'), backUp: label('backUp', 'r') });
   }
   requestAnimationFrame(frame);
 }

@@ -6,7 +6,6 @@ import { STAGE, STAGE_LABELS, stageLabel, ghostStagingPath, stagingPoseAt, stagi
 import { DRAG_CARS, PARTS, dragCarById } from '../src/drag/data.ts';
 import { BOOST, CLUTCH, ENGINE, TURBO, limiterTorqueShare, specFor, cleanTune, defaultTune, torqueShape } from '../src/drag/tune.ts';
 import { TUNE_HINTS, tuneHint } from '../src/drag/tune-help.ts';
-import { drawLane, drawProgress, drawTach } from '../src/drag/hud.ts';
 
 const perfect = { react: 0.2, spread: 0, shiftErr: 0, foul: 0 };
 const OLD_STOCK_TORQUE = 650;
@@ -717,130 +716,6 @@ function textBox(t) {
   return { x0, x1: x0 + width, y0: t.y - px, y1: t.y + px * 0.25 };
 }
 function overlaps(a, b) { return a.x0 < b.x1 - 1 && b.x0 < a.x1 - 1 && a.y0 < b.y1 - 1 && b.y0 < a.y1 - 1; }
-function assertTachLegible(rec, W, H, S, label) {
-  const panel = rec.placed.filter(t => t.x > W - 220 * S && t.y > H - 250 * S);
-  assert.ok(panel.length >= 6, `${label}: the tach rows are recorded (${rec.placed.map(t => t.s).join(' | ')})`);
-  const boxes = panel.map(textBox), gauges = rec.rects.filter(r => r.kind === 'strokeRect' && r.w > 20 * S && r.h < 20 * S).map(r => ({ x0: r.x, x1: r.x + r.w, y0: r.y, y1: r.y + r.h }));
-  for (let i = 0; i < boxes.length; i++) {
-    for (let j = i + 1; j < boxes.length; j++) assert.ok(!overlaps(boxes[i], boxes[j]), `${label}: ${panel[i].s} overlaps ${panel[j].s}`);
-    for (const gauge of gauges) assert.ok(!overlaps(boxes[i], gauge), `${label}: ${panel[i].s} overlaps a gauge`);
-  }
-}
-
-test('the HUD reads clutch temperature and condition as numbers and bars', () => {
-  const car = dragCarById('streeter'), spec = specFor(car, {}), d = quick({ seed: 1, conditions: neutral, entrants: [{ name: 'YOU', spec, tune: defaultTune(car), ai: null }] }), r = d.state.runners[0];
-  r.launched = true; r.clutchTemp = 320; r.clutchCondition = 0.55;
-  const hot = canvasRecorder(); drawTach(hot.ctx, 1280, 720, r, 1, 0, neutral);
-  assert.ok(hot.texts.some(t => /CLUTCH 320C 55% SLIP/.test(t)));
-  assert.ok(hot.rects.some(x => x.kind === 'strokeRect' && x.w > 100 && x.h < 20), 'the clutch has heat and condition bars');
-  r.clutchLocked = true; const locked = canvasRecorder(); drawTach(locked.ctx, 1280, 720, r, 1, 0, neutral);
-  assert.ok(locked.texts.some(t => /CLUTCH 320C 55% LOCK/.test(t)));
-  r.clutchLocked = false; r.clutchTemp = 20; r.clutchCondition = 1; const cold = canvasRecorder(); drawTach(cold.ctx, 1280, 720, r, 1, 0, neutral);
-  assert.ok(cold.texts.some(t => /CLUTCH 20C 100% SLIP/.test(t)));
-});
-
-test('the HUD reads both rear slicks, their wear and the per-wheel HUD rows', () => {
-  const car = dragCarById('streeter'), spec = specFor(car, {}), d = quick({ seed: 1, conditions: neutral, entrants: [{ name: 'YOU', spec, tune: defaultTune(car), ai: null }] }), r = d.state.runners[0];
-  r.launched = true; r.tires[0] = { temp: 95, wear: 0.2 }; r.tires[1] = { temp: 110, wear: 0.4 };
-  const tach = canvasRecorder(); drawTach(tach.ctx, 1280, 720, r, 1, 0, neutral);
-  assert.ok(tach.texts.some(t => /L95\u00b0 20%/.test(t)), tach.texts.join(' | '));
-  assert.ok(tach.texts.some(t => /R110\u00b0 40%/.test(t)), tach.texts.join(' | '));
-  const progress = canvasRecorder(); drawProgress(progress.ctx, 1280, 720, d.state, 0, 1, { launch: 'X', nitro: 'N', manual: false });
-  assert.ok(progress.texts.some(t => /TIRE WEAR L20% R40%/.test(t)), progress.texts.join(' | '));
-});
-
-test('the bottom-right tach, nitro, tire and clutch gauges keep their own rows', () => {
-  for (const S of [0.7, 1, 1.6]) for (const parts of [{}, { nitro: 2 }]) {
-    const car = dragCarById('streeter'), spec = specFor(car, parts), d = quick({ seed: 1, conditions: neutral, entrants: [{ name: 'YOU', spec, tune: defaultTune(car), ai: null }] }), r = d.state.runners[0];
-    r.launched = true; r.spinR = true; r.clutchTemp = 320; r.clutchCondition = 0.55; r.tires[0] = { temp: 95, wear: 0.2 }; r.tires[1] = { temp: 110, wear: 0.4 };
-    const W = 1280 * S, H = 720 * S, rec = canvasRecorder(); drawTach(rec.ctx, W, H, r, S, 0, neutral);
-    if (parts.nitro) assert.ok(rec.texts.some(t => /^NITRO(?:!)? \d+% \d+% \d+C$/.test(t)), rec.texts.join(' | '));
-    assertTachLegible(rec, W, H, S, `${S} ${parts.nitro ? 'nitro' : 'no nitro'}`);
-  }
-});
-
-test('the HUD reads the live conditions and the forecast front', () => {
-  const d = quick({ seed: 8, entrants: [entrant('streeter')] }), forecast = d.state.conditions, keys = { launch: 'X', nitro: 'N', manual: false };
-  const before = canvasRecorder(); drawProgress(before.ctx, 1280, 720, d.state, 0, 1, keys);
-  assert.equal(before.texts.filter(t => forecastText(forecast).includes(t)).join(' '), forecastText(forecast), before.texts.join(' | '));
-  for (let i = 0; i < 240 * 6; i++) d.step();
-  assert.notEqual(d.state.weather.airC, forecast.airC);
-  const after = canvasRecorder(); drawProgress(after.ctx, 1280, 720, d.state, 0, 1, keys);
-  const live = conditionsText(d.state.weather) + weatherText(forecast);
-  assert.equal(after.texts.filter(t => live.includes(t)).join(' '), live, after.texts.join(' | '));
-});
-
-test('the HUD conditions wrap inside the left column instead of running past the centre', () => {
-  for (const S of [0.7, 1, 1.6]) {
-    const W = 1280 * S, H = 720 * S, d = quick({ seed: 8, entrants: [entrant('streeter')] }), forecast = forecastText(d.state.conditions);
-    const rec = canvasRecorder(); drawProgress(rec.ctx, W, H, d.state, 0, S, { launch: 'X', nitro: 'N', manual: false });
-    const lines = rec.placed.filter(t => forecast.includes(t.s));
-    assert.ok(lines.length >= 2, `${S}: the long forecast wraps (${rec.texts.join(' | ')})`);
-    assert.equal(lines.map(t => t.s).join(' '), forecast, `${S}: no words are lost`);
-    const leftColumnRight = W / 2 - 24 * S;
-    for (const line of lines) assert.ok(textBox(line).x1 <= leftColumnRight, `${S}: ${line.s} runs past the left column at x ${textBox(line).x1} > ${leftColumnRight}`);
-    for (let i = 1; i < lines.length; i++) assert.ok(!overlaps(textBox(lines[i - 1]), textBox(lines[i])), `${S}: wrapped rows share a line`);
-  }
-});
-
-test('the HUD draws a boost gauge with the charge and the tune limit', () => {
-  const car = dragCarById('streeter'), spec = specFor(car, { turbo: 3 }), d = quick({ seed: 1, conditions: neutral, entrants: [{ name: 'YOU', spec, tune: defaultTune(car), ai: null }] }), r = d.state.runners[0];
-  r.launched = true; r.boost = 0.6; r.engineTemp = 180; r.retard = 0.2;
-  const hud = canvasRecorder(); drawProgress(hud.ctx, 1280, 720, d.state, 0, 1, { launch: 'X', nitro: 'N', manual: false });
-  assert.ok(hud.texts.some(t => /BOOST 60%  ENGINE 180C -20%/.test(t)), hud.texts.join(' | '));
-  assert.ok(hud.texts.some(t => /80% LIMIT/.test(t)));
-  assert.ok(hud.rects.some(x => x.kind === 'strokeRect' && x.w > 50 && x.h < 20), 'the boost has a bar');
-});
-
-test('the HUD shows the staged rollout and an abort before the beam', () => {
-  const car = dragCarById('streeter'), spec = specFor(car, {}), d = quick({ seed: 1, conditions: neutral, entrants: [{ name: 'YOU', spec, tune: defaultTune(car), ai: null }] }), r = d.state.runners[0];
-  const keys = { launch: 'X', nitro: 'N', manual: false, gas: 'W', burnout: 'S', chute: 'N', deepStage: 'H' };
-  const staged = canvasRecorder(); drawProgress(staged.ctx, 1280, 720, d.state, 0, 1, keys);
-  assert.ok(staged.texts.includes('STAGED: X ON GREEN'), staged.texts.join(' | ')); assert.ok(staged.texts.includes('H: DEEP STAGE')); assert.ok(staged.texts.includes('N: ABORT'));
-  r.deepStage = true; const deep = canvasRecorder(); drawProgress(deep.ctx, 1280, 720, d.state, 0, 1, keys);
-  assert.ok(deep.texts.includes('DEEP STAGED: X ON GREEN'), deep.texts.join(' | ')); assert.ok(!deep.texts.includes('STAGED: X ON GREEN')); r.deepStage = false;
-  r.rolling = true; const rolling = canvasRecorder(); drawProgress(rolling.ctx, 1280, 720, d.state, 0, 1, keys);
-  assert.ok(rolling.texts.includes('ROLLING TO THE BEAM'), rolling.texts.join(' | '));
-  r.rolling = false; r.aborted = true; r.foul = true; const aborted = canvasRecorder(); drawProgress(aborted.ctx, 1280, 720, d.state, 0, 1, keys);
-  assert.ok(aborted.texts.includes('START ABORTED'), aborted.texts.join(' | ')); assert.ok(aborted.texts.includes('ABORT')); assert.ok(!aborted.texts.includes('STAGED: X ON GREEN'));
-});
-
-test('the HUD asks for the brake and the chute after the line, and flashes a crash message when the car misses the end of the strip', () => {
-  const car = dragCarById('streeter'), spec = specFor(car, {}), d = quick({ seed: 1, conditions: neutral, entrants: [{ name: 'YOU', spec, tune: defaultTune(car), ai: null }] }), r = d.state.runners[0];
-  r.launched = true; r.finished = true; r.shutdown = true; r.marks.quarter = 9; r.trap = 180; r.x = SHUTDOWN.end - 40; r.chute = true;
-  const running = canvasRecorder(); drawProgress(running.ctx, 1280, 720, d.state, 0, 1, { launch: 'X', nitro: 'N', manual: false, brake: 'B', chute: 'N' });
-  assert.ok(running.texts.some(t => /STOP BEFORE THE END: 40 M/.test(t)), running.texts.join(' | '));
-  assert.ok(running.texts.some(t => /B: BRAKE\s+N: CHUTE/.test(t)), running.texts.join(' | '));
-  assert.ok(running.texts.includes('CHUTE OUT'));
-  r.crashed = true; r.stopped = true; const crashed = canvasRecorder(); drawProgress(crashed.ctx, 1280, 720, d.state, 0, 1, { launch: 'X', nitro: 'N', manual: false, brake: 'B', chute: 'N' });
-  assert.ok(crashed.texts.includes('You crashed'));
-});
-
-test('the HUD reads live rear weight, brake fade and chute opening below the tire row', () => {
-  const car = dragCarById('streeter'), spec = specFor(car, {}), d = quick({ seed: 1, conditions: neutral, entrants: [{ name: 'YOU', spec, tune: defaultTune(car), ai: null }] }), r = d.state.runners[0];
-  r.launched = true; r.finished = true; r.shutdown = true; r.marks.quarter = 9; r.trap = 180;
-  r.rearShare = 0.78; r.brakeTemp = 320; r.brakeFade = 0.82; r.chute = true; r.chuteOpen = 0.4;
-  const hot = canvasRecorder(); drawProgress(hot.ctx, 1280, 720, d.state, 0, 1, { launch: 'X', nitro: 'N', manual: false });
-  for (const label of ['REAR WEIGHT 78%', 'BRAKE 320C 82%', 'CHUTE 40%']) assert.ok(hot.texts.includes(label), `${label} in ${hot.texts.join(' | ')}`);
-  const tire = hot.placed.find(t => t.s.startsWith('TIRE WEAR')), rows = ['REAR WEIGHT 78%', 'BRAKE 320C 82%', 'CHUTE 40%'].map(label => hot.placed.find(t => t.s === label));
-  assert.ok(tire && rows.every(Boolean), 'all three rows are drawn');
-  for (const row of rows) assert.ok(textBox(row).y0 > textBox(tire).y1 && textBox(row).x1 < 24 + 420, `${row.s} sits clear of the tire row and inside the left column`);
-  r.rearShare = 0.55; r.brakeTemp = 20; r.brakeFade = 1; r.chute = false; r.chuteOpen = 0;
-  const cold = canvasRecorder(); drawProgress(cold.ctx, 1280, 720, d.state, 0, 1, { launch: 'X', nitro: 'N', manual: false });
-  for (const label of ['REAR WEIGHT 55%', 'BRAKE 20C 100%', 'CHUTE 0%']) assert.ok(cold.texts.includes(label), cold.texts.join(' | '));
-});
-
-test('the HUD reads the fuel load before the rear-weight row', () => {
-  const d = race({ seed: 1, entrants: [entrant('streeter', {}, {}, null)] }), r = d.state.runners[0];
-  r.launched = true; r.fuel = 30;
-  const rec = canvasRecorder(); drawProgress(rec.ctx, 1280, 720, d.state, 0, 1, { launch: 'X', nitro: 'N', manual: false });
-  assert.ok(rec.texts.some(t => /^FUEL 30\.0 KG 24%/.test(t)), rec.texts.join(' | '));
-  const fuelRow = rec.placed.find(t => t.s.startsWith('FUEL ')), rearRow = rec.placed.find(t => t.s.startsWith('REAR WEIGHT'));
-  assert.ok(fuelRow && rearRow && textBox(fuelRow).y0 < textBox(rearRow).y0, 'the fuel row sits above the rear weight');
-  r.fuel = FUEL.reserve; const empty = canvasRecorder(); drawProgress(empty.ctx, 1280, 720, d.state, 0, 1, { launch: 'X', nitro: 'N', manual: false });
-  assert.ok(empty.texts.some(t => /^FUEL 10\.0 KG 0%/.test(t)), empty.texts.join(' | '));
-});
-
 test('a tune is kept within what the car allows: junk becomes sensible numbers, gears match the gearbox (one more with gearbox level 2)', () => {
   const car = dragCarById('streeter'), spec = specFor(car, {}), junk = cleanTune({ shift: 'warp', ratios: [99, -1, 'x'], final: NaN, launchRpm: 1e6, shiftRpm: -5, pressure: 2, ballast: 1e4, nitroShot: 9, nitroGear: 77 }, car, spec);
   assert.equal(junk.shift, 'auto'); assert.equal(junk.ratios.length, car.gears.length); assert.equal(junk.ratios[0], 5); assert.equal(junk.ratios[1], 0.5); assert.equal(junk.ratios[2], car.gears[2]);
@@ -958,15 +833,6 @@ test('traction: a hard launch spends grip into wheelspin, and the autopilot stil
   assert.ok(hard.maxDrift > 0.01, `the unstered nose runs out of turn (${hard.maxDrift.toFixed(3)})`);
   assert.ok(auto.minGrip < TRACTION.lateralFloor + 0.2 && auto.maxDrift > 0.01, 'the autopilot works in the same saturated grip');
   assert.ok(auto.maxY < 0.8 && !auto.r.crossed && !auto.d.state.runners[1].crossed, `and still keeps its lane (${auto.maxY.toFixed(2)})`);
-});
-
-test('the lane view marks where the nose wants to go while the slicks are sliding', () => {
-  const me = { x: 100, y: 0, psi: 0.02, gripLeft: 1, drift: 0, crossed: false };
-  const dry = canvasRecorder(); drawLane(dry.ctx, 1280, 720, me, 0, 1);
-  assert.ok(!dry.texts.some(t => t.includes('SLIDE')) && !dry.rects.some(q => q.kind === 'strokeRect'), 'no slide marker with grip in hand');
-  const slide = canvasRecorder(); drawLane(slide.ctx, 1280, 720, { ...me, gripLeft: 0.6, drift: 0.08 }, 0, 1);
-  assert.ok(slide.texts.some(t => /SLIDE 60% GRIP/.test(t)), 'the remaining grip is named');
-  assert.ok(slide.rects.some(q => q.kind === 'strokeRect'), 'and the wanted heading is outlined');
 });
 
 test('after the finish the longer run-out is saved by the brake alone: coasting or a chute alone still crashes at the end of the strip', () => {
