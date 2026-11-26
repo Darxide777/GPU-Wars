@@ -3,7 +3,6 @@
 import type { Store } from './browser-store.ts';
 import { cleanSlots, emptySlots, type TuneSlots } from './tune-slots.ts';
 import type { Tune } from './drag/types.ts';
-import { isClassId } from './classes.ts';
 import { BENCHMARK } from './benchmark/constants.ts';
 
 export const SAVE_KEY = 'gpuwars.save';
@@ -36,7 +35,8 @@ const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v =
 export function cleanBenchmark(raw: unknown): BenchmarkResult | null {
   if (!isObject(raw)) return null;
   const score = typeof raw.score === 'number' && Number.isFinite(raw.score) ? raw.score : -1, gpuId = text(raw.gpuId, 200), cls = text(raw.class, 60);
-  if (score < 0 || !gpuId || !isClassId(cls)) return null;
+  // an old save can hold a class id that no longer exists (the 17-class build): it is KEPT, so the page sees 'class changed' and asks for a new run (src/benchmark/rules.ts)
+  if (score < 0 || !gpuId || !/^[a-z0-9-]{1,40}$/.test(cls)) return null;
   const out: BenchmarkResult = { score: Math.round(Math.min(BENCHMARK.maxScore, score)), class: cls, benchmarkVersion: count(raw.benchmarkVersion), gpuId, date: count(raw.date) };
   if (typeof raw.sustain === 'number' && Number.isFinite(raw.sustain)) out.sustain = Math.max(0, Math.min(1, raw.sustain));
   return out;

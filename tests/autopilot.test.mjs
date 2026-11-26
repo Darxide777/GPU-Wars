@@ -15,12 +15,12 @@ const car = () => readyCar(emptySave());
 /** a whole race, from the water box (no quick start): the autopilot sees only what the page gives it (`viewOf(race, 0, the engine's phase)`) */
 const drive = (seed, tuneChange = {}, ranked = false) => {
   const { spec, tune } = car(), entrant = { name: 'AUTOPILOT', spec, tune: { ...tune, ...tuneChange }, ai: null, ...(ranked ? rankedStart() : {}) };
-  const d = createDrag(ranked ? { seed: RANKED.seed, conditions: RANKED.conditions, strip: rankedStrip(), entrants: [entrant] } : { seed, entrants: [entrant] }), ap = createAutopilot(), r = d.state.runners[0], inputs = [], phases = [], times = {}; let n = 0, last = '';
+  const d = createDrag(ranked ? { seed: RANKED.seed, conditions: RANKED.conditions, strip: rankedStrip(), entrants: [entrant] } : { seed, entrants: [entrant] }), ap = createAutopilot(), r = d.state.runners[0], inputs = [], phases = [], times = {}, gears = new Set([r.gear]); let n = 0, last = '';
   while (d.state.phase !== 'over' && n++ < 240 * 120) {
-    const inp = ap.decide(viewOf(d, 0, r.stage)); inputs.push(inp); d.setInput(0, inp); d.step();
+    const inp = ap.decide(viewOf(d, 0, r.stage)); inputs.push(inp); d.setInput(0, inp); d.step(); gears.add(r.gear);
     if (r.stage !== last) { phases.push(r.stage); times[r.stage] = d.state.t; last = r.stage; }
   }
-  return { d, r, slip: timeslip(r), inputs, phases, times, ticks: n, ap };
+  return { d, r, slip: timeslip(r), inputs, phases, times, gears: [...gears], ticks: n, ap };
 };
 const FULL = ['waterBoxApproach', 'burnout', 'runOut', 'backup', 'preStage', 'staged', 'rolling', 'launched'];
 
@@ -57,9 +57,11 @@ test('the autopilot pays for the whole staging: the launch comes late in the rac
 });
 
 test('it works for a manual-shift tune and a nitro-by-hand tune through the same inputs', () => {
-  const manual = drive(5, { shift: 'manual' }), hand = drive(5, { nitroGear: 0 });
-  for (const r of [manual, hand]) { assert.equal(r.d.state.winner, 0, r.d.state.reason); assert.ok(r.slip.quarter < 15); }
+  const manual = drive(5, { shift: 'manual' }), hand = drive(5, { nitroGear: 0 }), atLimiter = drive(5, { shift: 'manual', shiftRpm: car().spec.redline }), autoAtLimiter = drive(5, { shift: 'auto', shiftRpm: car().spec.redline });
+  for (const r of [manual, hand, atLimiter, autoAtLimiter]) { assert.equal(r.d.state.winner, 0, r.d.state.reason); assert.ok(r.slip.quarter < 15); }
   assert.ok(manual.inputs.some(i => i.shiftUp), 'it pressed shift up itself'); assert.ok(hand.slip.nitroUsed > 0 || car().spec.nitroSecs === 0, 'it fired the bottle');
+  assert.ok(atLimiter.inputs.some(i => i.shiftUp) && atLimiter.gears.length > 1, 'a manual shift point at the limiter still shifts on the shift lamp');
+  assert.ok(autoAtLimiter.gears.length > 1, 'an automatic shift point at the limiter still shifts');
 });
 
 test('it works on the ranked class day too (the same strip and weather as a manual ranked run)', () => {

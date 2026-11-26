@@ -17,6 +17,8 @@ export const CLUTCH = {
 
 export const level = (parts: Parts, id: PartId): number => { const max = PARTS.find(p => p.id === id)?.max ?? 0; return Math.max(0, Math.min(max, Math.floor(parts[id] ?? 0))); };
 const SHIFT_TIME = [0.32, 0.24, 0.17, 0.11, 0.07];
+/** the shift lamp comes on this far before the tune's point, and a point at the limiter is brought down by the same amount: the limiter lift can otherwise hold the engine just under its own shift point */
+export const SHIFT_POINT = { lampRpm: 80 } as const;
 /** shift quality: torque interruption is the shift timer; revs match the next gear's wheel speed during the shift, lift-off drops them faster and lift-on holds them up. A hot clutch or spinning tires can miss the shift and add penalty time. Turn `SHIFT_TIME` first, then `CLUTCH.shiftTimeBonus`, then `missedHeatFrom`/`missedSpin`. */
 export const SHIFT_QUALITY = {
   liftOnRpmShare: 0.35, liftOffDrop: 1.25, matchWindow: 220, penaltyMax: 0.22, penaltySlipHeat: 1.5,

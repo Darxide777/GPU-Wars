@@ -22,19 +22,29 @@ export function createLeaderboardClient(o: ClientOptions) {
   const fetchFn: FetchFn | null = o.fetchFn ?? (typeof fetch === 'function' ? (fetch as unknown as FetchFn) : null);
   const configured = baseUrl.length > 0 && fetchFn !== null;
 
-  /** one request: the parsed JSON body with its status, or a Failure when the network, CORS or the timeout stopped it */
+  /** one request: the parsed JSON body with its status, or a Failure when the network, CORS or the timeout stopped it. GETs get one retry inside the same budget because the first request on itch.io can be slow. */
   async function request(path: string, init: { method: 'GET' | 'POST'; body?: string }): Promise<{ status: number; ok: boolean; body: unknown } | Failure> {
     if (!configured || !fetchFn) return fail('not-configured', 'LEADERBOARD NOT CONNECTED (PLAYING OFFLINE)');
-    const controller = typeof AbortController === 'function' ? new AbortController() : null, timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
-    try {
-      const headers: Record<string, string> = { 'X-Client-Id': o.clientId.slice(0, 64) };
-      if (init.body !== undefined) headers['Content-Type'] = 'application/json';
-      const res = await fetchFn(baseUrl + path, { method: init.method, headers, body: init.body, mode: 'cors', credentials: 'omit', cache: 'no-store', signal: controller?.signal });
-      let body: unknown = null; try { body = await res.json(); } catch (e) { /* an answer with no JSON: the status still tells the story */ }
-      return { status: res.status, ok: res.ok, body };
-    } catch (e) {
-      return fail('offline', 'COULD NOT REACH THE LEADERBOARD (OFFLINE OR BLOCKED)');
-    } finally { if (timer !== null) clearTimeout(timer); }
+    // Only POST needs the client id. Keeping GETs header-free avoids a CORS preflight before a board load.
+    const headers: Record<string, string> = {};
+    if (init.body !== undefined) {
+      headers['Content-Type'] = 'application/json';
+      headers['X-Client-Id'] = o.clientId.slice(0, 64);
+    }
+    const deadline = Date.now() + timeoutMs, attempts = init.method === 'GET' ? 2 : 1;
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      const controller = typeof AbortController === 'function' ? new AbortController() : null, timer = controller ? setTimeout(() => controller.abort(), remaining) : null;
+      try {
+        const res = await fetchFn(baseUrl + path, { method: init.method, headers, body: init.body, mode: 'cors', credentials: 'omit', cache: 'no-store', signal: controller?.signal });
+        let body: unknown = null; try { body = await res.json(); } catch (e) { /* an answer with no JSON: the status still tells the story */ }
+        return { status: res.status, ok: res.ok, body };
+      } catch (e) {
+        if (attempt === attempts - 1 || deadline - Date.now() <= 0) break;
+      } finally { if (timer !== null) clearTimeout(timer); }
+    }
+    return fail('offline', 'COULD NOT REACH THE LEADERBOARD (OFFLINE OR BLOCKED)');
   }
   const errorText = (body: unknown, fallback: string): string => (isObj(body) && typeof body.error === 'string' ? body.error.toUpperCase().slice(0, 80) : fallback);
 

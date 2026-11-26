@@ -7,7 +7,7 @@
 import { DRAG_CARS, STOCK_PARTS } from './data.ts';
 import { specFor } from './tune.ts';
 import { CLUTCH_MANAGER } from './physics.ts';
-import { isClassId, eraOf, type ClassId, type Era } from '../classes.ts';
+import { isClassId, type ClassId } from '../classes.ts';
 import type { BenchmarkResult } from '../save.ts';
 import type { DragCarDef, DragSpec, TorqueCurve } from './types.ts';
 import { BENCHMARK } from '../benchmark/constants.ts';
@@ -41,14 +41,11 @@ export const PEAK_BELOW_LIMITER = { min: 1000, maxShare: 0.55 } as const;
 
 /** what a class may have: the torque and the limiter must stay inside these, whatever the score says (an anti-cheat bound as well as the class's window). The first number of each pair is the slowest card of the class, the second the fastest. */
 export interface SpecLimits { torqueNm: [number, number]; redline: [number, number] }
-export const CLASS_SPEC_LIMITS: Record<'integrated' | Era, SpecLimits> = {
-  integrated: { torqueNm: [360, 575], redline: [6400, 7400] },
-  retro: { torqueNm: [1400, 2000], redline: [7400, 8000] },
-  classic: { torqueNm: [1950, 2850], redline: [7600, 8500] },
-  modern: { torqueNm: [2800, 4200], redline: [7900, 8900] },
-  current: { torqueNm: [4650, 6500], redline: [8300, 9400] },
+export const CLASS_SPEC_LIMITS: Record<ClassId, SpecLimits> = {
+  integrated: { torqueNm: [360, 640], redline: [6400, 7400] },
+  discrete: { torqueNm: [1400, 6500], redline: [7400, 9400] },
 };
-export const specLimitsOf = (cls: ClassId): SpecLimits => CLASS_SPEC_LIMITS[eraOf(cls) ?? 'integrated'];
+export const specLimitsOf = (cls: ClassId): SpecLimits => CLASS_SPEC_LIMITS[cls];
 
 /** the car that skipped the benchmark races with this share of the slowest card's torque, so it is slower than any benchmarked car */
 export const UNBENCHMARKED_TORQUE_SHARE = 0.9;

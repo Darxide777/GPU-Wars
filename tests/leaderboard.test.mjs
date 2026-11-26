@@ -22,7 +22,7 @@ import { createLetterPicker, PICKER_LETTERS, PICKER_MAX } from '../src/leaderboa
 import { createLeaderboardUi } from '../src/leaderboard/ui.ts';
 
 const MARKS = ['ft60', 'ft330', 'eighth', 'ft1000', 'quarter'];
-const record = (extra = {}) => ({ name: 'SPEEDY', class: 'discrete-nvidia-modern', category: 'manual', reactionTime: 0.061, splits: { quarter: 6.4 }, trapSpeed: 210, seed: 12345, source: 'fallback', ...extra });
+const record = (extra = {}) => ({ name: 'SPEEDY', class: 'discrete', category: 'manual', reactionTime: 0.061, splits: { quarter: 6.4 }, trapSpeed: 210, seed: 12345, source: 'fallback', ...extra });
 
 // ---- the backend's validator, read from the backend branch (its imports have no extension, so a copy with .ts imports is made in a temp folder) ----
 function loadBackendValidator() {
@@ -41,7 +41,7 @@ const backend = await loadBackendValidator();
 const needBackend = { skip: backend ? false : 'backend/src/validate.ts is not available (no backend folder and no origin/feature/leaderboard-backend)' };
 
 const cleanSlip = (over = {}) => ({ name: 'YOU', reaction: 0.12, foul: false, ft60: 0.95, ft330: 2.4, eighth: 3.7, ft1000: 5.2, quarter: 6.5, trap: 340, ...over });
-const benchmark = { score: 4200, class: 'discrete-nvidia-modern', benchmarkVersion: 1, gpuId: 'NVIDIA GeForce RTX 3070', date: 1 };
+const benchmark = { score: 4200, class: 'discrete', benchmarkVersion: 1, gpuId: 'NVIDIA GeForce RTX 3070', date: 1 };
 const tune = defaultTune(DRAG_CARS[0]);
 
 test('the game and the backend use the SAME class list: src/classes.ts re-exports backend/src/classes.ts, there is no copy', needBackend, () => {
@@ -82,7 +82,7 @@ test('missing splits come from the class envelope: increasing, plausible, and a 
   assert.ok(partly.ft330 > 1.1 && partly.eighth > partly.ft330 && partly.eighth < 5.2);
   const messy = completeSplits(record({ splits: { ft60: 5, ft330: 2, eighth: NaN, ft1000: 9, quarter: 6.4 } }));
   MARKS.forEach((m, i) => { if (i) assert.ok(messy[m] > messy[MARKS[i - 1]], `messy ${m}`); });
-  for (const era of ['integrated', 'discrete-amd-retro', 'discrete-intel-current']) { const s = completeSplits(fallbackLeader(era)); assert.ok(s.ft60 < s.ft330 && s.ft1000 < s.quarter); }
+  for (const era of ['integrated', 'discrete']) { const s = completeSplits(fallbackLeader(era)); assert.ok(s.ft60 < s.ft330 && s.ft1000 < s.quarter); }
 });
 
 test('bad leader data is cleaned or refused, never trusted', () => {
@@ -99,7 +99,7 @@ test('bad leader data is cleaned or refused, never trusted', () => {
 });
 
 test('the ghost works as an entrant in the real race: it launches, finishes at the leader time and beats nobody by cheating', () => {
-  const spec = specForBenchmark(null), g = buildLeaderGhost(fallbackLeader('discrete-amd-classic'));
+  const spec = specForBenchmark(null), g = buildLeaderGhost(fallbackLeader('discrete'));
   const race = createDrag({ seed: RANKED.seed, conditions: RANKED.conditions, strip: rankedStrip(), quickStart: true, entrants: [{ name: 'YOU', spec, tune, ai: null, ...rankedStart() }, { name: 'LEADER', spec, tune, ghost: g }] });
   for (let i = 0; i < 240 * 14 && race.state.phase !== 'over'; i++) race.step();
   const them = timeslip(race.state.runners[1]);
@@ -124,7 +124,7 @@ test('a ranked payload is accepted by the backend validator', needBackend, () =>
   const ghost = buildLeaderGhost(record());
   const payload = buildScorePayload({ playerName: 'Test Pilot', category: 'manual', benchmark, slip: cleanSlip(), tune, seed: RANKED.seed, ghost });
   assert.ok(payload); const r = backend.validate.validateSubmission(JSON.parse(JSON.stringify(payload)));
-  assert.ok(r.ok, r.error); assert.equal(r.value.class, 'discrete-nvidia-modern'); assert.equal(r.value.category, 'manual'); assert.equal(r.value.seed, RANKED.seed);
+  assert.ok(r.ok, r.error); assert.equal(r.value.class, 'discrete'); assert.equal(r.value.category, 'manual'); assert.equal(r.value.seed, RANKED.seed);
   assert.ok(payload.ghost && payload.ghost.length <= 256 && payload.ghost.length > 10);
   assert.ok(JSON.stringify(payload).length < backend.validate.MAX_BODY_BYTES, 'under the body limit');
   const auto = buildScorePayload({ playerName: 'Test Pilot', category: 'autopilot', benchmark, slip: cleanSlip(), tune, seed: RANKED.seed });
@@ -140,7 +140,7 @@ test('every bundled fallback leader fits the backend class bounds and splits rul
     const r = backend.validate.validateSubmission(body); assert.ok(r.ok, `${rec.class} ${rec.category}: ${r.error}`);
     assert.ok(buildLeaderGhost(rec), `${rec.class} has a ghost`);
   }
-  const et = c => fallbackLeader(c).splits.quarter; assert.ok(et('discrete-nvidia-current') < et('discrete-nvidia-modern') && et('discrete-nvidia-modern') < et('discrete-nvidia-classic') && et('discrete-nvidia-classic') < et('discrete-nvidia-retro') && et('discrete-nvidia-retro') < et('integrated'));
+  const et = c => fallbackLeader(c).splits.quarter; assert.ok(et('discrete') < et('integrated') - 3);
   assert.ok(fallbackLeader('integrated', 'autopilot').splits.quarter > et('integrated'));
 });
 
@@ -191,7 +191,22 @@ test('the client sends X-Client-Id and the right paths, and reads the server ans
   assert.equal(seen[0].url, 'https://example.invalid/scores'); assert.equal(seen[0].init.method, 'POST'); assert.equal(seen[0].init.headers['X-Client-Id'], 'abcdefgh12345678'); assert.equal(seen[0].init.credentials, 'omit');
   const l = await c.leader('integrated', 'manual'); assert.equal(l.online, true); assert.equal(l.record.name, 'Ace'); assert.equal(l.record.splits.ft60, 1.6); assert.match(seen[1].url, /\/leader\?class=integrated&category=manual$/);
   const b = await c.board('class', 'integrated', 'manual', 10); assert.equal(b.entries.length, 1); assert.match(seen[2].url, /scope=class&category=manual&limit=10&class=integrated/);
+  assert.deepEqual(seen[1].init.headers, {}, 'leader reads need no preflight'); assert.deepEqual(seen[2].init.headers, {}, 'board reads need no preflight');
   assert.equal(buildLeaderGhost(l.record).marks.ft60, 1.6, 'the server leader makes the ghost');
+});
+
+test('a brief network failure on a read is retried once, but a write is not', async () => {
+  const seen = []; let blips = 1;
+  const fetchFn = async (url, init) => { seen.push({ url, init });
+    if (url.includes('/leaderboard') && blips-- > 0) throw new TypeError('brief blip');
+    return { ok: true, status: 200, json: async () => ({ scope: 'overall', category: 'manual', entries: [] }) }; };
+  const c = createLeaderboardClient({ baseUrl: 'https://example.invalid/', clientId: 'abcdefgh12345678', fetchFn });
+  const b = await c.board('overall', 'integrated', 'manual');
+  assert.equal(b.ok, true); assert.equal(seen.length, 2, 'one retry');
+  assert.deepEqual(seen[0].init.headers, {}); assert.deepEqual(seen[1].init.headers, {});
+  const posts = [];
+  await createLeaderboardClient({ baseUrl: 'https://example.invalid/', clientId: 'abcdefgh12345678', fetchFn: async (url, init) => { posts.push(init); throw new TypeError('down'); } }).submit(payload());
+  assert.equal(posts.length, 1, 'writes are not retried');
 });
 
 test('the ui keeps an unsent run when offline, sends it later, and keeps the name and client id', async () => {
@@ -234,7 +249,7 @@ test('the letter picker: cycle wraps, add and delete edit the name, short names 
 });
 
 test('rubber from your own burnout raises grip: a run on a strip with burnout rubber beats the same run on a fresh strip', () => {
-  const spec = specForBenchmark({ score: 10000, class: 'discrete-nvidia-current', benchmarkVersion: 2, gpuId: 'x', date: 1 }), fresh = rankedStrip(), burnt = rankedStrip();
+  const spec = specForBenchmark({ score: 10000, class: 'discrete', benchmarkVersion: 2, gpuId: 'x', date: 1 }), fresh = rankedStrip(), burnt = rankedStrip();
   const d = createDrag({ seed: RANKED.seed, conditions: RANKED.conditions, strip: burnt, entrants: [{ name: 'YOU', spec, tune, ai: null, ...rankedStart() }] });
   const r = d.state.runners[0];      // roll to the water box, then burn out down the strip: the rubber is laid past the line (x > 0)
   for (let i = 0; i < 240 * 14 && r.x < 9; i++) { const burn = r.x >= STAGE.waterBoxStart; d.setInput(0, { throttle: burn ? 1 : 0.6, launch: false, shiftUp: false, nitro: false, burnout: burn, brake: false, backUp: false, chute: false, deepStage: false, steer: 0 }); d.step(); }

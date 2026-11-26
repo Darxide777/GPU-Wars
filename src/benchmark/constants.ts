@@ -1,5 +1,6 @@
 // Every number the benchmark can be tuned with, in one place. Turn `version` whenever the workload or the scoring changes: every saved result is then out of date and must be re-run.
 // The two `rate` ranges (rateMin, rateMax) are the first things to calibrate on real hardware: they decide which graphics card scores what.
+import type { ClassId } from '../classes.ts';
 export type BackendId = 'webgl2' | 'webgl1' | 'canvas2d';
 
 export const BENCHMARK = {
@@ -40,4 +41,4 @@ export const BENCHMARK = {
 } as const;
 
 /** the most a class may score as a share of `maxScore`, so a wrongly chosen or impossible score cannot out-run its class (a tunable anti-cheat bound, like the backend's ET floors) */
-export const CLASS_SCORE_SHARE = { integrated: 0.7, retro: 0.75, classic: 0.85, modern: 0.95, current: 1 } as const;
+export const CLASS_SCORE_SHARE = { integrated: 0.8, discrete: 1 } as const satisfies Record<ClassId, number>;

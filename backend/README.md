@@ -11,7 +11,7 @@ Cloudflare Worker + D1 (SQLite), TypeScript. Fits the Cloudflare free tier (see 
 - `GET /leader?class=<id>&category=manual|autopilot` full record of the class leader (splits, seed, tune, ghost) for building the ghost. 404 if none.
 - `GET /classes` list of class ids.
 
-Class ids live in `src/classes.ts` (dependency free, importable by the game).
+Class ids live in `src/classes.ts` (dependency free, importable by the game): `integrated` and `discrete` for now. Reads (`GET`) allow any origin; `POST /scores` only the allowed origins.
 
 ## Develop and test
     cd backend && npm install
@@ -30,3 +30,11 @@ Class ids live in `src/classes.ts` (dependency free, importable by the game).
 Client-reported times are only checked for shape, per-class plausible bounds, split consistency and rate limits.
 `verifyBySimulation` in `src/validate.ts` is the documented hook for later deterministic re-simulation; rows carry `verified` (0 for now).
 Player identity is the name (case-insensitive): anyone can submit under any name, but a name's stored time only ever improves.
+
+## Updating a live database (the two-class change)
+Migration `migrations/0002_two_classes.sql` turns every old `discrete-<vendor>-<era>` row into `discrete` (best ET per player and category kept). On an existing deployment run, in this order:
+
+    cd backend && npm run migrate:remote     # applies 0002 once
+    npm run deploy                           # ships the Worker that only knows integrated and discrete
+
+The committed `wrangler.toml` keeps the placeholder `database_id`: paste the real one into your local copy to run these two commands, and do not commit it.

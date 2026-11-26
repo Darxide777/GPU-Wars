@@ -18,10 +18,21 @@ test('index.html is the one itch.io page: relative paths, no external requests, 
   assert.ok(existsSync(new URL('../dist/gpuwars.js', import.meta.url)), 'npm test builds first');
 });
 
+test('the menu card is compact and redraws keep their scroll position instead of snapping', () => {
+  const html = read('index.html'), page = read('src/drag/page.ts');
+  assert.match(html, /\.card \{[^}]*padding: 16px 20px/, 'the card has a small frame');
+  assert.match(html, /\.opt \{[^}]*padding: 4px 10px[^}]*margin: 2px 0[^}]*scroll-margin: 8px 0/, 'rows are short and leave room when scrolled to');
+  assert.match(html, /\.dyno \{[^}]*max-width: 420px/, 'the dyno does not stretch the stats tab');
+  assert.match(page, /function render\(keepVisible = false\): void/, 'redraws do not scroll by default');
+  assert.match(page, /card\.scrollTop = 0/, 'a new screen starts at the top');
+  assert.match(page, /if \(menu && menu\.key\(k\)\) render\(true\)/, 'only key or pad moves reveal the selected row');
+  assert.doesNotMatch(page, /rows\.appendChild\(e\); if \(i === m\.sel\) e\.scrollIntoView/, 'the list is complete before it scrolls');
+});
+
 test('the title menu is BENCHMARK, CLASS, TUNE, RACE CLASS LEADER, DRIVER, RECORDS, OPTIONS, and every row is a real row', () => {
   const page = read('src/drag/page.ts'), start = page.indexOf("title('GPU WARS')"), block = page.slice(start, page.indexOf('], sel.title', start));
   const order = ['benchmarkItem(', 'classItem(', "id: 'tune'", 'raceItem()', "id: 'records'", "'options'"].map(k => block.indexOf(k));
-  assert.ok(order.every(i => i >= 0) && order.every((i, n) => n === 0 || i > order[n - 1]), 'the six rows are there, in order');
+  assert.ok(order.every(i => i >= 0) && order.every((i, n) => n === 0 || i > order[n - 1]), 'the rows are there, in order');
   assert.ok(page.includes("label: 'RACE CLASS LEADER'") && block.includes("label: 'RECORDS'") && block.includes("'OPTIONS'"));
   assert.ok(block.includes('benchmarkItem(') && block.includes('classItem('), 'the BENCHMARK and CLASS rows are real rows now');
   assert.ok(block.includes("id: 'options'") && block.includes('driverItem()'), 'OPTIONS and DRIVER are built');

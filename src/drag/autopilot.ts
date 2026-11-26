@@ -3,7 +3,7 @@
 // It is fully deterministic: no random numbers, no clock; the same car, tune and seed give the same run. Autopilot runs carry `category: 'autopilot'` (see `AUTOPILOT_CATEGORY`)
 // so the leaderboard keeps them apart from manual runs.
 import { DRAG, LANE, STAGE, autoThrottle, engineHotShare, stageRolloutTime } from './physics.ts';
-import { BOOST } from './tune.ts';
+import { BOOST, SHIFT_POINT } from './tune.ts';
 import type { DragConditions, Runner, StagePhase } from './types.ts';
 import { IDLE_INPUT, type DriverInput } from '../input/controls.ts';
 
@@ -84,7 +84,8 @@ export function createAutopilot() {
     if (r.finished) { out.throttle = 0; out.brake = true; out.chute = true; prevNitro = prevShift = false; return out; }
     out.throttle = autoThrottle(r);
     // manual shifting: press shift up once as the revs reach the tune's shift point; an automatic tune shifts itself
-    const top = r.gear >= r.tune.ratios.length, want = r.tune.shift === 'manual' && !top && r.shiftT <= 0 && r.shiftPenalty <= 0 && r.rpm >= r.tune.shiftRpm;
+    const shiftAt = Math.min(r.tune.shiftRpm, r.spec.redline - SHIFT_POINT.lampRpm);
+    const top = r.gear >= r.tune.ratios.length, want = r.tune.shift === 'manual' && !top && r.shiftT <= 0 && r.shiftPenalty <= 0 && r.rpm >= shiftAt;
     out.shiftUp = want && !prevShift; prevShift = want;
     // nitro: by hand once, in the autopilot's gear, when the tune leaves it to the driver and the bottle has some left
     const nitroWant = r.tune.nitroGear === 0 && r.nitroLeft > 0 && !r.nitroOn && r.gear >= AUTOPILOT.nitroGear;
