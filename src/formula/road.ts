@@ -34,10 +34,10 @@ export const headingAt = (path: readonly Point[], i: number): number => { const 
 
 /** the banking along a closed path: `bank` radians through the long sweeping turns (a bend with a radius under about 460 m that goes on for a while; the gentle kinks and the straights stay flat), built up
  *  smoothly on the straight before each turn and eased away after it */
-export function bankProfile(path: readonly Point[], bank: number, step = 3): number[] {
+export function bankProfile(path: readonly Point[], bank: number, step = 3, bendRadius = 460): number[] {
   const n = path.length, w = Math.max(2, Math.round(40 / step)), at = (i: number): number => ((i % n) + n) % n;
   // is this a hard bend? the heading change over 80 m, as a curvature
-  const mask = path.map((_, i) => { const a = headingAt(path, at(i - w)), b = headingAt(path, at(i + w)); return Math.abs(Math.atan2(Math.sin(b - a), Math.cos(b - a))) / (2 * w * step) > 1 / 460; });
+  const mask = path.map((_, i) => { const a = headingAt(path, at(i - w)), b = headingAt(path, at(i + w)); return Math.abs(Math.atan2(Math.sin(b - a), Math.cos(b - a))) / (2 * w * step) > 1 / bendRadius; });
   const start = mask.findIndex((m, i) => m !== mask[at(i - 1)]);
   if (start < 0) return path.map(() => (mask[0] ? bank : 0));
   const gap = Math.round(150 / step), short = Math.round(150 / step);
