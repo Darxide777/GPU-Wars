@@ -7,7 +7,7 @@ Class = `integrated` or `discrete`. Two classes for now; there is no vendor or g
 
 | Class id | Min plausible quarter ET (s) | Max trap speed (mph) |
 |---|---|---|
-| `integrated` | 8.5 | 170 |
+| `integrated` | 8.2 | 170 |
 | `discrete` | 3.6 | 370 |
 
 Those are the OUTER limits. Inside them the server runs a score-aware check (`backend/src/plausible.ts`): the submission carries `benchmarkScore` and `class`, and a lookup table (`SCORE_CURVE`, from the physics, linear interpolation) gives the fastest and slowest believable ET, a trap speed window and 60 ft / 1/8 mile floors for that score. Fast edge = default-tune ET minus 0.5 s (a good tune) minus 0.1 s (physics margin); slow edge = ET x 1.25 + 1.5 s + 0.12 s (autopilot). The ranked day is fixed, so there is no weather allowance. So a score-1000 discrete card cannot post 3.7 s (its fastest is about 5.6 s), while 4.1 s at score 10000 is fine. A score above the class cap (8000 integrated, 10000 discrete) is refused. Every refusal is a 422 with a plain reason, e.g. `quarter ET 3.70 s is faster than plausible for a card of class discrete with benchmark score 1000 (fastest 5.63 s)`. `tests/score-bounds.test.mjs` sweeps the game physics (default and good tune) against the window, so the table cannot drift unnoticed; after a physics change copy the new rows into `SCORE_CURVE`.
