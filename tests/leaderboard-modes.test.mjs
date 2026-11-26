@@ -15,7 +15,7 @@ const make = (answer) => {
   return { seen, client: createLeaderboardClient({ baseUrl: base, clientId: 'abcdefgh12345678', fetchFn }) };
 };
 const dragPayload = { playerName: 'SPEEDY', class: 'discrete', category: 'manual', benchmarkScore: 5000, benchmarkVersion: '1.0', gpuId: 'RTX 3060', reactionTime: 0.06, splits: { ft60: 0.9, ft330: 2.3, eighth: 3.6, ft1000: 4.8, quarter: 5.6 }, trapSpeed: 260, seed: 1, tune: { a: 1 } };
-const formulaPayload = { mode: 'formula', track: 'beach', playerName: 'SPEEDY', class: 'discrete', category: 'manual', benchmarkScore: 5000, benchmarkVersion: '1.0', gpuId: 'RTX 3060', splits: { sector1: 22, sector2: 44, lap: 64 }, topSpeed: 177, seed: 2, tune: { downforce: 0.5 } };
+const formulaPayload = { mode: 'formula', track: 'beach', playerName: 'SPEEDY', class: 'discrete', category: 'manual', benchmarkScore: 5000, benchmarkVersion: '1.0', gpuId: 'RTX 3060', splits: { sector1: 12, sector2: 29, lap: 41 }, topSpeed: 280, seed: 2, tune: { downforce: 0.5 } };
 
 test('submit: a drag payload without a mode is sent unchanged; a formula payload carries its mode and track', async () => {
   const a = make({ status: 200, body: { ok: true, classRank: 3, verified: false } });
@@ -65,6 +65,6 @@ test('a formula payload shaped like the client type is accepted by the backend v
   const dir = mkdtempSync(join(tmpdir(), 'gpuwars-modes-'));
   for (const name of ['classes.ts', 'plausible.ts', 'validate.ts']) writeFileSync(join(dir, name), readFileSync(new URL(`../backend/src/${name}`, import.meta.url), 'utf8').replace(/from '\.\/(\w+)'/g, "from './$1.ts'"));
   const { validateSubmission } = await import(pathToFileURL(join(dir, 'validate.ts')).href);
-  const f = validateSubmission(formulaPayload); assert.equal(f.ok, true, f.error); assert.equal(f.value.timeS, 64);
+  const f = validateSubmission(formulaPayload); assert.equal(f.ok, true, f.error); assert.equal(f.value.timeS, 41);
   const d = validateSubmission(dragPayload); assert.equal(d.ok, true, d.error); assert.equal(d.value.mode, 'drag'); assert.equal(d.value.track, 'strip');
 });
