@@ -47,3 +47,7 @@ export const CLASS_SCORE_SHARE = { integrated: 0.8, discrete: 1 } as const satis
  *  The reference is the strongest integrated card in reference.ts (the 8060S, MEASURED at score 5005). A margin of 2 puts the line at twice its rate (score about 6420, a class cap of 8000 is above it): a faster iGPU or a boost spike is still integrated, only a card clearly beyond any built-in GPU becomes discrete.
  *  Conservative on purpose: a strong iGPU must never be raced as discrete; a masked weak discrete card is raced as integrated (slower class, honest score). Documented in docs/CALIBRATION.md. */
 export const MASKED_GPU_RULE = { referenceCard: 'AMD Radeon 8060S', margin: 2 } as const;
+
+/** the SHOW phase after the timed run (the rest of the song plays while the screen stays up). It never touches the score: it starts after the score is computed.
+ *  Kept light on purpose so a phone does not heat up: one draw per frame, no sync with the card, a small canvas and at most one frame every `frameMs`. */
+export const SHOW = { width: 640, height: 360, frameMs: 30, /** give up waiting for the song this many seconds after its length (a stalled player) */ graceSeconds: 10 } as const;

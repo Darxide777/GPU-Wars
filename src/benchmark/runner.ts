@@ -1,5 +1,5 @@
-// Runs the benchmark: a warm-up, then the timed passes, then the score (score.ts). Nothing here needs the real page: the workload, the clock and the waiting are handed in, so the tests run it with a fake card.
-import { BENCHMARK, type BackendId } from './constants.ts';
+// Runs the benchmark: a warm-up, then the timed passes, then the score (score.ts), then (only if a song is playing) the SHOW phase until the song ends. Nothing here needs the real page: the workload, the clock and the waiting are handed in, so the tests run it with a fake card.
+import { BENCHMARK, SHOW, type BackendId } from './constants.ts';
 import { outcomeFromPasses, type BenchmarkOutcome } from './score.ts';
 import { createWorkload, type Frame, type Workload } from './workload.ts';
 import { NO_BEAT, type BeatState } from '../beat/clock.ts';
@@ -14,6 +14,9 @@ export interface RunDeps {
   /** where to show the canvas and the status text; leave out to run without showing anything (tests) */ host?: HTMLElement;
   /** a fake card, clock and wait for tests */ createWorkload?: () => Workload | null; now?: () => number; sleep?: () => Promise<void>;
   /** whether the page has been hidden since the run started */ wasHidden?: () => boolean;
+  /** where the song is: seconds in and its length, or null when no song is playing (then there is no show phase and the run ends with the passes) */
+  song?: () => { time: number; duration: number } | null;
+  /** waits for the next animation frame (the show phase draws once per frame); tests hand in a fake */ nextFrame?: () => Promise<void>;
   /** told what is happening now: the words and how far along the run is (0 to 1) */ onStatus?: (text: string, progress: number) => void;
 }
 export interface RunHandle { done: Promise<RunResult>; cancel(): void }
@@ -49,6 +52,23 @@ export function startBenchmark(deps: RunDeps): RunHandle {
         }
         return { units, wallMs: now() - start };
       };
+      const nextFrame = deps.nextFrame ?? (() => new Promise<void>(r => (typeof requestAnimationFrame === 'function' ? requestAnimationFrame(() => r()) : setTimeout(r, 16))));
+      /** the rest of the song: light on the card (small canvas, one draw per frame, at most one frame every SHOW.frameMs, no read-back) */
+      const show = async (w: Workload, origin: number): Promise<void> => {
+        let song = deps.song?.() ?? null;
+        if (!song) return;
+        w.lighten();
+        const showStart = now(); let lastDraw = -Infinity;
+        while (!cancelled && song) {
+          const t = now();
+          if (t - showStart > (song.duration + SHOW.graceSeconds) * 1000) break;
+          const text = (s: number): string => `${Math.floor(s / 60)}:${String(Math.floor(s) % 60).padStart(2, '0')}`;
+          status(`SCORE LOCKED IN. SONG ${text(song.time)} / ${text(song.duration)}. ESC SKIPS TO THE RESULT`, song.time / Math.max(1, song.duration));
+          if (t - lastDraw >= SHOW.frameMs) { lastDraw = t; const seconds = (t - origin) / 1000; w.draw({ time: seconds, beat: deps.beat(seconds) ?? NO_BEAT }); }
+          await nextFrame();
+          song = deps.song?.() ?? null;
+        }
+      };
       const total = BENCHMARK.warmupMs + BENCHMARK.passes * BENCHMARK.passMs;
       await work(BENCHMARK.warmupMs, e => status('WARMING UP', e / total));
       const passes: { rate: number; wallMs: number }[] = [];
@@ -59,7 +79,10 @@ export function startBenchmark(deps: RunDeps): RunHandle {
       }
       if (cancelled) return { status: 'cancelled' };
       const outcome = outcomeFromPasses(passes, now() - runStart, hidden || (deps.wasHidden?.() ?? false), workload.backend as BackendId, deps.cls, deps.masked === true);
-      return outcome.ok ? { status: 'done', outcome } : { status: 'failed', reason: outcome.reason };
+      if (!outcome.ok) return { status: 'failed', reason: outcome.reason };
+      // the score is final here. The show phase only keeps the screen going until the song ends; cancelling it still delivers the score.
+      await show(workload, runStart);
+      return { status: 'done', outcome };
     } catch (e) {
       return { status: 'failed', reason: 'THE GRAPHICS CARD STOPPED RESPONDING' };
     } finally {

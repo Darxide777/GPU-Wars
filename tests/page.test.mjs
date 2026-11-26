@@ -71,7 +71,7 @@ test('the only song is Simulation Theory by Chromium Halo (not the remix), used 
 
 test('the benchmark screen shows the song and band top-left and draws in the game palette with no equalizer', () => {
   const screen = read('src/benchmark/screen.ts'), workload = read('src/benchmark/workload.ts');
-  assert.match(screen, /bm-song[^>]*top:\d+px;left:\d+px/); assert.match(screen, /SONG\.title/); assert.match(screen, /SONG\.artist/);
+  assert.match(screen, /#bm-song\{position:absolute;top:calc\(22px/); assert.match(screen, /#bm-title\{[^}]*#21e6ff[^}]*font-size:clamp\(28px/); assert.match(screen, /#bm-band\{[^}]*#ff2bd6/); assert.match(screen, /SONG\.title/); assert.match(screen, /SONG\.artist/);
   assert.deepEqual(PALETTE.magenta.map(v => Math.round(v * 255)), [255, 43, 214]); assert.deepEqual(PALETTE.cyan.map(v => Math.round(v * 255)), [33, 230, 255]); assert.deepEqual(PALETTE.background.map(v => Math.round(v * 255)), [5, 1, 15]);
   assert.doesNotMatch(workload, /uBars|uPeaks|EQ_BANDS/);
   assert.equal(NO_BEAT.eq, undefined);

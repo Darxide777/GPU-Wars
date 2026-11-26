@@ -109,3 +109,5 @@ Some browsers (Firefox ", or similar" buckets, resistFingerprinting, Tor, Brave 
 - Risks: an iGPU more than twice as fast as the 8060S would be called discrete (none is known); a real discrete card slower than 6.95e11 units/s (about an RTX 3060 or weaker, by the placeholder rates) with a masked name is raced as integrated and its score is capped at 8000. The margin and the 8060S rate are the only numbers to tune.
 
 The 8060S score was read twice on the owner's machine: 5005 (the RAW score, used here; below both class caps so raw = kept) and 4944. That is about 1 percent run-to-run variation (about 0.5 percent in rate terms on the log scale); the margin of 2 (a 100 percent rate gap) comfortably exceeds it. The class rule and `REFERENCE_CARDS` use the work RATE, which is the raw measurement, never the capped score.
+
+The benchmark screen's neon look and its show phase (the rest of the song after the score is measured) do not touch the scored work: `tests/benchmark.test.mjs` pins the `BENCHMARK` numbers and a hash of the shader source, so the 8060S raw score of about 5005 stays valid.
