@@ -338,8 +338,10 @@ function frame(now: number): void {
   }
   topDown.draw(ctx, W, H, race.state, 0, dt, now / 1000);
   if (screen === 'race') {
-    const label = (id: string, fallback: string): string => keyLabel((options.binds[id] ?? [])[0] ?? fallback);
-    drawProgress(ctx, W, H, s, 0, S, { launch: label('launch', ' '), nitro: label('nitro', 'Shift'), manual: me.tune.shift === 'manual' && options.driver === 'manual', auto: !!me.ai || options.driver === 'autopilot', burnout: label('burnout', 'j'), gas: label('gas', 'w'), brake: label('brake', 's'), chute: label('chute', 'n'), deepStage: label('deepStage', 'h'), backUp: label('backUp', 'r'), avoid: touchSpots() });
+    // with the touch buttons on screen the prompts name the buttons (GAS, BRAKE, BURN, BACK UP, GO, DEEP); otherwise the player's own bound keys
+    const spots = touchSpots(), touch = spots.length > 0, button = (id: string): string | undefined => input.touch.layout.find(r => r.id === id)?.label;
+    const label = (id: string, fallback: string): string => (touch ? button(id) : undefined) ?? keyLabel((options.binds[id] ?? [])[0] ?? fallback);
+    drawProgress(ctx, W, H, s, 0, S, { launch: label('launch', ' '), nitro: label('nitro', 'Shift'), manual: me.tune.shift === 'manual' && options.driver === 'manual', auto: !!me.ai || options.driver === 'autopilot', burnout: label('burnout', 'j'), gas: label('gas', 'w'), brake: label('brake', 's'), chute: label('chute', 'n'), deepStage: label('deepStage', 'h'), backUp: label('backUp', 'r'), touch, avoid: spots });
     // the touch controls go on top of the panel, unchanged
     input.draw(ctx, options.driver === 'manual');
   }

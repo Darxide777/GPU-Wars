@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { AUTO_DRIVER, CONDITIONS, DRAG, GHOST, STAGE, STAGE_LABELS, airDensity, conditionsForSeed, conditionsText, createDrag, densityAltitudeOf, densityTorqueShare, ghostStagingPath, hotPressure, pressureGrip, stageLabel, stagingPlanFor, stagingPoseAt, timeslip } from '../src/drag/physics.ts';
 import { DRAG_CARS, STOCK_PARTS, dragCarById } from '../src/drag/data.ts';
 import { BOOST, TIRE, cleanTune, defaultTune, specFor } from '../src/drag/tune.ts';
-import { drawProgress, drawTree, stagingPrompt } from '../src/drag/hud.ts';
+import { drawProgress, drawTree, guidePrompt } from '../src/drag/hud.ts';
 import { createDragTopDown, puffNoise } from '../src/drag/topdown.ts';
 import { DEFAULT_BINDS, BIND_ROWS } from '../src/options/model.ts';
 import { readFileSync } from 'node:fs';
@@ -114,8 +114,8 @@ test('backing up is slow, with a reverse light, and shows its speed and distance
   while (r.stage !== 'preStage' && d.state.t < 80) { driver(d, r, { noLaunch: true }); d.step(); if (r.stage === 'backup') { fastest = Math.max(fastest, -r.v); if (r.reversing) lit++; if (r.v < -0.1) reverseTicks++; } }
   assert.ok(fastest > 1 && fastest <= STAGE.backupSpeed + 1e-9, `slow: ${fastest.toFixed(2)} m/s`); assert.ok(lit > 240 * 3, 'the reverse light stays on while reversing'); assert.ok(reverseTicks > 240 * 3, 'a back up takes seconds, not a teleport');
   const text = { launch: 'X', nitro: 'N', manual: false, gas: 'W', burnout: 'J', brake: 'S', chute: 'N', backUp: 'R' };
-  r.stage = 'backup'; r.v = -1.5; r.x = 3; const shown = stagingPrompt(r, d.state, text); assert.equal(shown.title, '', 'the stage name is in the panel, not the prompt');
-  assert.ok(shown.lines.some(l => /3\.80 M TO PRE-STAGE/.test(l[0])), shown.lines.map(l => l[0]).join(' | ')); assert.ok(!shown.lines.some(l => /M\/S|ROLLBACK/.test(l[0])), 'the speed is shown once (the panel)');
+  r.stage = 'backup'; r.v = -1.5; r.x = 3; const shown = guidePrompt(r, d.state, text);
+  assert.equal(shown.variants[0], 'BACK UP (R) 4 M', 'one line: the key and the distance to the pre-stage beam'); assert.ok(!shown.variants.some(l => /M\/S|ROLLBACK/.test(l)), 'the speed is not written (the tachometer shows it)');
 });
 
 test('the HUD names every stage and the tree draws a dark tree before staging and its bulbs after', () => {
