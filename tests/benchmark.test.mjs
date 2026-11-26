@@ -20,7 +20,7 @@ import { createDrag, createDragStrip, DRAG } from '../src/drag/physics.ts';
 import { cleanTune } from '../src/drag/tune.ts';
 import { STOCK_CAR } from '../src/drag/spec-source.ts';
 
-const result = (o = {}) => ({ score: 5000, class: 'discrete-nvidia-modern', benchmarkVersion: BENCHMARK.version, gpuId: 'NVIDIA GeForce RTX 3060', date: 1700000000000, ...o });
+const result = (o = {}) => ({ score: 5000, class: 'discrete', benchmarkVersion: BENCHMARK.version, gpuId: 'NVIDIA GeForce RTX 3060', date: 1700000000000, ...o });
 
 // ---- spec from the score ----
 test('the spec stays inside the class limits and in sane bounds for every class at score extremes', () => {
@@ -33,13 +33,13 @@ test('the spec stays inside the class limits and in sane bounds for every class 
   }
 });
 test('a higher score never gives a weaker engine in the same class, and the table is in order', () => {
-  for (const cls of ['integrated', 'discrete-amd-classic', 'discrete-nvidia-current']) { let last = 0; for (let s = 0; s <= BENCHMARK.maxScore; s += 250) { const t = specForBenchmark(result({ class: cls, score: s })).torque; assert.ok(t >= last, `${cls} ${s}`); last = t; } }
+  for (const cls of ['integrated', 'discrete', 'discrete']) { let last = 0; for (let s = 0; s <= BENCHMARK.maxScore; s += 250) { const t = specForBenchmark(result({ class: cls, score: s })).torque; assert.ok(t >= last, `${cls} ${s}`); last = t; } }
   assert.ok(tableRowFor(-5).torqueShare === tableRowFor(0).torqueShare && tableRowFor(1e9).torqueShare === tableRowFor(1).torqueShare);
 });
 test('the same result always gives the same spec, with no benchmark the stock car, and class limits beat a high score', () => {
   assert.deepEqual(specForBenchmark(result()), specForBenchmark(result())); assert.deepEqual(specForBenchmark(null), { ...specForBenchmark(WEAKEST_RESULT), torque: Math.round(specForBenchmark(WEAKEST_RESULT).torque * UNBENCHMARKED_TORQUE_SHARE) });
   assert.deepEqual(specForBenchmark(result({ class: 'not a class' })), specForBenchmark(null), 'a result with an unknown class is not believed');
-  const weak = specForBenchmark(result({ class: 'integrated', score: BENCHMARK.maxScore })), strong = specForBenchmark(result({ class: 'discrete-nvidia-current', score: BENCHMARK.maxScore }));
+  const weak = specForBenchmark(result({ class: 'integrated', score: BENCHMARK.maxScore })), strong = specForBenchmark(result({ class: 'discrete', score: BENCHMARK.maxScore }));
   assert.ok(weak.torque <= CLASS_SPEC_LIMITS.integrated.torqueNm[1] && weak.torque < strong.torque);
 });
 test('the un-benchmarked spec is no faster than the lowest possible benchmarked one, and weaker than every other', () => {
@@ -47,7 +47,7 @@ test('the un-benchmarked spec is no faster than the lowest possible benchmarked 
   assert.deepEqual({ ...none, torque: 0 }, { ...floor, torque: 0 }); assert.ok(none.torque < floor.torque, 'strictly weaker than the slowest benchmarked card');
   for (const cls of CLASS_IDS) for (const score of [0, 3000, BENCHMARK.maxScore]) { const s = specForBenchmark(result({ class: cls, score })); assert.ok(none.torque <= s.torque && none.redline <= s.redline, `${cls} ${score}`); }
   const et = spec => { const { tune } = readyCar(emptySave()); const d = createDrag({ seed: 3, strip: createDragStrip(2), entrants: [{ name: 'YOU', spec, tune, ai: { react: 0.2, spread: 0, shiftErr: 0, foul: 0 } }] }); let n = 0; while (d.state.phase !== 'over' && n++ < 240 * 60) d.step(); return d.state.runners[0].marks.quarter; };
-  assert.ok(et(none) >= et(specForBenchmark(result({ class: 'discrete-nvidia-current', score: BENCHMARK.maxScore }))), 'and slower than the best card');
+  assert.ok(et(none) >= et(specForBenchmark(result({ class: 'discrete', score: BENCHMARK.maxScore }))), 'and slower than the best card');
 });
 test('the clutch passes through and the rest of the car is the stock parts', () => {
   const s = specForBenchmark(result(), 0.6), stock = stockSpec(0.6);
@@ -56,7 +56,7 @@ test('the clutch passes through and the rest of the car is the stock parts', () 
 
 // ---- hp, torque and rpm agree, through the one curve ----
 test('hp = torque x rpm / 7127 on the same curve the physics uses, and the peaks are consistent', () => {
-  for (const cls of ['integrated', 'discrete-amd-classic', 'discrete-nvidia-current']) for (const sustain of [0, 0.5, 1]) {
+  for (const cls of ['integrated', 'discrete', 'discrete']) for (const sustain of [0, 0.5, 1]) {
     const spec = specForBenchmark(result({ class: cls, score: 7000, sustain })), pts = dynoCurve(spec, 50), peaks = dynoPeaks(spec);
     for (const p of pts) { assert.ok(Math.abs(p.hp - p.torqueNm * p.rpm / HP_DIVISOR) < 1e-9); assert.ok(p.torqueNm <= spec.torque + 1e-9, 'torque never above the peak'); }
     assert.ok(Math.abs(peaks.torqueNm - spec.torque) < spec.torque * 0.01, 'the curve reaches the spec torque');
@@ -77,7 +77,7 @@ test('sustained cards get broad high-rev curves and burst cards punchy low-mid o
   assert.deepEqual(curveForSustain(NaN), curveForSustain(0.5));
 });
 test('a class with no measured sustain uses its usual: integrated bursts, discrete holds', () => {
-  const i = specForBenchmark(result({ class: 'integrated', sustain: undefined })), d = specForBenchmark(result({ class: 'discrete-nvidia-modern', sustain: undefined }));
+  const i = specForBenchmark(result({ class: 'integrated', sustain: undefined })), d = specForBenchmark(result({ class: 'discrete', sustain: undefined }));
   assert.ok(d.peakRpm / d.redline > i.peakRpm / i.redline);
 });
 test('the dyno graph is drawn with the shift point and the power peak', () => {
@@ -85,7 +85,7 @@ test('the dyno graph is drawn with the shift point and the power peak', () => {
   assert.doesNotMatch(dynoSvg(specForBenchmark(result()), NaN), /NaN/);
 });
 test('a full race at the weakest and strongest specs finishes with finite numbers, and the default tune fits the engine', () => {
-  for (const [cls, score] of [['integrated', 0], ['discrete-nvidia-current', BENCHMARK.maxScore]]) {
+  for (const [cls, score] of [['integrated', 0], ['discrete', BENCHMARK.maxScore]]) {
     const save = { ...emptySave(), benchmark: result({ class: cls, score }) }, { spec, tune } = readyCar(save);
     assert.ok(tune.shiftRpm <= spec.redline && tune.shiftRpm >= spec.redline - 500, `shift at ${tune.shiftRpm}, limiter ${spec.redline}`);
     const d = createDrag({ seed: 3, strip: createDragStrip(2), entrants: [{ name: 'YOU', spec, tune, ai: { react: 0.2, spread: 0, shiftErr: 0, foul: 0 } }] }); let n = 0;
@@ -94,7 +94,7 @@ test('a full race at the weakest and strongest specs finishes with finite number
   }
   const et = (cls, score, sustain) => { const { spec, tune } = readyCar({ ...emptySave(), benchmark: result({ class: cls, score, sustain }) }); const d = createDrag({ seed: 3, strip: createDragStrip(2), entrants: [{ name: 'YOU', spec, tune, ai: { react: 0.2, spread: 0, shiftErr: 0, foul: 0 } }] }); let n = 0; while (d.state.phase !== 'over' && n++ < 240 * 60) d.step(); return d.state.runners[0].marks.quarter; };
   // with the default tune a better card is never meaningfully slower (the torque range stops where grip becomes the limit), and the weakest is clearly slower than the strongest
-  for (const cls of ['integrated', 'discrete-nvidia-current']) { let slowest = 0, last = Infinity; for (let s = 0; s <= BENCHMARK.maxScore; s += 1000) { const e = et(cls, s, 0.7); assert.ok(e <= last + 0.1, `${cls} ${s}: ${e} after ${last}`); last = e; slowest = Math.max(slowest, e); } assert.ok(slowest - last > 0.5, `${cls} spans ${slowest - last}`); }
+  for (const cls of ['integrated', 'discrete']) { let slowest = 0, last = Infinity; for (let s = 0; s <= BENCHMARK.maxScore; s += 1000) { const e = et(cls, s, 0.7); assert.ok(e <= last + 0.1, `${cls} ${s}: ${e} after ${last}`); last = e; slowest = Math.max(slowest, e); } assert.ok(slowest - last > 0.5, `${cls} spans ${slowest - last}`); }
 });
 
 // ---- scoring ----
@@ -110,7 +110,7 @@ test('the score is a log scale from 0 to the top and never outside it, and 2D ca
   assert.ok(scoreFromRate(1e15, 'canvas2d') <= BENCHMARK.maxScore * BENCHMARK.canvas2dScoreShare);
 });
 test('impossible scores are capped by class', () => {
-  assert.equal(capScore(99999, 'integrated'), classScoreCap('integrated')); assert.ok(classScoreCap('integrated') < classScoreCap('discrete-nvidia-current')); assert.equal(capScore(-5, 'integrated'), 0); assert.equal(capScore(NaN, 'integrated'), 0);
+  assert.equal(capScore(99999, 'integrated'), classScoreCap('integrated')); assert.ok(classScoreCap('integrated') < classScoreCap('discrete')); assert.equal(capScore(-5, 'integrated'), 0); assert.equal(capScore(NaN, 'integrated'), 0);
   const ok = Array.from({ length: BENCHMARK.passes }, () => ({ rate: BENCHMARK.rate.webgl2.max, wallMs: BENCHMARK.passMs }));
   const o = outcomeFromPasses(ok, 15000, false, 'webgl2', 'integrated'); assert.ok(o.ok && o.capped && o.score === classScoreCap('integrated') && o.rawScore === BENCHMARK.maxScore);
 });
@@ -127,8 +127,8 @@ test('the batch of draws between syncs adapts', () => {
 test('the runner runs warm-up, passes and scoring with a fake card and clock, and can be cancelled', async () => {
   let t = 0; const now = () => t, sleep = async () => { t += 10; };
   const fake = { backend: 'webgl2', canvas: { remove() {} }, unitsPerDraw: 1e9, dispose() {}, run(draws) { t += 5 * draws; return draws * 1e9; } };
-  const run = startBenchmark({ cls: 'discrete-nvidia-modern', beat: () => ({ eq: [], pulse: 0, pulse2: 0, pulseHalf: 0, phase: 1, index: 0, intensity: 0, bass: 0, mid: 0, high: 0, on: false }), createWorkload: () => fake, now, sleep });
-  const r = await run.done; assert.equal(r.status, 'done', JSON.stringify(r).slice(0, 300)); assert.equal(r.outcome.rates.length, BENCHMARK.passes); assert.ok(r.outcome.score > 0 && r.outcome.score <= classScoreCap('discrete-nvidia-modern'));
+  const run = startBenchmark({ cls: 'discrete', beat: () => ({ eq: [], pulse: 0, pulse2: 0, pulseHalf: 0, phase: 1, index: 0, intensity: 0, bass: 0, mid: 0, high: 0, on: false }), createWorkload: () => fake, now, sleep });
+  const r = await run.done; assert.equal(r.status, 'done', JSON.stringify(r).slice(0, 300)); assert.equal(r.outcome.rates.length, BENCHMARK.passes); assert.ok(r.outcome.score > 0 && r.outcome.score <= classScoreCap('discrete'));
   const again = await startBenchmark({ cls: 'integrated', beat: () => ({}), createWorkload: () => ({ ...fake, run(d) { t += 5 * d; return d * 1e9; } }), now: () => t, sleep }).done; assert.equal(again.status, 'done');
   let t2 = 0; const c = startBenchmark({ cls: 'integrated', beat: () => ({ eq: [] }), createWorkload: () => fake, now: () => t2, sleep: async () => { t2 += 10; } }); c.cancel(); assert.equal((await c.done).status, 'cancelled');
   assert.equal((await startBenchmark({ cls: 'integrated', beat: () => ({}), createWorkload: () => null }).done).status, 'failed', 'no way to draw is reported, not thrown');
@@ -146,36 +146,36 @@ const CARDS = [
   ['', '', { vendor: 'amd', architecture: 'rdna3.5', device: '0x1586', description: 'AMD Radeon 8060S' }, 'integrated'], ['', '', { vendor: 'amd', architecture: 'rdna-3' }, 'integrated'],
   ['', 'AMD Radeon 890M Graphics', null, 'integrated'], ['', 'AMD Radeon(TM) 780M', null, 'integrated'], ['', 'AMD Radeon(TM) Graphics', null, 'integrated'], ['', 'AMD Radeon(TM) Vega 8 Graphics', null, 'integrated'], ['', 'AMD Radeon RX Vega 11 Graphics', null, 'integrated'],
   // separate cards
-  ['Google Inc. (NVIDIA)', NV, null, 'discrete-nvidia-current'], ['', 'NVIDIA GeForce RTX 5090/PCIe/SSE2', null, 'discrete-nvidia-current'], ['', '', { vendor: 'nvidia', architecture: 'ada-lovelace', description: 'NVIDIA GeForce RTX 4090' }, 'discrete-nvidia-current'],
-  ['', 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 (0x00002504) Direct3D11 vs_5_0 ps_5_0, D3D11)', null, 'discrete-nvidia-modern'], ['', 'NVIDIA GeForce GTX 1650', null, 'discrete-nvidia-modern'], ['', 'NVIDIA GeForce GTX 1060 6GB', null, 'discrete-nvidia-classic'], ['', 'NVIDIA GeForce GTX 480', null, 'discrete-nvidia-retro'],
-  ['', 'AMD Radeon RX 7900 XTX (radeonsi, navi31, LLVM 19.1.0, DRM 3.59, 6.8.0)', null, 'discrete-amd-current'], ['', 'ANGLE (AMD, AMD Radeon RX 9070 XT (0x00007550) Direct3D11, D3D11)', null, 'discrete-amd-current'], ['', 'AMD Radeon Graphics (radeonsi, gfx1201, LLVM 20.1.2)', null, 'discrete-amd-current'],
-  ['', 'AMD Radeon RX 6800 XT', null, 'discrete-amd-modern'], ['', 'ANGLE (AMD, AMD Radeon RX 580 Series Direct3D11, D3D11)', null, 'discrete-amd-classic'], ['', 'AMD Radeon RX Vega 64', null, 'discrete-amd-classic'],
-  ['', 'ANGLE (Intel, Intel(R) Arc(TM) A770 Graphics (0x000056A0) Direct3D11 vs_5_0 ps_5_0, D3D11)', null, 'discrete-intel-current'], ['', 'ANGLE (Intel, Intel(R) Arc(TM) B580 Graphics (0x0000E20B) Direct3D11, D3D11)', null, 'discrete-intel-current'], ['', '', { vendor: 'intel', architecture: 'xe-hpg', description: 'Intel(R) Arc(tm) A770 Graphics' }, 'discrete-intel-current'],
+  ['Google Inc. (NVIDIA)', NV, null, 'discrete'], ['', 'NVIDIA GeForce RTX 5090/PCIe/SSE2', null, 'discrete'], ['', '', { vendor: 'nvidia', architecture: 'ada-lovelace', description: 'NVIDIA GeForce RTX 4090' }, 'discrete'],
+  ['', 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 (0x00002504) Direct3D11 vs_5_0 ps_5_0, D3D11)', null, 'discrete'], ['', 'NVIDIA GeForce GTX 1650', null, 'discrete'], ['', 'NVIDIA GeForce GTX 1060 6GB', null, 'discrete'], ['', 'NVIDIA GeForce GTX 480', null, 'discrete'],
+  ['', 'AMD Radeon RX 7900 XTX (radeonsi, navi31, LLVM 19.1.0, DRM 3.59, 6.8.0)', null, 'discrete'], ['', 'ANGLE (AMD, AMD Radeon RX 9070 XT (0x00007550) Direct3D11, D3D11)', null, 'discrete'], ['', 'AMD Radeon Graphics (radeonsi, gfx1201, LLVM 20.1.2)', null, 'discrete'],
+  ['', 'AMD Radeon RX 6800 XT', null, 'discrete'], ['', 'ANGLE (AMD, AMD Radeon RX 580 Series Direct3D11, D3D11)', null, 'discrete'], ['', 'AMD Radeon RX Vega 64', null, 'discrete'],
+  ['', 'ANGLE (Intel, Intel(R) Arc(TM) A770 Graphics (0x000056A0) Direct3D11 vs_5_0 ps_5_0, D3D11)', null, 'discrete'], ['', 'ANGLE (Intel, Intel(R) Arc(TM) B580 Graphics (0x0000E20B) Direct3D11, D3D11)', null, 'discrete'], ['', '', { vendor: 'intel', architecture: 'xe-hpg', description: 'Intel(R) Arc(tm) A770 Graphics' }, 'discrete'],
   // built in, phones, Apple, software
   ['', 'ANGLE (Intel, Intel(R) UHD Graphics 620 (0x00005917) Direct3D11 vs_5_0 ps_5_0, D3D11)', null, 'integrated'], ['', 'Mesa Intel(R) Arc(tm) Graphics (MTL)', null, 'integrated'], ['', 'Intel(R) Iris(R) Xe Graphics', null, 'integrated'], ['', '', { vendor: 'intel', architecture: 'xe-lpg' }, 'integrated'],
   ['', 'ANGLE (Apple, ANGLE Metal Renderer: Apple M3 Pro, Unspecified Version)', null, 'integrated'], ['', 'Apple M2', null, 'integrated'], ['', 'Adreno (TM) 650', null, 'integrated'], ['', 'Mali-G78', null, 'integrated'],
   ['', 'ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)', null, 'integrated'], ['', 'llvmpipe (LLVM 17.0.6, 256 bits)', null, 'integrated'], ['', '', { vendor: 'google', architecture: 'swiftshader', isFallbackAdapter: true }, 'integrated'],
   // unclear: the safe defaults
   ['', '', null, 'integrated'], ['', 'unknown', null, 'integrated'], ['', 'Some Brand GPU 9000', null, 'integrated'],
-  ['', 'NVIDIA GeForce 8800 GTX', null, 'discrete-nvidia-retro'], ['', 'Moore Threads MTT S80', null, 'discrete-other-retro'], ['', '', { vendor: 'nvidia' }, 'discrete-nvidia-retro'],
+  ['', 'NVIDIA GeForce 8800 GTX', null, 'discrete'], ['', 'Moore Threads MTT S80', null, 'discrete'], ['', '', { vendor: 'nvidia' }, 'discrete'],
 ];
 test('the class is detected from real renderer and adapter strings, whatever the browser calls the card', () => {
   for (const [vendor, renderer, adapter, want] of CARDS) assert.equal(identify({ webglVendor: vendor, webglRenderer: renderer, adapter }).gpuClass, want, `${vendor} | ${renderer} | ${JSON.stringify(adapter)}`);
   for (const [, renderer] of CARDS) assert.ok(CLASS_IDS.includes(classifyGpu(renderer)), 'every answer is a real class id');
 });
-test('the safe defaults: unclear is integrated, an unknown maker is "other", an unknown generation is the slowest discrete era', () => {
+test('the safe defaults: unclear is integrated, a separate card from an unknown maker or generation is discrete', () => {
   assert.equal(classifyGpu(''), 'integrated'); assert.equal(classifyGpu('WebKit WebGL'), 'integrated');
-  assert.equal(classifyGpu('Moore Threads MTT S80'), 'discrete-other-retro'); assert.equal(classifyGpu('NVIDIA GeForce 9800 GTX'), 'discrete-nvidia-retro');
+  assert.equal(classifyGpu('Moore Threads MTT S80'), 'discrete'); assert.equal(classifyGpu('NVIDIA GeForce 9800 GTX'), 'discrete');
   assert.equal(identify({ webglVendor: '', webglRenderer: 'Mesa', adapter: { vendor: 'amd', architecture: 'rdna-3' } }).gpuClass, 'integrated', 'RDNA 3 alone does not tell a 7900 from a 780M: built in');
 });
 test('WebGL and WebGPU: plain evidence beats a guess, a software WebGPU adapter does not veto a real WebGL card, WebGL wins ties', () => {
-  assert.equal(identify({ webglVendor: '', webglRenderer: 'Mesa', adapter: { vendor: 'nvidia', architecture: 'ampere', description: 'NVIDIA GeForce RTX 3060' } }).gpuClass, 'discrete-nvidia-modern', 'WebGL masked: WebGPU names the card');
-  assert.equal(identify({ webglVendor: '', webglRenderer: NV, adapter: { vendor: 'google', architecture: 'swiftshader', isFallbackAdapter: true } }).gpuClass, 'discrete-nvidia-current');
-  assert.equal(identify({ webglVendor: '', webglRenderer: NV, adapter: { vendor: 'intel', description: 'Intel(R) UHD Graphics 630' } }).gpuClass, 'discrete-nvidia-current', 'WebGL is the card the benchmark runs on');
+  assert.equal(identify({ webglVendor: '', webglRenderer: 'Mesa', adapter: { vendor: 'nvidia', architecture: 'ampere', description: 'NVIDIA GeForce RTX 3060' } }).gpuClass, 'discrete', 'WebGL masked: WebGPU names the card');
+  assert.equal(identify({ webglVendor: '', webglRenderer: NV, adapter: { vendor: 'google', architecture: 'swiftshader', isFallbackAdapter: true } }).gpuClass, 'discrete');
+  assert.equal(identify({ webglVendor: '', webglRenderer: NV, adapter: { vendor: 'intel', description: 'Intel(R) UHD Graphics 630' } }).gpuClass, 'discrete', 'WebGL is the card the benchmark runs on');
   assert.equal(identify({ webglVendor: '', webglRenderer: 'SwiftShader', adapter: { vendor: 'nvidia', description: 'NVIDIA GeForce RTX 3060' } }).software, true);
   assert.equal(identify({ webglVendor: '', webglRenderer: 'x\u0000éy  z', adapter: null }).gpuId, 'xy z'); assert.equal(identify({ webglVendor: '', webglRenderer: '', adapter: null }).gpuId, 'unknown');
   assert.equal(identify({ webglVendor: '', webglRenderer: '', adapter: { description: 'Radeon' } }).source, 'webgpu'); assert.ok(identify({ webglVendor: '', webglRenderer: 'a'.repeat(500), adapter: null }).gpuId.length <= 200);
-  assert.equal(identityFromText('NVIDIA GeForce RTX 3060', '').gpuClass, 'discrete-nvidia-modern');
+  assert.equal(identityFromText('NVIDIA GeForce RTX 3060', '').gpuClass, 'discrete');
 });
 test('the result screen and the console show what the game saw', () => {
   const g = identify({ webglVendor: 'Google Inc. (AMD)', webglRenderer: 'ANGLE (AMD, AMD Radeon(TM) 8060S Graphics (0x00001586) Direct3D11, D3D11)', adapter: null }), line = gpuLine(g);
@@ -204,10 +204,10 @@ test('a strong integrated GPU (the 8060S) is raced as integrated near 10 s, and 
   const score = Math.min(scoreFromRate(ref.rate, 'webgl2'), classScoreCap(gpu.gpuClass));
   const et = cls => { const { spec, tune } = readyCar({ ...emptySave(), benchmark: resultFromRun({ score, sustain: 1, cls, gpuId: gpu.gpuId, now: 1 }) }), st = rankedStart(); return predictDrag(spec, tune, RANKED.seed, RANKED.conditions, st.fuel, st.engineTemp, rankedStrip()).slip.quarter; };
   assert.ok(Math.abs(et(gpu.gpuClass) - 10) < 0.35, `integrated: ${et(gpu.gpuClass).toFixed(2)} s`);
-  assert.ok(et('discrete-nvidia-classic') < 7, 'the discrete class the owner was put in is the 5 to 6 s car');
+  assert.ok(et('discrete') < 5, 'the same score in the discrete class would be a 4 to 5 s car, so the class must never be picked');
   // no UI path turns it discrete: the only class the benchmark is started with is the detected one, and a saved result of another class is dropped
   let started = null; benchmarkItem({ save: () => emptySave(), gpu: () => gpu, say() {}, start: c => { started = c; }, refresh() {} }).enter(); assert.equal(started, 'integrated');
-  const stale = { ...emptySave(), benchmark: resultFromRun({ score, sustain: 1, cls: 'discrete-nvidia-classic', gpuId: gpu.gpuId, now: 1 }) };
+  const stale = { ...emptySave(), benchmark: resultFromRun({ score, sustain: 1, cls: 'discrete', gpuId: gpu.gpuId, now: 1 }) };
   assert.equal(repairBenchmark(stale, gpu).benchmark, null, 'a result saved in a picked class is thrown away');
   assert.equal(readyCar(repairBenchmark(stale, gpu)).spec.torque, readyCar(emptySave()).spec.torque, 'and the car is stock again until the benchmark is re-run');
 });
@@ -219,10 +219,10 @@ test('the benchmark is re-run only when the card, the benchmark version or the d
   assert.equal(rerunReason(r, r.gpuId, BENCHMARK.version, 'integrated'), 'class changed'); assert.equal(rerunReason(r, r.gpuId, BENCHMARK.version, r.class), null);
 });
 test('an old save is repaired: its classLock is dropped and a result in another class is removed, a matching result stays', () => {
-  const old = sanitizeSave({ version: 1, classLock: { class: 'discrete-nvidia-classic', gpuId: 'g', date: 5 }, benchmark: result({ class: 'discrete-nvidia-classic', gpuId: 'g' }), tune: { final: 3.5 } });
+  const old = sanitizeSave({ version: 1, classLock: { class: 'discrete', gpuId: 'g', date: 5 }, benchmark: result({ class: 'discrete', gpuId: 'g' }), tune: { final: 3.5 } });
   assert.equal('classLock' in old, false); assert.equal(old.version, 2); assert.equal(old.tune.final, 3.5, 'the tune is kept');
   assert.equal(repairBenchmark(old, { gpuClass: 'integrated', ready: true }).benchmark, null);
-  assert.equal(repairBenchmark(old, { gpuClass: 'discrete-nvidia-classic', ready: true }), null, 'nothing to repair when the class matches');
+  assert.equal(repairBenchmark(old, { gpuClass: 'discrete', ready: true }), null, 'nothing to repair when the class matches');
   assert.equal(repairBenchmark(old, { gpuClass: 'integrated', ready: false }), null, 'nothing is judged before the card has been read');
   assert.equal(repairBenchmark(emptySave(), { gpuClass: 'integrated', ready: true }), null);
 });
@@ -232,9 +232,19 @@ test('the saved benchmark is checked, and the result has the agreed fields', () 
   const run = resultFromRun({ score: 4321, sustain: 2, cls: 'integrated', gpuId: 'g', now: 99.9 });
   assert.deepEqual(Object.keys(run).sort(), ['benchmarkVersion', 'class', 'date', 'gpuId', 'score', 'sustain']); assert.equal(run.sustain, 1); assert.equal(run.date, 99);
   assert.deepEqual(sanitizeSave({ benchmark: run }).benchmark, run);
-  for (const bad of [{ ...run, class: 'integrated; DROP' }, { ...run, class: 'discrete-nvidia-future' }, { ...run, gpuId: '\u0001' }, { ...run, score: 'x' }, { ...run, score: -1 }, null, 3, []]) assert.equal(cleanBenchmark(bad), null);
+  for (const bad of [{ ...run, class: 'integrated; DROP' }, { ...run, gpuId: '\u0001' }, { ...run, score: 'x' }, { ...run, score: -1 }, null, 3, []]) assert.equal(cleanBenchmark(bad), null);
   assert.equal(cleanBenchmark({ ...run, score: 1e9 }).score, BENCHMARK.maxScore, 'an impossible stored score is capped'); assert.equal(cleanBenchmark({ ...run, sustain: 'x' }).sustain, undefined); assert.equal(cleanBenchmark({ ...run, gpuId: 'é' + 'g'.repeat(400) }).gpuId.length, 200);
   assert.equal('classLock' in emptySave(), false); assert.equal('classLock' in sanitizeSave({ classLock: { class: 'integrated', gpuId: 'g', date: 1 } }), false);
+});
+test('a save from the 17-class build (class "discrete-nvidia-classic") is read as "class changed": the result is kept, then removed so the benchmark is re-run in the detected class', () => {
+  const old = sanitizeSave({ version: 2, benchmark: result({ class: 'discrete-nvidia-classic', gpuId: 'NVIDIA GeForce GTX 1060', score: 4100 }), tune: { final: 3.5 } });
+  assert.equal(old.benchmark.class, 'discrete-nvidia-classic', 'the old class id survives loading, so it can be told apart from a save with no result');
+  assert.equal(rerunReason(old.benchmark, 'NVIDIA GeForce GTX 1060', BENCHMARK.version, 'discrete'), 'class changed');
+  assert.equal(needsBenchmark(old.benchmark, { gpuId: 'NVIDIA GeForce GTX 1060', gpuClass: 'discrete' }), true);
+  assert.equal(specForBenchmark(old.benchmark).torque, specForBenchmark(null).torque, 'an unknown class never gives a faster car than no result');
+  const fixed = repairBenchmark(old, { gpuClass: 'discrete', ready: true });
+  assert.equal(fixed.benchmark, null, 'the benchmark is asked for again'); assert.equal(fixed.tune.final, 3.5, 'the tune is kept');
+  assert.equal(sanitizeSave({ benchmark: result({ class: 'integrated; DROP' }) }).benchmark, null);
 });
 test('a tune saved for a stronger engine is brought inside a weaker one', () => {
   const weak = specForBenchmark(result({ class: 'integrated', score: 0 })), tune = cleanTune({ shiftRpm: 9300, launchRpm: 9000 }, { ...STOCK_CAR, redline: weak.redline, peakRpm: weak.peakRpm }, weak);

@@ -12,7 +12,7 @@ import { fallbackLeader } from '../src/leaderboard/leader.ts';
 import { RANKED, rankedStart, rankedStrip } from '../src/leaderboard/ranked.ts';
 
 const spec = specForBenchmark(null), tune = defaultTune(DRAG_CARS[0]);
-const record = (extra = {}) => ({ name: 'SPEEDY', class: 'discrete-nvidia-modern', category: 'manual', reactionTime: 0.061, splits: { quarter: 7.2 }, trapSpeed: 190, seed: 4242, source: 'fallback', ...extra });
+const record = (extra = {}) => ({ name: 'SPEEDY', class: 'discrete', category: 'manual', reactionTime: 0.061, splits: { quarter: 7.2 }, trapSpeed: 190, seed: 4242, source: 'fallback', ...extra });
 const raceWith = (ghost, quick = false) => createDrag({ seed: RANKED.seed, conditions: RANKED.conditions, strip: rankedStrip(), quickStart: quick, entrants: [{ name: 'YOU', spec, tune, ai: { ...AUTO_DRIVER }, ...rankedStart() }, { name: ghost.name, spec, tune, ghost }] });
 const runToEnd = (race, onStep) => { for (let i = 0; i < 240 * 120 && race.state.phase !== 'over'; i++) { race.step(); onStep?.(race.state); } return race.state; };
 
@@ -59,7 +59,7 @@ test('the ghost stages like a real car: burnout, run-out, back up, pre-stage, st
 });
 
 test('the ghost launch is a realistic share of its ET: 60 ft is about 15 to 22 percent (top fuel 0.8 s of 3.7, a ten second car 1.6 s)', () => {
-  assert.ok(Math.abs(launchShareFor(3.7) - 0.193) < 1e-9 && launchShareFor(10) < 0.19 && launchShareFor(10) > 0.17);
+  assert.ok(Math.abs(launchShareFor(3.7) - 0.198) < 1e-9 && launchShareFor(10) < 0.19 && launchShareFor(10) > 0.17);
   for (const [et, trap] of [[3.7, 330], [4.2, 290], [6.6, 210], [7.9, 170], [10, 135], [13, 105]]) {
     const s = completeSplits(record({ splits: { quarter: et }, trapSpeed: trap })), share = s.ft60 / et;
     assert.ok(share > 0.145 && share < 0.23, `${et} s ET: 60 ft ${s.ft60.toFixed(2)} s is ${(share * 100).toFixed(1)} percent`);
@@ -89,13 +89,18 @@ test('ghost splits follow the physics: every class leader ghost reaches 60 ft, 3
   const { BENCHMARK } = await import('../src/benchmark/constants.ts');
   const { classScoreCap } = await import('../src/benchmark/score.ts');
   const marks = ['ft60', 'ft330', 'eighth', 'ft1000'];
-  for (const cls of ['integrated', 'discrete-amd-retro', 'discrete-amd-classic', 'discrete-nvidia-modern', 'discrete-amd-current']) {
-    const { spec, tune } = readyCar({ ...emptySave(), benchmark: { score: Math.round(classScoreCap(cls) * 0.7), class: cls, benchmarkVersion: BENCHMARK.version, gpuId: 'ghost-test', date: 1 } }), st = rankedStart();
-    const slip = predictDrag(spec, tune, RANKED.seed, RANKED.conditions, st.fuel, st.engineTemp, rankedStrip()).slip, ghost = completeSplits(fallbackLeader(cls));
-    for (const m of marks) {
-      const physics = slip[m] / slip.quarter, generated = ghost[m] / ghost.quarter;
-      assert.ok(Math.abs(generated / physics - 1) < 0.05, `${cls} ${m}: the ghost takes ${(generated * 100).toFixed(1)}% of its ET, the physics ${(physics * 100).toFixed(1)}%`);
+  for (const cls of ['integrated', 'discrete', 'discrete', 'discrete', 'discrete']) {
+    // the bundled leader's own ET, and then the whole score range (the one discrete class spans 4 s to 7 s, so the share is checked all the way)
+    for (const fraction of [0.7, 0, 0.1, 0.25, 0.5, 1]) {
+      const { spec, tune } = readyCar({ ...emptySave(), benchmark: { score: Math.round(classScoreCap(cls) * fraction), class: cls, benchmarkVersion: BENCHMARK.version, gpuId: 'ghost-test', date: 1 } }), st = rankedStart();
+      const slip = predictDrag(spec, tune, RANKED.seed, RANKED.conditions, st.fuel, st.engineTemp, rankedStrip()).slip;
+      const ghost = completeSplits(fraction === 0.7 ? fallbackLeader(cls) : { ...fallbackLeader(cls), splits: { quarter: slip.quarter }, trapSpeed: slip.trap / 1.609344 });
+      for (const m of marks) {
+        const physics = slip[m] / slip.quarter, generated = ghost[m] / ghost.quarter;
+        assert.ok(Math.abs(generated / physics - 1) < 0.05, `${cls} at ${fraction} of the class's top score (${slip.quarter.toFixed(2)} s) ${m}: the ghost takes ${(generated * 100).toFixed(1)}% of its ET, the physics ${(physics * 100).toFixed(1)}%`);
+      }
     }
+    const ghost = completeSplits(fallbackLeader(cls));
     // a split the leader's record provides stays exactly as given
     const given = { ...fallbackLeader(cls), splits: { quarter: ghost.quarter, ft60: ghost.ft60 * 1.1 } };
     assert.equal(completeSplits(given).ft60, ghost.ft60 * 1.1);

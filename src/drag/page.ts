@@ -154,7 +154,7 @@ function show(next: Screen): void {
   if (next === 'tune' && prev !== next && prev !== 'race') backFrom[next] = prev;
   if (next !== 'race' && next !== 'slip') backdrop();
   if (next === 'race' || next === 'bench') { scr.style.display = 'none'; return; }
-  scr.style.display = 'flex'; card.classList.toggle('wide', WIDE.includes(next)); $('rows').className = next === 'tune' || next === 'options' ? 'rows-grid' : ''; $('extra').innerHTML = '';
+  scr.style.display = 'flex'; card.classList.toggle('wide', WIDE.includes(next)); $('rows').className = next === 'tune' || next === 'options' ? 'rows-grid' : ''; $('extra').innerHTML = ''; card.scrollTop = 0;
   const title = (t: string, col = '#ff2bd6'): void => { $('title').textContent = t; $('title').style.color = col; };
   if (next === 'title') {
     title('GPU WARS'); syncCategory(); if (touchedPage) void lb.refreshLeader();
@@ -263,18 +263,20 @@ function info(): void {
   if (screen === 'tune' && tuneTab === 'stats') { const r = readyCar(save, clutchCondition); $('extra').innerHTML = statsTable(r.spec, r.tune, raceSeed, fuelOf()); }
   $('sub').textContent = msg || (screen === 'slip' && $('sub').dataset.note) || (screen === 'title' ? benchmarkLine(benchContext) : '');
 }
-function render(): void {
-  if (!menu) return; const m = menu, rows = $('rows'); rows.innerHTML = ''; info();
+function render(keepVisible = false): void {
+  if (!menu) return; const m = menu, rows = $('rows'), top = card.scrollTop; rows.innerHTML = ''; info();
   const tabs = $('tabs'); tabs.innerHTML = screen === 'tune' ? `<button class="${tuneTab === 'tuning' ? 'on' : ''}" data-tab="tuning">TUNING</button><button class="${tuneTab === 'stats' ? 'on' : ''}" data-tab="stats">STATS</button>` : '';
   for (const b of tabs.querySelectorAll('button')) b.onclick = () => setTuneTab(b.dataset.tab as TuneTab);
   if (screen === 'title') sel.title = m.sel; else if (screen === 'tune') sel[tuneTab] = m.sel; else if (screen === 'options') sel.options = m.sel;
+  const visible: { row?: HTMLElement } = {};
   m.items.forEach((it, i) => {
     const e = document.createElement('div'), off = !!it.disabled?.(); e.className = 'opt' + (i === m.sel ? ' sel' : '') + (off ? ' off' : '');
     e.innerHTML = `<span>${it.label}</span>${it.value ? `<em>${it.left || it.right ? '<b class="dn">‹</b> ' : ''}${it.value()}${it.left || it.right ? ' <b class="up">›</b>' : ''}</em>` : ''}`;
     e.onmousemove = () => { if (!off && m.sel !== i) { m.sel = i; render(); } };
     e.onclick = ev => { if (off) return; m.sel = i; const d = (ev.target as HTMLElement).classList; if (d.contains('dn') && it.left) it.left(); else if (d.contains('up') && it.right) it.right(); else if (it.enter) it.enter(); else if (it.right) it.right(); if (menu === m) render(); };
-    rows.appendChild(e); if (i === m.sel) e.scrollIntoView({ block: 'nearest' });
+    rows.appendChild(e); if (i === m.sel) visible.row = e;
   });
+  if (keepVisible && visible.row) visible.row.scrollIntoView({ block: 'nearest' }); else card.scrollTop = top;
   const cur = m.items[m.sel]; $('hint').textContent = cur?.hint?.() ?? '';
 }
 
@@ -312,7 +314,7 @@ addEventListener('keydown', e => {
   if (screen === 'race') { if (k === 'escape') show(screenBefore); return; }      // (leaving a race records nothing; the driving keys are read by src/input)
   if (screen === 'tune' && k === 'tab') { setTuneTab(tuneTab === 'tuning' ? 'stats' : 'tuning'); return; }
   if (k === 'escape') { if (screen === 'tune') show(backFrom.tune ?? 'title'); else if (screen === 'name') { lb.cancelNameEdit(); show('records'); } else if (screen !== 'title') show('title'); return; }
-  if (menu && menu.key(k)) render();
+  if (menu && menu.key(k)) render(true);
 });
 input.attach(window, cv);
 

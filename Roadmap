@@ -10,7 +10,7 @@ the ghost doesnt need to follow the games simulation. just simulate the top lead
 the ghost doesnt have to be an exact copy of the current leaders exact run.
 Benchmark should not run automatically, it should be selectable from the title screen.
 Save the benchmark score, player only needs to re run the benchmark if they make changes to the gpu.   [an overclock cannot be detected: the benchmark screen says to re run it by hand]
-classes should be split between integrated and discreet GPU. also split the discreet GPU classes between both generations and amd, nvidia, etc.
+classes should be split between integrated and discreet GPU. also split the discreet GPU classes between both generations and amd, nvidia, etc.   [for now there are only TWO classes, integrated and discrete; the list is the one file backend/src/classes.ts so the split can come back later: docs/ARCHITECTURE.md says how]
 players race against the leader from their own class but are added to the overall leaderboard and their class leaderboard
 Do not add all the songs from drag mode. Only the 2 versions of simulation theory should play.
 only use top down mode.

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { handle, type Env } from '../src/index';
 import { CLASS_IDS } from '../src/classes';
-import { makeDb } from './d1shim';
+import { makeDb, makeDbWithRaw, MIGRATION_FILES } from './d1shim';
 
 const ORIGIN = 'https://html-classic.itch.zone';
 const mkEnv = (over: Partial<Env> = {}): Env => ({
@@ -9,7 +9,7 @@ const mkEnv = (over: Partial<Env> = {}): Env => ({
   RATE_LIMIT_PER_MINUTE: '3', BLOCKED_WORDS: 'badword', ...over,
 });
 const sub = (o: Record<string, unknown> = {}) => ({
-  playerName: 'Racer One', class: 'discrete-nvidia-modern', category: 'manual', benchmarkScore: 5000,
+  playerName: 'Racer One', class: 'discrete', category: 'manual', benchmarkScore: 5000,
   benchmarkVersion: '1.0', gpuId: 'RTX 3060', reactionTime: 0.05,
   splits: { ft60: 0.9, ft330: 2.3, eighth: 3.6, ft1000: 4.8, quarter: 5.6 },
   trapSpeed: 260, seed: 12345, tune: { gear1: 2.5 }, ...o,
@@ -20,21 +20,22 @@ const post = (env: Env, body: unknown, ip = '1.1.1.1', origin = ORIGIN) =>
 const get = (env: Env, path: string) => handle(new Request('https://x' + path, { headers: { Origin: ORIGIN } }), env);
 
 describe('classes', () => {
-  it('has 17 classes', () => { expect(CLASS_IDS.length).toBe(17); expect(CLASS_IDS).toContain('integrated'); });
+  it('has two classes', () => { expect([...CLASS_IDS]).toEqual(['integrated', 'discrete']); });
+  it('lists them on GET /classes', async () => { expect(await (await get(mkEnv(), '/classes')).json()).toEqual({ classes: ['integrated', 'discrete'] }); });
+  it('no longer knows the old vendor and generation ids', async () => { expect((await post(mkEnv(), sub({ class: 'discrete-nvidia-modern' }))).status).toBe(422); });
 });
 
 describe('class bounds catch impossible runs and accept what the simulation really gives', () => {
   // [class, a real run's ET and trap (mph) from the simulation's top card of the class (docs/CALIBRATION.md), an impossible ET for the class]
   const cases: [string, number, number, number][] = [
-    ['integrated', 9.6, 138, 7.9], ['discrete-amd-retro', 5.9, 220, 4.9], ['discrete-nvidia-classic', 5.1, 250, 4.2],
-    ['discrete-intel-modern', 4.5, 288, 3.8], ['discrete-nvidia-current', 4.0, 340, 3.2],
+    ['integrated', 9.5, 139, 7.9], ['integrated', 12.3, 106, 7.9], ['discrete', 6.9, 184, 3.2], ['discrete', 5.0, 260, 3.2], ['discrete', 4.03, 338, 3.2],
   ];
   const run = (cls: string, et: number, mph: number) => sub({ class: cls, splits: { ft60: +(et * 0.2).toFixed(3), ft330: +(et * 0.44).toFixed(3), eighth: +(et * 0.65).toFixed(3), ft1000: +(et * 0.84).toFixed(3), quarter: et }, trapSpeed: mph });
   it.each(cases)('%s: a real %f s run at %f mph is accepted', async (cls, et, mph) => { expect((await post(mkEnv(), run(cls, et, mph))).status).toBe(200); });
   it.each(cases)('%s: an impossible time is refused', async (cls, _et, mph, impossible) => { expect((await post(mkEnv(), run(cls, impossible, mph))).status).toBe(422); });
   it('refuses a trap speed beyond the class', async () => {
     expect((await post(mkEnv(), run('integrated', 9.6, 250))).status).toBe(422);
-    expect((await post(mkEnv(), run('discrete-nvidia-current', 4.0, 420))).status).toBe(422);
+    expect((await post(mkEnv(), run('discrete', 4.0, 420))).status).toBe(422);
   });
 });
 
@@ -64,7 +65,7 @@ describe('validation', () => {
   it('sanitizes the name', async () => {
     const env = mkEnv();
     await post(env, sub({ playerName: '  Fast<b>  Guy ' }));
-    const lb = await (await get(env, '/leaderboard?scope=class&class=discrete-nvidia-modern')).json() as any;
+    const lb = await (await get(env, '/leaderboard?scope=class&class=discrete')).json() as any;
     expect(lb.entries[0].playerName).toBe('Fastb Guy');
   });
 });
@@ -73,7 +74,7 @@ describe('bounds', () => {
   it('rejects impossible ET for class but allows it for a faster class', async () => {
     const fast = { splits: { ft60: 0.6, ft330: 1.4, eighth: 2.2, ft1000: 3.0, quarter: 3.7 }, trapSpeed: 330 };
     expect((await post(mkEnv(), sub({ ...fast, class: 'integrated' }))).status).toBe(422);
-    expect((await post(mkEnv(), sub({ ...fast, class: 'discrete-amd-current' }))).status).toBe(200);
+    expect((await post(mkEnv(), sub({ ...fast, class: 'discrete' }))).status).toBe(200);
   });
   it('rejects trap speed inconsistent with splits', async () => {
     expect((await post(mkEnv(), sub({ trapSpeed: 120 }))).status).toBe(422);
@@ -88,29 +89,31 @@ describe('ranking and categories', () => {
     await post(env, sub({ ...q(5.6), playerName: 'Other Guy' }));
     await post(env, sub(q(5.9))); // improves Racer One
     await post(env, sub(q(6.5))); // worse, ignored
-    const lb = await (await get(env, '/leaderboard?scope=class&class=discrete-nvidia-modern')).json() as any;
+    const lb = await (await get(env, '/leaderboard?scope=class&class=discrete')).json() as any;
     expect(lb.entries.map((e: any) => [e.playerName, e.quarterEt])).toEqual([['Other Guy', 5.6], ['Racer One', 5.9]]);
   });
   it('separates manual and autopilot', async () => {
     const env = mkEnv({ RATE_LIMIT_PER_MINUTE: '100' });
     await post(env, sub());
     await post(env, sub({ category: 'autopilot', playerName: 'Bot Driver' }));
-    const m = await (await get(env, '/leaderboard?scope=class&class=discrete-nvidia-modern&category=manual')).json() as any;
-    const a = await (await get(env, '/leaderboard?scope=class&class=discrete-nvidia-modern&category=autopilot')).json() as any;
+    const m = await (await get(env, '/leaderboard?scope=class&class=discrete&category=manual')).json() as any;
+    const a = await (await get(env, '/leaderboard?scope=class&class=discrete&category=autopilot')).json() as any;
     expect(m.entries.length).toBe(1); expect(a.entries[0].playerName).toBe('Bot Driver');
   });
   it('overall board has one entry per player across classes', async () => {
     const env = mkEnv({ RATE_LIMIT_PER_MINUTE: '100' });
     await post(env, sub());
-    await post(env, sub({ class: 'discrete-amd-modern', splits: { ft60: 0.9, ft330: 2.2, eighth: 3.5, ft1000: 4.6, quarter: 5.4 } }));
+    await post(env, sub({ class: 'integrated', trapSpeed: 139, splits: { ft60: 1.7, ft330: 4.1, eighth: 6.2, ft1000: 8.1, quarter: 9.6 } }));
     const o = await (await get(env, '/leaderboard?scope=overall')).json() as any;
-    expect(o.entries.length).toBe(1); expect(o.entries[0].quarterEt).toBe(5.4);
+    expect(o.entries.length).toBe(1); expect(o.entries[0].quarterEt).toBe(5.6);
+    const i = await (await get(env, '/leaderboard?scope=class&class=integrated')).json() as any;
+    expect(i.entries.length).toBe(1); expect(i.entries[0].quarterEt).toBe(9.6);
   });
   it('/leader returns full record, 404 when empty', async () => {
     const env = mkEnv();
     expect((await get(env, '/leader?class=integrated')).status).toBe(404);
     await post(env, sub({ ghost: [[0, 0], [1, 10]] }));
-    const l = await (await get(env, '/leader?class=discrete-nvidia-modern&category=manual')).json() as any;
+    const l = await (await get(env, '/leader?class=discrete&category=manual')).json() as any;
     expect(l.seed).toBe(12345); expect(l.splits.quarter).toBe(5.6); expect(l.ghost.length).toBe(2);
   });
 });
@@ -134,15 +137,84 @@ describe('cors', () => {
     const no = await handle(new Request('https://x/scores', { method: 'OPTIONS', headers: { Origin: 'https://evil.example' } }), env);
     expect(no.status).toBe(403);
   });
-  it('blocks POST from other origins and omits CORS header on GET', async () => {
+  it('blocks POST from other origins, but public reads work from any origin (itch.io hosts vary)', async () => {
     const env = mkEnv();
     expect((await post(env, sub(), '1.1.1.1', 'https://evil.example')).status).toBe(403);
-    const g = await handle(new Request('https://x/leaderboard', { headers: { Origin: 'https://evil.example' } }), env);
-    expect(g.headers.get('Access-Control-Allow-Origin')).toBeNull();
+    for (const origin of ['https://evil.example', 'https://v6p9d9t4.ssl.hwcdn.net', 'null', ORIGIN]) {
+      for (const path of ['/leaderboard', '/leader?class=integrated', '/classes', '/nope']) {
+        const g = await handle(new Request('https://x' + path, { headers: { Origin: origin } }), env);
+        expect(g.headers.get('Access-Control-Allow-Origin')).toBe('*');
+      }
+    }
+  });
+  it('answers the preflight of a GET with X-Client-Id for any origin, and a POST preflight only for allowed ones', async () => {
+    const env = mkEnv();
+    const pre = (origin: string, method: string) => handle(new Request('https://x/leaderboard', { method: 'OPTIONS', headers: { Origin: origin, 'Access-Control-Request-Method': method, 'Access-Control-Request-Headers': 'x-client-id' } }), env);
+    const get1 = await pre('https://v6p9d9t4.ssl.hwcdn.net', 'GET');
+    expect(get1.status).toBe(204); expect(get1.headers.get('Access-Control-Allow-Origin')).toBe('*'); expect(get1.headers.get('Access-Control-Allow-Headers')).toMatch(/X-Client-Id/);
+    expect((await pre('https://v6p9d9t4.ssl.hwcdn.net', 'POST')).status).toBe(403);
+    expect((await pre(ORIGIN, 'POST')).headers.get('Access-Control-Allow-Origin')).toBe(ORIGIN);
+  });
+  it('lets a browser cache reads for a few seconds, and never a write', async () => {
+    const env = mkEnv();
+    expect((await get(env, '/leaderboard')).headers.get('Cache-Control')).toBe('public, max-age=10');
+    expect((await get(env, '/classes')).headers.get('Cache-Control')).toMatch(/max-age=3600/);
+    expect((await post(env, sub())).headers.get('Cache-Control')).toBe('no-store');
   });
   it('allow list is configurable', async () => {
     const env = mkEnv({ ALLOWED_ORIGINS: 'https://custom.example', ALLOW_ITCH_ZONE_WILDCARD: 'false' });
     expect((await post(env, sub(), '1.1.1.1', 'https://custom.example')).status).toBe(200);
     expect((await post(env, sub(), '1.1.1.1', ORIGIN)).status).toBe(403);
+  });
+});
+
+describe('migration 0002: two classes', () => {
+  const MIGRATION = '0002_two_classes.sql';
+  const row = (player: string, cls: string, category: string, et: number, created = 1) =>
+    `INSERT INTO scores (player_key, player_name, class_id, category, quarter_et, trap_speed, reaction_time, split_60ft, split_330, split_eighth, split_1000, benchmark_score, benchmark_version, gpu_id, seed, tune_json, verified, created_at)
+     VALUES ('${player}', '${player}', '${cls}', '${category}', ${et}, 200, 0.06, 1, 2, 3, 4, 5000, '1', 'gpu', 1, '{}', 0, ${created});`;
+  const old = () => {
+    const h = makeDbWithRaw(MIGRATION_FILES.indexOf(MIGRATION));
+    h.exec([
+      row('alice', 'discrete-nvidia-modern', 'manual', 5.4), row('alice', 'discrete-amd-retro', 'manual', 6.1), row('alice', 'discrete-nvidia-current', 'manual', 4.5, 5),
+      row('alice', 'discrete-intel-current', 'manual', 4.5, 9),            // ties with the run above: the older run stays
+      row('alice', 'discrete-nvidia-current', 'autopilot', 4.9),           // another category is its own row
+      row('alice', 'integrated', 'manual', 9.9),
+      row('bob', 'discrete-other-classic', 'manual', 5.7),                  // a single old row is only renamed
+      row('carol', 'discrete', 'manual', 6.0), row('carol', 'discrete-amd-modern', 'manual', 5.2),  // already-new id next to an old one
+      row('dave', 'integrated', 'manual', 10.4),
+    ].join('\n'));
+    return h;
+  };
+  const all = async (h: ReturnType<typeof makeDbWithRaw>) => (await h.d1.prepare('SELECT player_key, class_id, category, quarter_et, created_at FROM scores ORDER BY player_key, category, class_id').all<any>()).results;
+
+  it('is the migration after 0001, and 0001 is untouched', () => { expect(MIGRATION_FILES).toEqual(['0001_init.sql', MIGRATION]); });
+  it('maps every discrete-* id to discrete and keeps the best ET per player, category and class', async () => {
+    const h = old(); h.applyMigration(MIGRATION);
+    expect(await all(h)).toEqual([
+      { player_key: 'alice', class_id: 'discrete', category: 'autopilot', quarter_et: 4.9, created_at: 1 },
+      { player_key: 'alice', class_id: 'discrete', category: 'manual', quarter_et: 4.5, created_at: 5 },
+      { player_key: 'alice', class_id: 'integrated', category: 'manual', quarter_et: 9.9, created_at: 1 },
+      { player_key: 'bob', class_id: 'discrete', category: 'manual', quarter_et: 5.7, created_at: 1 },
+      { player_key: 'carol', class_id: 'discrete', category: 'manual', quarter_et: 5.2, created_at: 1 },
+      { player_key: 'dave', class_id: 'integrated', category: 'manual', quarter_et: 10.4, created_at: 1 },
+    ]);
+    const left = (await h.d1.prepare("SELECT COUNT(*) AS n FROM scores WHERE class_id LIKE 'discrete-%'").first<{ n: number }>())!;
+    expect(left.n).toBe(0);
+  });
+  it('is safe to run twice, and an empty database is fine', async () => {
+    const h = old(); h.applyMigration(MIGRATION); const once = await all(h); h.applyMigration(MIGRATION); expect(await all(h)).toEqual(once);
+    const empty = makeDbWithRaw(1); empty.applyMigration(MIGRATION); expect(await all(empty)).toEqual([]);
+  });
+  it('the migrated board works through the API and a new submission still improves the kept row', async () => {
+    const h = old(); h.applyMigration(MIGRATION);
+    const env = mkEnv({ DB: h.d1, RATE_LIMIT_PER_MINUTE: '100' });
+    const lb = await (await get(env, '/leaderboard?scope=class&class=discrete')).json() as any;
+    expect(lb.entries.map((e: any) => [e.playerName, e.quarterEt])).toEqual([['alice', 4.5], ['carol', 5.2], ['bob', 5.7]]);
+    const better = { splits: { ft60: 0.8, ft330: 2, eighth: 3, ft1000: 3.6, quarter: 4.4 }, trapSpeed: 300 };
+    expect((await post(env, sub({ playerName: 'alice', ...better }))).status).toBe(200);
+    const again = await (await get(env, '/leaderboard?scope=class&class=discrete')).json() as any;
+    expect(again.entries[0].quarterEt).toBe(4.4);
+    const leader = await (await get(env, '/leader?class=discrete')).json() as any; expect(leader.class).toBe('discrete');
   });
 });

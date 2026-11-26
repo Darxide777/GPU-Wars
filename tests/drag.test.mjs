@@ -738,7 +738,7 @@ test('the car runs the TOP level of every part as stock, whatever the benchmark 
   // (owner decision: with no benchmark the car gets the WEAKEST spec, never the stock parts' full power, so skipping the benchmark never pays)
   assert.deepEqual(readyCar(save).spec, specForBenchmark(null), 'with no benchmark the weakest car races');
   assert.ok(specForBenchmark(null).torque < stockSpec().torque, 'no benchmark: weaker than the stock engine');
-  assert.notEqual(specForBenchmark({ score: 9000, class: 'discrete-nvidia-current', benchmarkVersion: 1, gpuId: 'x', date: 1 }).torque, stockSpec().torque, 'a benchmark result sets the engine (tests/benchmark.test.mjs)');
+  assert.notEqual(specForBenchmark({ score: 9000, class: 'discrete', benchmarkVersion: 1, gpuId: 'x', date: 1 }).torque, stockSpec().torque, 'a benchmark result sets the engine (tests/benchmark.test.mjs)');
   assert.equal(readyCar(save, 0.6).spec.clutchCondition, 0.6, 'a worn clutch is passed to the car');
   assert.ok(!('ghost' in emptySave()), 'the save keeps no ghost of your own: you only race the class leader');
 });
@@ -782,7 +782,7 @@ test('records come from clean runs (a red light keeps none); only a better one r
 
 test('the save is checked: junk becomes an empty save, the benchmark result must be believable, old ghost fields are dropped, slots stay six', () => {
   assert.deepEqual(sanitizeSave(null), emptySave()); assert.deepEqual(sanitizeSave('garbage'), emptySave()); assert.deepEqual(sanitizeSave({ points: 3, drag: {} }), emptySave(), 'old profile fields are ignored');
-  const good = { score: 4200, class: 'discrete-nvidia-modern', benchmarkVersion: 2, gpuId: 'NVIDIA GeForce X', date: 1700000000000 };
+  const good = { score: 4200, class: 'discrete', benchmarkVersion: 2, gpuId: 'NVIDIA GeForce X', date: 1700000000000 };
   assert.deepEqual(sanitizeSave({ benchmark: good }).benchmark, good);
   for (const bad of [{ ...good, score: -1 }, { ...good, gpuId: '' }, { ...good, class: 5 }, { ...good, class: 'DISCRETE NVIDIA' }, 'x', 7]) assert.equal(sanitizeSave({ benchmark: bad }).benchmark, null);
   const s = sanitizeSave({ ghost: { car: 'streeter', name: 'BEST PASS', reaction: 0.2, marks: { quarter: 12.5 }, trap: 181, total: 12.7, samples: [{ t: 0, x: 0 }, { t: 1, x: 5 }] }, slots: 'garbage', records: { races: 'many', bestEt: -5, history: [{ against: 'SOLO', et: 'x' }, 7] } });

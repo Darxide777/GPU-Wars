@@ -18,22 +18,38 @@ export function originAllowed(origin: string | null, env: Env): boolean {
   return false;
 }
 
+const CORS_METHODS = 'GET, POST, OPTIONS';
+const CORS_HEADERS = 'Content-Type, X-Client-Id';
+
+/** Reads are public: the boards, the leader and the class list hold no secrets and no cookies are involved, so ANY origin may read them (an itch.io game can run from
+ * html-classic.itch.zone, an older hwcdn.net host, the itch desktop app or a mirror, and a missing header there looks to the player like "the leaderboard never loads").
+ * Writes (POST /scores) stay limited to the allowed origins. A preflight for a GET is answered for any origin; a preflight for anything else only for the allowed ones. */
 function corsHeaders(request: Request, env: Env): Record<string, string> {
   const origin = request.headers.get('Origin');
+  const wanted = request.method === 'OPTIONS' ? (request.headers.get('Access-Control-Request-Method') ?? '').toUpperCase() : request.method;
+  const readOnly = wanted === 'GET' || wanted === 'HEAD';
   const h: Record<string, string> = { Vary: 'Origin' };
-  if (origin && originAllowed(origin, env)) {
+  if (readOnly) {
+    h['Access-Control-Allow-Origin'] = '*';
+    h['Access-Control-Allow-Methods'] = CORS_METHODS;
+    h['Access-Control-Allow-Headers'] = CORS_HEADERS;
+    h['Access-Control-Max-Age'] = '86400';
+  } else if (origin && originAllowed(origin, env)) {
     h['Access-Control-Allow-Origin'] = origin;
-    h['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS';
-    h['Access-Control-Allow-Headers'] = 'Content-Type, X-Client-Id';
+    h['Access-Control-Allow-Methods'] = CORS_METHODS;
+    h['Access-Control-Allow-Headers'] = CORS_HEADERS;
     h['Access-Control-Max-Age'] = '86400';
   }
   return h;
 }
 
-function json(data: unknown, status: number, extra: Record<string, string>): Response {
+/** how long a browser may reuse a read: the class list almost never changes; a board may be a few seconds old */
+const CACHE = { never: 'no-store', classes: 'public, max-age=3600', board: 'public, max-age=10' } as const;
+
+function json(data: unknown, status: number, extra: Record<string, string>, cache: string = CACHE.never): Response {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...extra },
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': cache, ...extra },
   });
 }
 
@@ -140,7 +156,7 @@ async function getLeaderboard(url: URL, env: Env, cors: Record<string, string>):
          FROM scores s WHERE category=?) WHERE rn=1 ORDER BY quarter_et ASC, created_at ASC LIMIT ?`,
     ).bind(category, limit).all<Row>()).results;
   }
-  return json({ scope, category, entries: rows.map((r, i) => ({ rank: i + 1, ...publicRow(r, false) })) }, 200, cors);
+  return json({ scope, category, entries: rows.map((r, i) => ({ rank: i + 1, ...publicRow(r, false) })) }, 200, cors, CACHE.board);
 }
 
 async function getLeader(url: URL, env: Env, cors: Record<string, string>): Promise<Response> {
@@ -151,7 +167,7 @@ async function getLeader(url: URL, env: Env, cors: Record<string, string>): Prom
   const row = await env.DB.prepare('SELECT * FROM scores WHERE class_id=? AND category=? ORDER BY quarter_et ASC, created_at ASC LIMIT 1')
     .bind(cls, category).first<Row>();
   if (!row) return json({ error: 'no leader yet' }, 404, cors);
-  return json(publicRow(row, true), 200, cors);
+  return json(publicRow(row, true), 200, cors, CACHE.board);
 }
 
 export async function handle(request: Request, env: Env, now = Date.now()): Promise<Response> {
@@ -169,7 +185,7 @@ export async function handle(request: Request, env: Env, now = Date.now()): Prom
     if (url.pathname === '/scores' && request.method === 'POST') return await postScore(request, env, cors, now);
     if (url.pathname === '/leaderboard' && request.method === 'GET') return await getLeaderboard(url, env, cors);
     if (url.pathname === '/leader' && request.method === 'GET') return await getLeader(url, env, cors);
-    if (url.pathname === '/classes' && request.method === 'GET') return json({ classes: CLASS_IDS }, 200, cors);
+    if (url.pathname === '/classes' && request.method === 'GET') return json({ classes: CLASS_IDS }, 200, cors, CACHE.classes);
     return json({ error: 'not found' }, 404, cors);
   } catch {
     return json({ error: 'internal error' }, 500, cors);

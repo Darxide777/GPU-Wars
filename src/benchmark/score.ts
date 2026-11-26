@@ -1,6 +1,6 @@
 // From timed passes to a score, with no screen and no clock in it (so the tests can feed it numbers).
 import { BENCHMARK, CLASS_SCORE_SHARE, type BackendId } from './constants.ts';
-import { eraOf, type ClassId } from '../classes.ts';
+import { type ClassId } from '../classes.ts';
 
 const median = (values: number[]): number => { const s = [...values].sort((a, b) => a - b), m = s.length >> 1; return s.length === 0 ? 0 : s.length % 2 ? (s[m] as number) : ((s[m - 1] as number) + (s[m] as number)) / 2; };
 
@@ -33,7 +33,7 @@ export function scoreFromRate(rate: number, backend: BackendId): number {
 }
 
 /** the highest score a class may have */
-export const classScoreCap = (id: ClassId): number => Math.round(BENCHMARK.maxScore * CLASS_SCORE_SHARE[eraOf(id) ?? 'integrated']);
+export const classScoreCap = (id: ClassId): number => Math.round(BENCHMARK.maxScore * CLASS_SCORE_SHARE[id]);
 /** a score kept to what is possible: a whole number from 0 to the class's cap */
 export function capScore(score: number, id: ClassId): number { return Number.isFinite(score) ? Math.round(Math.max(0, Math.min(classScoreCap(id), score))) : 0; }
 
