@@ -11,7 +11,7 @@ npm run package        # builds, checks, and writes dist/gpuwars-itch.zip
 
 `dist/` is not committed, so neither is the zip. The command refuses to write the zip when a check fails (an external URL or absolute path in `index.html`, a file that is missing, a sourcemap in the zip, too many files or too long a path). `npm test` runs the same checks (`tests/package.test.mjs`).
 
-The zip holds exactly: `index.html` (at the root), `dist/gpuwars.js` (the whole game, one script), `assets/music/simulation-theory.ogg` (the one song, played in the benchmark; its beat data is inside the bundle) and `assets/sfx/` (the engine idle and throttle loops and the four Christmas tree beeps, about 120 KB of .ogg). About 4 MB, almost all of it the song.
+The zip holds exactly: `index.html` (at the root), `dist/gpuwars.js` (the whole game, one script), `assets/music/simulation-theory.ogg` (the one song, played in the benchmark; its beat data is inside the bundle) and `assets/sfx/` (the engine idle, throttle and full-throttle loops and the four Christmas tree beeps, about 120 KB of .ogg). About 4 MB, almost all of it the song.
 
 ## Upload
 
