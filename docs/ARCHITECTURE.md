@@ -37,7 +37,7 @@ src/platform.ts             fullscreen, audio unlock on first gesture, viewport 
 src/drag/autopilot.ts       the deterministic driver AI (createAutopilot), category 'autopilot'; drives the engine's own staging phases with player inputs
 tools/package.mjs, zip.mjs  npm run package: the itch.io zip (no dependencies)
 src/sound.ts                the benchmark's song only (SONG): races have no music
-src/sfx.ts                  sound effects (Web Audio): engine idle/throttle loops crossfaded, the tree's four beeps; files in assets/sfx, volume is OPTIONS > SOUND EFFECTS (0 mutes)
+src/sfx.ts                  sound effects (<audio> elements, like the song): engine idle/throttle loops crossfaded, the tree's four beeps; files in assets/sfx, volume is OPTIONS > SOUND EFFECTS (0 mutes)
 src/tune-slots.ts           the six named tune slots (pure functions)
 src/tune-slots-menu.ts      the menu rows for them
 src/gamepad.ts              the pad pressing menu keys

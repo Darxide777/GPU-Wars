@@ -34,7 +34,7 @@ To update, upload the new zip and delete the old one.
 | Works in an iframe | one iife script, no `top`/`parent` access, storage through `src/browser-store.ts` (falls back to memory when the iframe blocks localStorage) |
 | Resizes to its container | the canvas follows `innerWidth/innerHeight` on resize, rotation (`orientationchange`), `visualViewport` and fullscreen changes (`src/platform.ts`) |
 | Fullscreen | the button in `index.html` (hidden when the browser has no fullscreen API, for example iPhone Safari) and OPTIONS > FULLSCREEN |
-| Audio after a gesture | the benchmark's music starts from the key press or tap that chooses BENCHMARK, and sound effects from the first key press or tap (`sfx.unlock()` makes the Web Audio context then); never on page load; races have no music |
+| Audio after a gesture | the benchmark's music starts from the key press or tap that chooses BENCHMARK, and sound effects from the first key press or tap (`sfx.unlock()` starts the sound effect elements then); never on page load; races have no music |
 | Mobile | pointer events, `touch-action: none` on the canvas, on-screen controls, no pinch zoom, no pull-to-refresh (`overscroll-behavior: none`) |
 | Size limits (1000 files, 500 MB, 240-char paths, 200 MB a file) | 11 files, about 8 MB |
 
