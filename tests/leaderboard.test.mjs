@@ -20,6 +20,7 @@ import { buildScorePayload, flattenTune, whyNotRanked } from '../src/leaderboard
 import { RANKED, conditionsBanner, densityAltitudeFt, rankedStart, rankedStrip } from '../src/leaderboard/ranked.ts';
 import { createLetterPicker, PICKER_LETTERS, PICKER_MAX } from '../src/leaderboard/letter-picker.ts';
 import { createLeaderboardUi } from '../src/leaderboard/ui.ts';
+import { classScoreCap } from '../src/benchmark/score.ts';
 
 const MARKS = ['ft60', 'ft330', 'eighth', 'ft1000', 'quarter'];
 const record = (extra = {}) => ({ name: 'SPEEDY', class: 'discrete', category: 'manual', reactionTime: 0.061, splits: { quarter: 6.4 }, trapSpeed: 210, seed: 12345, source: 'fallback', ...extra });
@@ -33,7 +34,7 @@ function loadBackendValidator() {
     return execFileSync('git', ['show', `origin/feature/leaderboard-backend:backend/src/${name}`], { cwd: new URL('..', import.meta.url), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
   };
   try {
-    for (const name of ['classes.ts', 'validate.ts']) writeFileSync(join(dir, name), get(name).replace(/from '\.\/classes'/g, "from './classes.ts'"));
+    for (const name of ['classes.ts', 'plausible.ts', 'validate.ts']) writeFileSync(join(dir, name), get(name).replace(/from '\.\/(\w+)'/g, "from './$1.ts'"));
     return import(pathToFileURL(join(dir, 'validate.ts')).href).then(async validate => ({ validate, classes: await import(pathToFileURL(join(dir, 'classes.ts')).href) }));
   } catch (e) { return Promise.resolve(null); }
 }
@@ -136,7 +137,7 @@ test('a ranked payload is accepted by the backend validator', needBackend, () =>
 test('every bundled fallback leader fits the backend class bounds and splits rules', needBackend, () => {
   assert.equal(allFallbackLeaders().length, CLASS_IDS.length * 2);
   for (const rec of allFallbackLeaders()) {
-    const s = completeSplits(rec), body = { playerName: 'Fallback', class: rec.class, category: rec.category, benchmarkScore: 1, benchmarkVersion: '1', gpuId: 'x', reactionTime: rec.reactionTime, splits: s, trapSpeed: rec.trapSpeed, seed: rec.seed, tune: {} };
+    const s = completeSplits(rec), body = { playerName: 'Fallback', class: rec.class, category: rec.category, benchmarkScore: Math.round(classScoreCap(rec.class) * 0.7), benchmarkVersion: '1', gpuId: 'x', reactionTime: rec.reactionTime, splits: s, trapSpeed: rec.trapSpeed, seed: rec.seed, tune: {} };
     const r = backend.validate.validateSubmission(body); assert.ok(r.ok, `${rec.class} ${rec.category}: ${r.error}`);
     assert.ok(buildLeaderGhost(rec), `${rec.class} has a ghost`);
   }

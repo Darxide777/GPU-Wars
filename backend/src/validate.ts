@@ -1,4 +1,5 @@
-import { CLASS_BOUNDS, isCategory, isClassId, type Category, type ClassId } from './classes';
+import { implausibleReason } from './plausible';
+import { CLASS_BOUNDS, CLASS_SCORE_CAP, isCategory, isClassId, type Category, type ClassId } from './classes';
 
 export const MAX_BODY_BYTES = 16 * 1024;
 export const MAX_GHOST_SAMPLES = 256;
@@ -85,11 +86,16 @@ export function validateSubmission(body: unknown, blockedWords: string[] = []): 
   for (const [k, v] of tuneEntries)
     if (!/^[\w]{1,32}$/.test(k) || !isNum(v)) return fail('tune entries must be name -> number');
 
+  if (body.benchmarkScore > CLASS_SCORE_CAP[body.class])
+    return fail(`benchmarkScore ${Math.round(body.benchmarkScore)} is above the ${body.class} class cap of ${CLASS_SCORE_CAP[body.class]}`);
   const bounds = CLASS_BOUNDS[body.class];
   if (sp.quarter < bounds.minQuarterEt) return fail('quarter ET faster than possible for class');
   if (sp.quarter > bounds.maxQuarterEt) return fail('quarter ET too slow to rank');
   if (body.trapSpeed < bounds.minTrapSpeed || body.trapSpeed > bounds.maxTrapSpeed)
     return fail('trapSpeed outside class bounds');
+  // Score-aware window: a weak card cannot claim a high-end card's time (the class bounds above stay as the outer limit).
+  const implausible = implausibleReason(body.class, body.benchmarkScore, { quarter: sp.quarter, ft60: sp.ft60, eighth: sp.eighth, trapSpeed: body.trapSpeed });
+  if (implausible) return fail(implausible);
   // Physical sanity: average speed over the last 330ft (1320-1000ft) must roughly match the trap speed.
   const lastLegMph = (320 / (sp.quarter - sp.ft1000)) * 0.681818;
   if (lastLegMph > body.trapSpeed * 1.35 + 20 || lastLegMph < body.trapSpeed * 0.6 - 20)
