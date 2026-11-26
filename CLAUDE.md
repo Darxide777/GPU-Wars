@@ -1,11 +1,11 @@
 # Working on GPU Wars
 
-GPU Wars is a standalone top-down drag-racing simulator and GPU benchmark, extracted from the drag mode of Chromium Halo: Neon. The structure, file layout and extension points are in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md); read the section for the area you change, and update it in the same commit. `README` and `Roadmap` hold the owner's plan.
+GPU Wars is a standalone top-down racing simulator and GPU benchmark with two modes, DRAG (the quarter mile) and FORMULA (one standing-start lap of the BEACH oval), extracted from the drag and formula-car modes of Chromium Halo: Neon. The structure, file layout and extension points are in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md); read the section for the area you change, and update it in the same commit. `README` and `Roadmap` hold the owner's plan.
 
 ## Commands
 
 ```bash
-npm run build       # bundles src/drag/page.ts into dist/gpuwars.js
+npm run build       # bundles src/drag/page.ts (which also loads the Formula page, src/formula/page.ts) into dist/gpuwars.js
 npm run typecheck   # strict TypeScript
 npm run package     # dist/gpuwars-itch.zip for itch.io (docs/ITCH.md)
 npm test            # builds, then runs every test
@@ -14,12 +14,13 @@ node --test tests/<file>.test.mjs
 
 ## Rules of the repo
 
-- **Top-down only.** No 3D camera, no city hub, no shop, parts, points or currency, no rivals, no other game modes. The only thing a player changes on the car is its tune. The car's parts are the top level of every part (`STOCK_PARTS`).
+- **Top-down only.** No 3D camera, no city hub, no shop, parts, points or currency, no rivals (you race the ghost of your class leader), no game modes other than Drag and Formula. The only thing a player changes on the car is its tune. The car's parts are the top level of every part (`STOCK_PARTS`).
 - **Two classes, one list.** The classes are `integrated` and `discrete`, and only `backend/src/classes.ts` lists them (the game and the server both import it; never copy it). The class is detected, never picked. To add a class see "Adding a class" in `docs/ARCHITECTURE.md`; a changed database needs a new migration in `backend/migrations/`.
 - **Plain-English names and comments.** A new reader should follow the code. Name things for what they are (`clutchCondition`, not `cc`); explain the why in a short comment on its own line. **Never put a `//` comment in the middle of a line before code**: many lines hold several statements and it swallows the rest of the line.
-- **A deterministic simulation.** Everything in `src/drag/physics.ts` (and what it calls) takes its randomness from the seeded `createRng`, never `Math.random`. The same seed must give the same race. The page may use `Math.random` only to pick a seed.
-- **Rebindable controls.** Every gameplay key is an action in `DEFAULT_BINDS` (`src/options/model.ts`), read in the page through `held(id)` / `isBound(id, k)`. Never test a literal key in gameplay code (menus keep Esc, Enter, Tab). All driving input goes through `src/input/` (one `DriverInput`); the autopilot returns the same shape. A key does one thing: a new action needs a default no other action has. There is no clutch key: the clutch is automatic.
+- **A deterministic simulation.** Everything in `src/drag/physics.ts` and `src/formula/` (the physics, track, ghost and autopilot; and what they call) takes its randomness from the seeded `createRng`, never `Math.random`. Only the Formula page layer (`src/formula/page.ts`, `model.ts`, `online.ts`) is exempt from the purity test, and the `Math.random` ban still applies to it. The same seed must give the same race. The page may use `Math.random` only to pick a seed.
+- **Rebindable controls.** Every gameplay key is an action in `DEFAULT_BINDS` (`src/options/model.ts`), read in the page through `held(id)` / `isBound(id, k)`. Never test a literal key in gameplay code (menus keep Esc, Enter, Tab). All driving input goes through `src/input/` (one `DriverInput`; Formula reads it with `input.readFormula` and `toFormulaInput`); the autopilot returns the same shape. `drivingLine` is a Formula-only action (the optional racing line). A key does one thing: a new action needs a default no other action has. There is no clutch key: the clutch is automatic.
 - **Numbers in named constants** (`DRAG`, `BOOST`, `CLUTCH`, `TRACTION`, ...). When you hand something over, say which constant to turn first.
+- **Unsent runs:** a lap or pass that could not be sent is kept in `Profile.pending` through `ui.sendRun`; a new mode's payload must be added to `PendingRun` and `cleanPending`.
 - **Storage must never throw.** All reads and writes go through `src/browser-store.ts` (itch.io iframes can block localStorage). The save is versioned and repaired on load.
 - **itch.io:** one `index.html`, relative paths, no external requests at load, works in an iframe, resizes with the window.
 - **Music:** the only song is "Simulation Theory" by Chromium Halo (the owner's band), played during the benchmark only; there is no music in races, and the Vipers remix is gone. Do not add other songs. The benchmark has no equalizer and no screen flashing (only the pulsing beat effects), in the menu palette.
@@ -28,7 +29,7 @@ node --test tests/<file>.test.mjs
 
 ## Workflow
 
-- Work on a feature branch (`feature/<name>`) and open a pull request against `main`. **Never push to `main`.**
+- Work on a feature branch (`feature/<name>`) and open a pull request against `main`. **Never push to `main`.** (While the Formula work is being built, its pull requests target the `formula-integration` branch, which is merged to `main` in one go.)
 - Run `npm run build`, `npm run typecheck` and `npm test` before you push; all three must pass.
 - Commit messages and pull request descriptions end with the attribution lines the session gives you.
 - **No secrets.** The repo is public: never commit tokens, API keys, `.env` files, credentials or database ids. The leaderboard's Cloudflare secrets live in the platform's secret store, not in the repo.
