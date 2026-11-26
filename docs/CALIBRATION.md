@@ -45,6 +45,7 @@ Real cards on the log score scale (`REFERENCE_CARDS`, `src/benchmark/reference.t
 | card | class | rate units/s | score | ET default tune |
 |---|---|---|---|---|
 | AMD Radeon 8060S (measured) | integrated | 3.47e+11 | 5005 | about 10.3 |
+| Samsung Galaxy S24 Ultra, phone (measured) | integrated | 5.67e+10 | 1302 | about 11.7 |
 | NVIDIA GeForce GT 710 (weakest) | discrete | 1.8e+10 | 0 | 6.94 |
 | NVIDIA GeForce GTX 750 Ti | discrete | 6.5e+10 | 1580 | 5.93 |
 | NVIDIA GeForce GTX 1060 | discrete | 2.2e+11 | 4072 | 5.00 |
