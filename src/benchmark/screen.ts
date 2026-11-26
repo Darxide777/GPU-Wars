@@ -1,7 +1,7 @@
-// The benchmark screen: a full-window layer over the page with the workload's canvas, the song's equalizer in it, the pass counter and a CANCEL button (Esc does the same).
+// The benchmark screen: a full-window layer over the page with the workload's canvas, the song's title and band in the top-left corner, the pass counter and a CANCEL button (Esc does the same).
 // It starts only from the BENCHMARK row on the title menu and never by itself.
 import { beatAt, demoBeat, NO_BEAT, type Analysis, type BeatState } from '../beat/clock.ts';
-import { eqNow } from '../beat/eq.ts';
+import { SONG } from '../sound.ts';
 import analysisJson from '../../assets/music/analysis.json';
 import { BENCHMARK } from './constants.ts';
 import { startBenchmark, type RunHandle, type RunResult } from './runner.ts';
@@ -12,7 +12,7 @@ const LATENCY = 0.04;      // seconds: the sound reaches the ear a little after 
 
 /** the beat to draw now: the playing song's, or a steady made-up beat when no song is playing (the benchmark must run with the sound off too) */
 export function beatForScreen(playing: { name: string; time: number } | null, seconds: number): BeatState {
-  if (playing) { const b = beatAt(analysis.tracks[playing.name], playing.time - LATENCY); if (b !== NO_BEAT) return { ...b, eq: eqNow(playing, true) }; }
+  if (playing) { const b = beatAt(analysis.tracks[playing.name], playing.time - LATENCY); if (b !== NO_BEAT) return b; }
   return demoBeat(seconds);
 }
 
@@ -21,7 +21,7 @@ export interface BenchmarkScreen extends RunHandle { close(): void }
 export function openBenchmarkScreen(o: { cls: ClassId; masked?: boolean; playing: () => { name: string; time: number } | null; onFinish: (r: RunResult) => void }): BenchmarkScreen {
   const root = document.createElement('div');
   root.style.cssText = 'position:fixed;inset:0;z-index:20;background:#05010f;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:inherit;color:#bdf7ff;';
-  root.innerHTML = '<div style="width:min(92vw,1100px);display:flex;flex-direction:column;gap:10px"><div style="display:flex;justify-content:space-between;align-items:baseline;letter-spacing:.2em"><b style="color:#ff2bd6;font-size:18px">BENCHMARK</b><span id="bm-status" style="color:#ffe14d">STARTING</span></div><div id="bm-canvas" style="width:100%;aspect-ratio:16/9;background:#000;border:2px solid #ff2bd6;box-shadow:0 0 24px rgba(255,43,214,.4)"></div><div style="height:8px;background:#1a0a3a"><div id="bm-bar" style="height:100%;width:0;background:#21e6ff"></div></div><div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;letter-spacing:.1em;color:#8a9ac0"><span>KEEP THIS PAGE IN FRONT. A SCREEN FULL OF LIGHTS AND A FEW SECONDS OF WORK.<br>THE GAME CANNOT SEE AN OVERCLOCK: AFTER OVERCLOCKING OR CHANGING YOUR GPU, RUN THE BENCHMARK AGAIN YOURSELF FROM THE TITLE MENU.</span><button id="bm-cancel" style="touch-action:manipulation">' + BENCHMARK.hudText + '</button></div></div>';
+  root.innerHTML = '<div id="bm-song" style="position:absolute;top:14px;left:18px;letter-spacing:.16em;line-height:1.5;text-shadow:0 0 10px #21e6ff"><b style="color:#21e6ff;font-size:16px">' + SONG.title.toUpperCase() + '</b><br><span style="color:#8a9ac0;font-size:12px">' + SONG.artist.toUpperCase() + '</span></div><div style="width:min(92vw,1100px);display:flex;flex-direction:column;gap:10px"><div style="display:flex;justify-content:space-between;align-items:baseline;letter-spacing:.2em"><b style="color:#ff2bd6;font-size:18px">BENCHMARK</b><span id="bm-status" style="color:#ffe14d">STARTING</span></div><div id="bm-canvas" style="width:100%;aspect-ratio:16/9;background:#000;border:2px solid #ff2bd6;box-shadow:0 0 24px rgba(255,43,214,.4)"></div><div style="height:8px;background:#1a0a3a"><div id="bm-bar" style="height:100%;width:0;background:#21e6ff"></div></div><div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;letter-spacing:.1em;color:#8a9ac0"><span>KEEP THIS PAGE IN FRONT. A SCREEN FULL OF LIGHTS AND A FEW SECONDS OF WORK.<br>THE GAME CANNOT SEE AN OVERCLOCK: AFTER OVERCLOCKING OR CHANGING YOUR GPU, RUN THE BENCHMARK AGAIN YOURSELF FROM THE TITLE MENU.</span><button id="bm-cancel" style="touch-action:manipulation">' + BENCHMARK.hudText + '</button></div></div>';
   document.body.appendChild(root);
   const slot = root.querySelector('#bm-canvas') as HTMLElement, statusEl = root.querySelector('#bm-status') as HTMLElement, bar = root.querySelector('#bm-bar') as HTMLElement;
   // the workload's canvas is added to `slot` by the runner and made to fill it

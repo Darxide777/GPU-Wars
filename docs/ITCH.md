@@ -11,7 +11,7 @@ npm run package        # builds, checks, and writes dist/gpuwars-itch.zip
 
 `dist/` is not committed, so neither is the zip. The command refuses to write the zip when a check fails (an external URL or absolute path in `index.html`, a file that is missing, a sourcemap in the zip, too many files or too long a path). `npm test` runs the same checks (`tests/package.test.mjs`).
 
-The zip holds exactly: `index.html` (at the root), `dist/gpuwars.js` (the whole game, one script), and `assets/music/` (the two "Simulation Theory" songs and `library.json`). About 8 MB, almost all of it the songs.
+The zip holds exactly: `index.html` (at the root), `dist/gpuwars.js` (the whole game, one script), and `assets/music/simulation-theory.ogg` (the one song, played in the benchmark; its beat data is inside the bundle). About 4 MB, almost all of it the song.
 
 ## Upload
 
@@ -29,12 +29,12 @@ To update, upload the new zip and delete the old one.
 | Rule | How |
 | --- | --- |
 | `index.html` at the zip root | `tools/package.mjs` puts it there and checks it |
-| Relative paths only, no folders as links | `dist/gpuwars.js`, `assets/music/<file>`; the checker rejects `/...` and `https://...` |
+| Relative paths only, no folders as links | `dist/gpuwars.js`, `assets/music/simulation-theory.ogg`; the checker rejects `/...` and `https://...` |
 | No external requests at load | no web fonts, CDNs, analytics or APIs (the leaderboard phase adds its own request; it must be an HTTPS call made after load, and the game must run without it) |
 | Works in an iframe | one iife script, no `top`/`parent` access, storage through `src/browser-store.ts` (falls back to memory when the iframe blocks localStorage) |
 | Resizes to its container | the canvas follows `innerWidth/innerHeight` on resize, rotation (`orientationchange`), `visualViewport` and fullscreen changes (`src/platform.ts`) |
 | Fullscreen | the button in `index.html` (hidden when the browser has no fullscreen API, for example iPhone Safari) and OPTIONS > FULLSCREEN |
-| Audio after a gesture | music starts from a key press or tap on the title/race (never on page load); `onFirstGesture` retries it once |
+| Audio after a gesture | the benchmark's music starts from the key press or tap that chooses BENCHMARK (never on page load); races have no music |
 | Mobile | pointer events, `touch-action: none` on the canvas, on-screen controls, no pinch zoom, no pull-to-refresh (`overscroll-behavior: none`) |
 | Size limits (1000 files, 500 MB, 240-char paths, 200 MB a file) | 5 files, about 8 MB |
 

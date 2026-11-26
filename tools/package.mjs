@@ -9,10 +9,10 @@ import { buildZip } from './zip.mjs';
 export const ITCH = { zipName: 'gpuwars-itch.zip', maxFiles: 1000, maxPathLength: 240, maxTotalBytes: 500 * 1024 * 1024, warnTotalBytes: 40 * 1024 * 1024 };
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-/** the files that go in the zip, as [{ name, data }]: the page, the bundle and the music (never sourcemaps) */
+/** the files that go in the zip, as [{ name, data }]: the page, the bundle and the one song (never sourcemaps; the beat data is inside the bundle) */
 export function collectFiles(dir = root) {
   const files = [{ name: 'index.html', data: fs.readFileSync(path.join(dir, 'index.html')) }, { name: 'dist/gpuwars.js', data: Buffer.from(fs.readFileSync(path.join(dir, 'dist/gpuwars.js'), 'utf8').replace(/\n?\/\/# sourceMappingURL=.*\s*$/, '\n')) }];
-  for (const f of fs.readdirSync(path.join(dir, 'assets/music')).sort()) if (/\.(ogg|mp3|wav|json)$/i.test(f)) files.push({ name: 'assets/music/' + f, data: fs.readFileSync(path.join(dir, 'assets/music', f)) });
+  for (const f of fs.readdirSync(path.join(dir, 'assets/music')).sort()) if (/\.ogg$/i.test(f)) files.push({ name: 'assets/music/' + f, data: fs.readFileSync(path.join(dir, 'assets/music', f)) });
   return files;
 }
 /** problems that would make itch.io reject or break the upload; an empty list means ready */
@@ -34,5 +34,5 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const zip = buildZip(files), out = path.join(root, 'dist', ITCH.zipName); fs.writeFileSync(out, zip);
   const total = files.reduce((n, f) => n + f.data.length, 0), mb = n => (n / 1048576).toFixed(1) + ' MB';
   console.log(`wrote ${path.relative(root, out)}: ${files.length} files, ${mb(total)} extracted, ${mb(zip.length)} zipped`);
-  if (total > ITCH.warnTotalBytes) console.warn(`note: ${mb(total)} is a big download for a browser game; the two songs are most of it`);
+  if (total > ITCH.warnTotalBytes) console.warn(`note: ${mb(total)} is a big download for a browser game; the song is most of it`);
 }

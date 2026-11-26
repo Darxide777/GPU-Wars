@@ -2,7 +2,6 @@
 import { BENCHMARK, type BackendId } from './constants.ts';
 import { outcomeFromPasses, type BenchmarkOutcome } from './score.ts';
 import { createWorkload, type Frame, type Workload } from './workload.ts';
-import { createBuildingEq } from '../neon/building-eq.ts';
 import { NO_BEAT, type BeatState } from '../beat/clock.ts';
 import type { ClassId } from '../classes.ts';
 
@@ -37,15 +36,14 @@ export function startBenchmark(deps: RunDeps): RunHandle {
     if (!workload) return { status: 'failed', reason: 'THIS BROWSER CANNOT DRAW THE BENCHMARK' };
     deps.host?.appendChild(workload.canvas);
     try {
-      const eq = createBuildingEq(), runStart = now(); let last = runStart, batch = 1;
+      const runStart = now(); let batch = 1;
       /** work for `ms` and return the work units done and the clock time it took */
       const work = async (ms: number, label: (elapsed: number) => void): Promise<{ units: number; wallMs: number }> => {
         const start = now(); let units = 0;
         while (now() - start < ms) {
           if (cancelled) return { units, wallMs: now() - start };
           const t = now(), seconds = (t - runStart) / 1000, beat = deps.beat(seconds) ?? NO_BEAT;
-          eq.setLevels(beat.eq ?? []); eq.step(Math.min(0.1, (t - last) / 1000)); last = t;
-          const frame: Frame = { time: seconds, beat, bars: eq.bars(), peaks: eq.peakMarks() };
+          const frame: Frame = { time: seconds, beat };
           units += workload.run(batch, frame);
           batch = nextBatch(batch, now() - t); label(now() - start); await sleep();
         }

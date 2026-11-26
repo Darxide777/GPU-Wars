@@ -127,10 +127,10 @@ test('the batch of draws between syncs adapts', () => {
 test('the runner runs warm-up, passes and scoring with a fake card and clock, and can be cancelled', async () => {
   let t = 0; const now = () => t, sleep = async () => { t += 10; };
   const fake = { backend: 'webgl2', canvas: { remove() {} }, unitsPerDraw: 1e9, dispose() {}, run(draws) { t += 5 * draws; return draws * 1e9; } };
-  const run = startBenchmark({ cls: 'discrete', beat: () => ({ eq: [], pulse: 0, pulse2: 0, pulseHalf: 0, phase: 1, index: 0, intensity: 0, bass: 0, mid: 0, high: 0, on: false }), createWorkload: () => fake, now, sleep });
+  const run = startBenchmark({ cls: 'discrete', beat: () => ({ pulse: 0, pulse2: 0, pulseHalf: 0, phase: 1, index: 0, intensity: 0, bass: 0, mid: 0, high: 0, on: false }), createWorkload: () => fake, now, sleep });
   const r = await run.done; assert.equal(r.status, 'done', JSON.stringify(r).slice(0, 300)); assert.equal(r.outcome.rates.length, BENCHMARK.passes); assert.ok(r.outcome.score > 0 && r.outcome.score <= classScoreCap('discrete'));
   const again = await startBenchmark({ cls: 'integrated', beat: () => ({}), createWorkload: () => ({ ...fake, run(d) { t += 5 * d; return d * 1e9; } }), now: () => t, sleep }).done; assert.equal(again.status, 'done');
-  let t2 = 0; const c = startBenchmark({ cls: 'integrated', beat: () => ({ eq: [] }), createWorkload: () => fake, now: () => t2, sleep: async () => { t2 += 10; } }); c.cancel(); assert.equal((await c.done).status, 'cancelled');
+  let t2 = 0; const c = startBenchmark({ cls: 'integrated', beat: () => ({}), createWorkload: () => fake, now: () => t2, sleep: async () => { t2 += 10; } }); c.cancel(); assert.equal((await c.done).status, 'cancelled');
   assert.equal((await startBenchmark({ cls: 'integrated', beat: () => ({}), createWorkload: () => null }).done).status, 'failed', 'no way to draw is reported, not thrown');
 });
 

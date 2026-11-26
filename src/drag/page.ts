@@ -9,7 +9,7 @@ import { createRebinder, optionsItems, type Device } from '../options/screen.ts'
 import { createInput } from '../input/index.ts';
 import { createHaptics } from '../input/haptics.ts';
 import { createAutopilot, viewOf, AUTOPILOT_CATEGORY, type Autopilot, type RunCategory } from './autopilot.ts';
-import { fullscreenAvailable, onFirstGesture, toggleFullscreen, watchViewport } from '../platform.ts';
+import { fullscreenAvailable, toggleFullscreen, watchViewport } from '../platform.ts';
 import { createMenu, type Menu, type MenuItem } from '../arena/view/menu.ts';
 import { createPadMenu } from '../gamepad.ts';
 import { firstPad } from '../arena/view/pad.ts';
@@ -98,10 +98,10 @@ let gpu: GpuIdentity = PENDING_GPU;
 let benchScreen: BenchmarkScreen | null = null;
 const benchContext: BenchmarkContext = {
   save: () => save, gpu: () => gpu, say: text => { msg = text; }, refresh: () => { if (screen === 'title') render(); },
-  start: (cls, masked) => { show('bench'); music.startMusic(); benchScreen = openBenchmarkScreen({ cls, masked, playing: () => music.nowPlaying(), onFinish: r => finishBenchmark(r) }); },
+  start: (cls, masked) => { show('bench'); music.stopMusic(); music.startMusic(); benchScreen = openBenchmarkScreen({ cls, masked, playing: () => music.nowPlaying(), onFinish: r => finishBenchmark(r) }); },
 };
 function finishBenchmark(r: Parameters<Parameters<typeof openBenchmarkScreen>[0]['onFinish']>[0]): void {
-  benchScreen?.close(); benchScreen = null;
+  benchScreen?.close(); benchScreen = null; music.stopMusic();
   if (r.status === 'done') {
     commit({ ...save, benchmark: resultFromRun({ score: r.outcome.score, sustain: r.outcome.sustain, cls: r.outcome.cls, gpuId: gpu.gpuId, now: Date.now(), classFromSpeed: r.outcome.classFromSpeed }) });
     const spec = readyCar(save).spec, peaks = dynoPeaks(spec), cls = r.outcome.cls, line = calibrationLine(r.outcome, cls);
@@ -285,7 +285,7 @@ const syncCategory = (): void => { const c = options.driver === 'autopilot' ? AU
 function startRace(kind: DragRaceKind): void {
   syncCategory(); raceKind = kind; screenBefore = screen; msg = ''; const ranked = kind === 'ghost', entrants = [ranked ? rankedEntrant() : myEntrant()], g = ranked ? ghostToRace() : null; if (g) entrants.push(ghostEntrant(g));
   if (ranked) { raceSeed = RANKED.seed; lb.clearStatus(); }      // (a ranked run is the fixed class day: the same seed, weather and fresh strip for everyone)
-  race = createDrag(ranked ? { seed: RANKED.seed, conditions: RANKED.conditions, strip: rankedStrip(), entrants } : { seed: raceSeed, strip, entrants }); isBackdrop = false; banked = false; overT = 0; acc = 0; result = null; music.startMusic(); input.reset(performance.now()); autopilot = createAutopilot(); show('race');
+  race = createDrag(ranked ? { seed: RANKED.seed, conditions: RANKED.conditions, strip: rankedStrip(), entrants } : { seed: raceSeed, strip, entrants }); isBackdrop = false; banked = false; overT = 0; acc = 0; result = null; input.reset(performance.now()); autopilot = createAutopilot(); show('race');
 }
 function finishRace(): void {
   if (banked) return; banked = true; const s = race.state, me = s.runners[0] as Runner, slip = timeslip(me), crashed = !!slip.crashed;
@@ -320,7 +320,6 @@ input.attach(window, cv);
 // ---- drawing: the strip from above (see topdown.ts), sized to the window (an itch.io frame can be any size, and can be resized or made fullscreen at any time) ----
 function resize(): void { const dpr = Math.min(2, devicePixelRatio || 1); cv.width = Math.floor(innerWidth * dpr); cv.height = Math.floor(innerHeight * dpr); cv.style.width = innerWidth + 'px'; cv.style.height = innerHeight + 'px'; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); }
 watchViewport(resize); resize();
-onFirstGesture(() => { if (screen === 'race') music.startMusic(); });      // (audio stays locked until the first touch or key)
 const fsButton = $('fs'); if (fullscreenAvailable()) { fsButton.style.display = 'block'; fsButton.onclick = toggleFullscreen; }
 const topDown = createDragTopDown();
 let last = performance.now();
