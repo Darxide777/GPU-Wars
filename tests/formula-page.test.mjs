@@ -173,8 +173,8 @@ test('a ranked lap becomes a payload the backend accepts (formula mode, three se
   const p = buildFormulaPayload({ playerName: 'SPEEDY', category: 'manual', benchmark: benchmark({ score: 9000 }), slip, tune }); assert.equal(p.mode, 'formula'); assert.equal(p.track, 'beach'); assert.ok(Math.abs(p.topSpeed - slip.topSpeed * 0.621371) < 0.06);
   assert.deepEqual(flattenFormulaTune(tune), { gearing: 0, downforce: 0.5, steering: 0, pressure: 0, nitro: 0, shiftLight: 0.9, gearboxAuto: 0 }); assert.equal(buildFormulaPayload({ ...{ playerName: 'SPEEDY', category: 'manual', benchmark: null, slip, tune } }), null, 'no benchmark: no payload');
   assert.equal(buildFormulaPayload({ playerName: 'SPEEDY', category: 'manual', benchmark: benchmark(), slip: { ...slip, jumpStart: true, valid: false }, tune }), null);
-  // (the SHAPE is what is checked here: the server's lap and top-speed windows are PLACEHOLDERS that the real simulation's numbers do not fit yet; phase 3 calibrates both sides, see docs/ARCHITECTURE.md)
-  const shaped = validate.validateSubmission({ ...p, benchmarkScore: 5000, splits: { sector1: 22, sector2: 44, lap: 64 }, topSpeed: 177 }); assert.ok(shaped.ok, `the server's validator: ${JSON.stringify(shaped)}`);
+  // a real autopilot lap on a score-9000 card is inside the server's (re-seeded) formula windows
+  const accepted = validate.validateSubmission(p); assert.ok(accepted.ok, `the server's validator: ${JSON.stringify(accepted)}`);
 });
 test('online: the leader comes from the shared client with mode formula, a missing leader means no ghost, and a lap is sent through client.submit', async () => {
   const calls = []; const client = { configured: true, leader: async (...a) => { calls.push(['leader', ...a]); return { record: { name: 'ACE', class: 'discrete', category: 'manual', track: 'beach', timeS: 41.5, topSpeed: 180, sectors: { sector1: 12, sector2: 25, lap: 41.5 }, seed: 1, tune: {}, ghost: null }, online: true, note: '' }; }, submit: async p => { calls.push(['submit', p]); return { ok: true, classRank: 2, verified: false }; } };
