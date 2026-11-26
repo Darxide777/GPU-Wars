@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { createDrag, predictDrag, timeslip } from '../src/drag/physics.ts';
+import { STAGE, RUBBER, createDragStrip, rubberAt, createDrag, predictDrag, timeslip } from '../src/drag/physics.ts';
 import { readyCar } from '../src/drag/model.ts';
 import { emptySave } from '../src/save.ts';
 import { createAutopilot, viewOf, steerFor, AUTOPILOT_CATEGORY, AUTOPILOT } from '../src/drag/autopilot.ts';
@@ -91,8 +91,8 @@ test('each staging phase gets the right press (the engine reports it, the autopi
   const { spec, tune } = car(), d = createDrag({ seed: 1, entrants: [{ name: 'X', spec, tune, ai: null }] }), v = viewOf(d, 0, 'backup');
   const run = (phase, over = {}) => createAutopilot().decide({ ...v, stagePhase: phase, runner: { ...v.runner, ...over } });
   assert.equal(run('backup', { x: -0.1, v: 0 }).backUp, true, 'backing up'); assert.equal(run('backup', { x: -0.7, v: 0 }).backUp, false); assert.ok(run('backup', { x: -0.7, v: 0 }).throttle > 0, 'creeps in from behind the beam');
-  const burn = run('burnout', { x: -20 }); assert.ok(burn.burnout && burn.throttle === 1, 'burnout is gas + burnout'); assert.ok(!run('waterBoxApproach', { x: -33 }).burnout, 'no burnout before the water box');
-  assert.equal(run('runOut', { x: 9, v: 0 }).backUp, true, 'stopped past the tree: reverse'); assert.equal(run('runOut', { x: 9, v: 3 }).brake, true, 'still rolling past the tree: brake');
+  const burn = run('burnout', { x: STAGE.waterBoxStart + 4 }); assert.ok(burn.burnout && burn.throttle === 1, 'burnout is gas + burnout'); assert.ok(!run('waterBoxApproach', { x: STAGE.waterBoxStart - 5 }).burnout, 'no burnout before the water box');
+  assert.equal(run('runOut', { x: STAGE.runOutPastTree + 1, v: 0 }).backUp, true, 'stopped past the tree: reverse'); assert.equal(run('runOut', { x: STAGE.runOutPastTree + 1, v: 3 }).brake, true, 'still rolling past the tree: brake');
   assert.equal(run('preStage').launch, false, 'it does not press launch until the tree is up'); assert.ok(run('preStage').throttle > 0);
   assert.equal(steerFor({ v: 0, y: 1, psi: 0, yawRate: 0, gripLeft: 1 }), 0); assert.ok(steerFor({ v: 50, y: 1, psi: 0, yawRate: 0, gripLeft: 1 }) < 0, 'right of the middle: steer left');
   assert.equal(AUTOPILOT_CATEGORY, 'autopilot'); assert.equal(createAutopilot().category, 'autopilot');
@@ -104,4 +104,15 @@ test('the page: DRIVER, the engine phase goes in through viewOf, autopilot runs 
   assert.match(page, /lb\.setCategory\(c\)/, 'the leaderboard category follows the driver'); assert.match(page, /options\.driver === 'autopilot' \? AUTOPILOT_CATEGORY : 'manual'/);
   assert.match(page, /category === 'autopilot' \? \{ save, records: \[\] as string\[\] \}/, 'no local records for the autopilot');
   assert.match(page, /seed: RANKED\.seed, conditions: RANKED\.conditions, strip: rankedStrip\(\)/, 'the same class day for both drivers');
+});
+
+test('the water box is near the line: the autopilot burns out across it and lays rubber before and past the line', () => {
+  assert.ok(STAGE.waterBoxEnd < 0 && STAGE.waterBoxEnd > -12, 'the water box ends just behind the line');
+  const { spec, tune } = car(), strip = createDragStrip(2), d = createDrag({ seed: 7, strip, entrants: [{ name: 'AUTOPILOT', spec, tune, ai: null }] }), ap = createAutopilot(), r = d.state.runners[0];
+  let farthest = -Infinity;
+  for (let n = 0; n < 240 * 40 && r.stage !== 'runOut'; n++) { const inp = ap.decide(viewOf(d, 0, r.stage)); d.setInput(0, inp); d.step(); farthest = Math.max(farthest, r.x); }
+  assert.ok(farthest > 0, `the burnout went past the start line (${farthest.toFixed(1)} m)`);
+  let before = 0, after = 0; for (let x = STAGE.waterBoxEnd; x < 0; x += RUBBER.cell) before += rubberAt(strip, 0, 0, x); for (let x = 0; x < 10; x += RUBBER.cell) after += rubberAt(strip, 0, 0, x);
+  assert.ok(before > 0, 'rubber lies between the water box and the line'); assert.ok(after > 0, 'and past the line');
+  assert.equal(rubberAt(strip, 0, 0, -RUBBER.behindLine - 50), 0, 'nothing far behind the strip');
 });

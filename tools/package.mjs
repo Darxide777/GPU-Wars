@@ -13,6 +13,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export function collectFiles(dir = root) {
   const files = [{ name: 'index.html', data: fs.readFileSync(path.join(dir, 'index.html')) }, { name: 'dist/gpuwars.js', data: Buffer.from(fs.readFileSync(path.join(dir, 'dist/gpuwars.js'), 'utf8').replace(/\n?\/\/# sourceMappingURL=.*\s*$/, '\n')) }];
   for (const f of fs.readdirSync(path.join(dir, 'assets/music')).sort()) if (/\.ogg$/i.test(f)) files.push({ name: 'assets/music/' + f, data: fs.readFileSync(path.join(dir, 'assets/music', f)) });
+  for (const f of fs.readdirSync(path.join(dir, 'assets/sfx')).sort()) if (/\.(ogg|mp3|wav)$/i.test(f)) files.push({ name: 'assets/sfx/' + f, data: fs.readFileSync(path.join(dir, 'assets/sfx', f)) });
   return files;
 }
 /** problems that would make itch.io reject or break the upload; an empty list means ready */

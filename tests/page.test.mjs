@@ -64,7 +64,7 @@ test('the only song is Simulation Theory by Chromium Halo (not the remix), used 
   const analysis = JSON.parse(read('assets/music/analysis.json')); assert.deepEqual(Object.keys(analysis.tracks), ['simulation-theory']); assert.equal(analysis.tracks['simulation-theory'].eq, undefined, 'no equalizer data');
   assert.ok(SONG.id in analysis.tracks && SONG.file === 'simulation-theory.ogg' && SONG.title === 'Simulation Theory' && SONG.artist === 'Chromium Halo');
   const page = read('src/drag/page.ts');
-  assert.equal(page.split('startMusic()').length - 1, 1, 'music starts in one place: the benchmark'); assert.doesNotMatch(page, /onFirstGesture/);
+  assert.equal(page.split('startMusic()').length - 1, 1, 'music starts in one place: the benchmark'); assert.doesNotMatch(page, /onFirstGesture\([^)]*startMusic/, 'the first key press or tap does not start music (only sound effects unlock)');
   assert.ok(!existsSync(new URL('../src/beat/eq.ts', import.meta.url)) && !existsSync(new URL('../src/neon/building-eq.ts', import.meta.url)));
   for (const f of walk('src').filter(f => f.endsWith('.ts'))) assert.doesNotMatch(read(f), /building-eq|eqNow|library\.json|vipers/i, f);
 });
@@ -102,4 +102,28 @@ test('the screens show density altitude and the hot tire pressure, window.__drag
   assert.match(bench, /CANNOT SEE AN OVERCLOCK[\s\S]*RUN THE BENCHMARK AGAIN/, 'the benchmark screen says to re-run it by hand after an overclock or a GPU change');
   assert.ok(!/NEW BEST PASS|improved/.test(page), 'no race against your own best pass');
   assert.doesNotMatch(page, /save\.ghost|BEST PASS/);
+});
+
+test('the tune screen has a free REPLACE TIRES row beside REPLACE CLUTCH, with help, and the slot rows are at the bottom', () => {
+  const page = read('src/drag/page.ts'), tune = page.slice(page.indexOf('function tuneItems()'), page.indexOf('/** the panel above the rows'));
+  const at = k => tune.indexOf(k);
+  assert.ok(at("id: 'replaceTires'") > at("id: 'replaceClutch'") && at("id: 'replaceTires'") < at("id: 'cool'"), 'REPLACE TIRES follows REPLACE CLUTCH');
+  assert.match(tune, /id: 'replaceTires'[^\n]*enter: \(\) => \{ tireWear = \[0, 0\]/, 'it resets both slicks');
+  assert.ok(TUNE_HINTS.replaceTires && /free/i.test(TUNE_HINTS.replaceTires), 'with a help text that says it is free');
+  assert.match(page, /tireWear = tireWearAfterRun\(me\)/, 'wear carries after a run');
+  assert.ok(at('...slotRows(') > at("id: 'reset'") && at('...slotRows(') > at("id: 'nitroGear'") && at('...slotRows(') < at('testItem(),\n    { id: \'back\''), 'the slot controls sit at the bottom, above TEST RUN and BACK');
+});
+
+test('every menu is locked to the size it has with its longest description showing', () => {
+  const page = read('src/drag/page.ts'), render = page.slice(page.indexOf('function render('), page.indexOf('// ---- the race ----'));
+  assert.match(render, /reserveHintSpace\(m\)/, 'render reserves the hint space for every menu');
+  assert.match(render, /for \(const it of m\.items\)[^\n]*it\.hint\?\.\(\)[^\n]*offsetHeight/, 'it measures every row\'s description');
+  assert.match(render, /el\.style\.minHeight = tallest/, 'and holds the hint line at the tallest');
+});
+
+test('EXIT FULLSCREEN is on the title menu only while fullscreen, and the decision is written down', () => {
+  const page = read('src/drag/page.ts'), itch = read('docs/ITCH.md');
+  assert.match(page, /isFullscreen\(\) \? \[\{ id: 'exit', label: 'EXIT FULLSCREEN'/, 'the row exists only in fullscreen');
+  assert.doesNotMatch(page, /window\.close|location\.href\s*=/, 'no attempt to close the page or navigate away');
+  assert.match(itch, /Exiting the game/); assert.match(itch, /window\.close/);
 });

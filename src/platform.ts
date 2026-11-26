@@ -8,6 +8,8 @@ export function toggleFullscreen(): void {
     else { const el = document.documentElement as any; (el.requestFullscreen ?? el.webkitRequestFullscreen)?.call(el)?.catch?.(() => { /* refused (an iframe without allow-fullscreen): the itch.io button still works */ }); }
   } catch (e) { /* no fullscreen here */ }
 }
+/** leaves fullscreen when it is on (the only kind of exit a page has: it cannot close its own tab) */
+export function leaveFullscreen(): void { try { if (isFullscreen()) (document.exitFullscreen ?? (document as any).webkitExitFullscreen)?.call(document); } catch (e) { /* nothing to leave */ } }
 /** runs `callback` once, on the first pointer press or key press (browsers keep audio locked until then) */
 export function onFirstGesture(callback: () => void): void {
   const events = ['pointerdown', 'keydown', 'touchend'] as const;
