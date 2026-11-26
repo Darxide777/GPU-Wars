@@ -22,10 +22,10 @@ import { BOOST, defaultTune } from './tune.ts';
 import { tuneHint } from './tune-help.ts';
 import { drawLane, drawProgress, drawTach } from './hud.ts';
 import { createDragTopDown } from './topdown.ts';
-import { readGpuIdentity, type GpuIdentity } from '../benchmark/gpu.ts';
+import { PENDING_GPU, gpuLine, readGpuIdentity, type GpuIdentity } from '../benchmark/gpu.ts';
 import { openBenchmarkScreen, type BenchmarkScreen } from '../benchmark/screen.ts';
 import { benchmarkItem, benchmarkLine, classItem, type BenchmarkContext } from '../benchmark/menu.ts';
-import { resultFromRun } from '../benchmark/rules.ts';
+import { repairBenchmark, resultFromRun } from '../benchmark/rules.ts';
 import { dynoPeaks, dynoSvg } from '../benchmark/dyno.ts';
 import type { ClassId } from '../classes.ts';
 import { createLeaderboardUi } from '../leaderboard/ui.ts';
@@ -95,11 +95,10 @@ const myEntrant = (): Entrant => { const { spec, tune } = readyCar(save, clutchC
 const rankedEntrant = (): Entrant => { const start = rankedStart(), { spec, tune } = readyCar(save, start.clutchCondition); return { name: 'YOU', spec, tune, ai: null, ...start }; };
 
 // ---- the graphics card and the benchmark (rules: src/benchmark/rules.ts) ----
-let gpu: GpuIdentity = { gpuId: 'unknown', source: 'none', detectedClass: null, why: 'CHECKING THE GRAPHICS CARD', software: false };
+let gpu: GpuIdentity = PENDING_GPU;
 let benchScreen: BenchmarkScreen | null = null;
-const classPick: { value: ClassId | null } = { value: null };
 const benchContext: BenchmarkContext = {
-  save: () => save, commit, gpu: () => gpu, pick: classPick, now: () => Date.now(), say: text => { msg = text; }, refresh: () => { if (screen === 'title') render(); },
+  save: () => save, gpu: () => gpu, say: text => { msg = text; }, refresh: () => { if (screen === 'title') render(); },
   start: cls => { show('bench'); music.startMusic(); benchScreen = openBenchmarkScreen({ cls, playing: () => music.nowPlaying(), onFinish: r => finishBenchmark(cls, r) }); },
 };
 function finishBenchmark(cls: ClassId, r: Parameters<Parameters<typeof openBenchmarkScreen>[0]['onFinish']>[0]): void {
@@ -107,13 +106,18 @@ function finishBenchmark(cls: ClassId, r: Parameters<Parameters<typeof openBench
   if (r.status === 'done') {
     commit({ ...save, benchmark: resultFromRun({ score: r.outcome.score, sustain: r.outcome.sustain, cls, gpuId: gpu.gpuId, now: Date.now() }) });
     const spec = readyCar(save).spec, peaks = dynoPeaks(spec), line = calibrationLine(r.outcome, cls);
-    console.log(`[GPU Wars benchmark] ${line} | gpu ${gpu.gpuId} | class ${cls}`);
-    soon = { title: 'BENCHMARK DONE', help: `SCORE ${r.outcome.score} (RAW ${r.outcome.rawScore})${r.outcome.capped ? ' (CAPPED FOR YOUR CLASS)' : ''}`, text: `${line}. Your car now makes ${Math.round(peaks.hp)} hp at ${peaks.hpRpm} rpm and ${Math.round(peaks.torqueNm)} Nm of torque. ${r.outcome.discarded.length ? `${r.outcome.discarded.length} unsteady pass(es) were thrown away. ` : ''}Drawn with ${r.outcome.backend}. The game cannot see an overclock: run the benchmark again yourself after overclocking or changing your GPU.` };
+    console.log(`[GPU Wars benchmark] ${line} | ${gpuLine(gpu)}`);
+    soon = { title: 'BENCHMARK DONE', help: `SCORE ${r.outcome.score} (RAW ${r.outcome.rawScore})${r.outcome.capped ? ' (CAPPED FOR YOUR CLASS)' : ''}`, text: `${gpuLine(gpu)}. ${line}. Your car now makes ${Math.round(peaks.hp)} hp at ${peaks.hpRpm} rpm and ${Math.round(peaks.torqueNm)} Nm of torque. ${r.outcome.discarded.length ? `${r.outcome.discarded.length} unsteady pass(es) were thrown away. ` : ''}Drawn with ${r.outcome.backend}. The game cannot see an overclock: run the benchmark again yourself after overclocking or changing your GPU.` };
     show('soon');
   } else if (r.status === 'failed') { soon = { title: 'BENCHMARK FAILED', help: 'NOT SCORED', text: `${r.reason}. Nothing was saved. Run it again from the BENCHMARK row.` }; show('soon'); }
   else show('title');
 }
-void readGpuIdentity().then(g => { gpu = g; if (screen === 'title') show('title'); });
+void readGpuIdentity().then(g => {
+  gpu = g; console.log(`[GPU Wars] ${gpuLine(g)}`);
+  // a result from an older build (a hand-picked class) or from another class is thrown away: the car is stock until the benchmark is run again in the detected class
+  const repaired = repairBenchmark(save, g); if (repaired) { commit(repaired); msg = `YOUR SAVED BENCHMARK WAS FOR ANOTHER CLASS. YOUR CLASS IS ${classLabel(g.gpuClass)}: RUN THE BENCHMARK AGAIN`; }
+  if (screen === 'title') show('title');
+});
 
 // ---- the screens ----
 type Screen = 'title' | 'soon' | 'bench' | 'records' | 'name' | 'tune' | 'options' | 'race' | 'slip';

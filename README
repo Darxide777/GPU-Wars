@@ -44,7 +44,7 @@ THE FLOW OF THE RACE:
 
 1. BENCHMARK from the title screen (never automatic). It scores your GPU, then your class is set from it (integrated or discrete,
    split by generation and by maker: AMD, NVIDIA, Intel and others). Run it again only if you change your GPU or overclock it: the game cannot see an overclock.
-   If the game cannot tell what your card is, CLASS lets you pick your class by hand. Skip the benchmark and you race with the weakest car.
+   The CLASS row shows the class the game detected from your graphics card; it cannot be picked or changed (when the card is masked the game assumes integrated). Skip the benchmark and you race with the weakest car.
 2. RACE CLASS LEADER. You race a ghost of the fastest player in your class. Everyone races the same ranked class day (same weather, a fresh strip).
    The ghost follows the leader's time, not the physics, so it is the time to beat.
 3. The staging, like the real thing: drive to the water box, do a BURNOUT to heat the tires, run out past the tree, STOP, BACK UP to the pre-stage beam,

@@ -19,7 +19,7 @@ const runToEnd = (race, onStep) => { for (let i = 0; i < 240 * 120 && race.state
 /** a canvas that records the text it is asked to write and accepts every other call */
 function recorder() {
   const texts = [], calls = [], fns = new Set(['strokeText', 'fillRect', 'strokeRect', 'moveTo', 'lineTo', 'arc', 'ellipse', 'fill', 'stroke', 'beginPath', 'closePath', 'save', 'restore', 'translate', 'rotate', 'setLineDash', 'clearRect', 'scale', 'quadraticCurveTo', 'bezierCurveTo', 'rect', 'clip']);
-  const ctx = new Proxy({}, { get: (t, k) => { if (k === 'fillText') return s => { texts.push(String(s)); }; if (k === 'arc') return () => { calls.push('arc'); }; if (fns.has(k)) return () => {}; if (k === 'measureText') return s => ({ width: String(s).length * 8 }); return t[k]; }, set: (t, k, v) => { t[k] = v; return true; } });
+  const ctx = new Proxy({}, { get: (t, k) => { if (k === 'measureText') return (s) => ({ width: String(s).length * 7.8 }); if (k === 'fillText') return s => { texts.push(String(s)); }; if (k === 'arc') return () => { calls.push('arc'); }; if (fns.has(k)) return () => {}; if (k === 'measureText') return s => ({ width: String(s).length * 8 }); return t[k]; }, set: (t, k, v) => { t[k] = v; return true; } });
   return { ctx, texts, calls };
 }
 
@@ -74,14 +74,15 @@ test('the ghost launch is a realistic share of its ET: 60 ft is about 15 to 22 p
   assert.deepEqual(buildLeaderGhost(record()), buildLeaderGhost(record()));
 });
 
-test('only the player car carries the clutch, boost, tire and fuel readouts; the ghost shows its name and ET', () => {
+test('only the player car carries the clutch, boost, tire and fuel readouts; the ghost has no text at all', () => {
   const race = raceWith(buildLeaderGhost(record()), true), td = createDragTopDown();
   for (let i = 0; i < 240 * 6; i++) race.step();
   const r = recorder(); td.draw(r.ctx, 1280, 720, race.state, 0, 0.016, 3);
   const count = word => r.texts.filter(t => t.startsWith(word)).length;
   for (const word of ['CLUTCH', 'TIRE', 'FUEL']) assert.equal(count(word), 1, `${word} once (the player's)`);
   assert.ok(count('BOOST') <= 1, 'BOOST at most once');
-  assert.ok(r.texts.includes('SPEEDY') && r.texts.some(t => /^ET 7\.200 S/.test(t)), 'the ghost shows its name and ET');
+  assert.ok(!r.texts.includes('SPEEDY') && !r.texts.some(t => /^ET \d/.test(t)), 'the ghost has no name, stage or ET text beside it');
+  const stageWords = ['STAGED', 'PRE-STAGED', 'DEEP STAGED', 'ROLLING', 'ABORT', 'FRONT UP'], onlyYou = r.texts.filter(t => stageWords.includes(t)).length; assert.ok(onlyYou <= 1, 'a stage word is written at most once (for your car), never for the ghost');
   // with the camera on the ghost's lane the player's readouts are still the only ones
   const other = recorder(); td.draw(other.ctx, 1280, 720, race.state, 1, 0.016, 3); assert.ok(other.texts.filter(t => t.startsWith('CLUTCH')).length <= 1);
 });
