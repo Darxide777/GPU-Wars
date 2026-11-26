@@ -356,7 +356,7 @@ function frame(now: number): void {
     while (acc >= DRAG.dt && n++ < 60) { acc -= DRAG.dt; readInput(); race.step(); haptics.onEvents(race.events); for (const e of race.events) { if (e.t === 'amber') sfx.treeLight('amber', e.n); else if (e.t === 'green') sfx.treeLight('green'); } }
     if (s.phase === 'over') { finishRace(); if ((overT += dt) > 1.6) show('slip'); }
   }
-  sfx.engine(pedal, screen === 'race');
+  sfx.engine(pedal, screen === 'race', s.green);
   topDown.draw(ctx, W, H, race.state, 0, dt, now / 1000);
   if (screen === 'race') {
     // with the touch buttons on screen the prompts name the buttons (GAS, BRAKE, BURN, BACK UP, GO, DEEP); otherwise the player's own bound keys

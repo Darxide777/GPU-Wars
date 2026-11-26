@@ -8,9 +8,10 @@ export const SFX_FILES = { idle: 'assets/sfx/idle.ogg', throttle: 'assets/sfx/th
 /** how fast the engine sound follows the pedal (seconds): the crossfade between the idle and throttle loops */
 export const ENGINE_FADE = 0.12;
 
-/** how loud the idle and throttle loops are for a pedal position: an equal-power crossfade, the idle on its way out as the throttle comes in. `racing` false is silence. */
-export function engineMix(throttle: number, racing: boolean): { idle: number; throttle: number } {
+/** how loud the idle and throttle loops are for a pedal position (before the green only the idle plays): an equal-power crossfade, the idle on its way out as the throttle comes in. `racing` false is silence. */
+export function engineMix(throttle: number, racing: boolean, greenDropped = true): { idle: number; throttle: number } {
   if (!racing) return { idle: 0, throttle: 0 };
+  if (!greenDropped) return { idle: 1, throttle: 0 };      // staging (burnout, back up, stage): only the idle sound, whatever the gas does
   const pedal = Number.isFinite(throttle) ? Math.max(0, Math.min(1, throttle)) : 0;
   return { idle: Math.cos(pedal * Math.PI / 2), throttle: Math.sin(pedal * Math.PI / 2) };
 }
@@ -39,11 +40,11 @@ export function createSfx(vol: { sfx: number }) {
       } catch (e) { console.warn('[GPU Wars] sound effects unavailable', e); }
     },
     /** every frame: the pedal (0 to 1) and whether a race is on screen; the engine crossfades between idle (off the gas) and throttle (on it) */
-    engine(throttle: number, racing: boolean): void {
+    engine(throttle: number, racing: boolean, greenDropped: boolean): void {
       wantedThrottle = throttle; wantedRacing = racing;
       if (!engineIdle || !engineThrottle) return;
       const now = performance.now(), dt = Math.min(0.1, Math.max(0, (now - lastFrame) / 1000)); lastFrame = now;
-      const mix = engineMix(wantedThrottle, wantedRacing), follow = 1 - Math.exp(-dt / (ENGINE_FADE / 3));
+      const mix = engineMix(wantedThrottle, wantedRacing, greenDropped), follow = 1 - Math.exp(-dt / (ENGINE_FADE / 3));
       shownIdle += (mix.idle - shownIdle) * follow; shownThrottle += (mix.throttle - shownThrottle) * follow;
       engineIdle.volume = level(shownIdle); engineThrottle.volume = level(shownThrottle);
       if (racing) for (const a of [engineIdle, engineThrottle]) if (a.paused) play(a);
