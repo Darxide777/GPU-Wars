@@ -96,3 +96,93 @@ export function implausibleReason(cls: ClassId, benchmarkScore: number, run: { q
   if (run.eighth < w.minEighth) return `1/8 mile time ${f(run.eighth)} s is faster than plausible for ${who} (fastest ${f(w.minEighth)} s)`;
   return null;
 }
+
+
+// ====================================================================================================================================================
+// FORMULA MODE: THE ONE TABLE OF FORMULA NUMBERS.
+//
+// !!! EVERY NUMBER IN THIS TABLE IS A PLACEHOLDER (phase 1). !!! They are rough guesses so the server can accept and reject formula laps in the right
+// SHAPE today. Phase 3 replaces them with numbers measured from the formula physics (the same way SCORE_CURVE above comes from docs/CALIBRATION.md).
+// Until then they are deliberately generous: a real lap should never be refused, only the plainly impossible ones.
+// To calibrate: change only this table (and the track length), nothing else in the formula checks has a number in it.
+// ====================================================================================================================================================
+
+/** one knot of a formula curve: the benchmark score, the lap time (s) and the top speed (mph) the default tune gives */
+type FormulaKnot = readonly [score: number, lapS: number, topMph: number];
+
+export const FORMULA_PLACEHOLDER_TABLE = {
+  /** a flag for readers and tests: true until phase 3 has measured these numbers */
+  placeholder: true,
+  /** the length of one lap per track, in metres (used to compare the lap time with the top speed) */
+  trackLengthM: { beach: 2400 } as Record<string, number>,
+  /** the outer limits of a ranked lap per class (like CLASS_BOUNDS for drag): the fastest and slowest lap (s) and the top speed window (mph) */
+  outer: {
+    integrated: { minLapS: 60, maxLapS: 200, minTopMph: 60, maxTopMph: 170 },
+    discrete: { minLapS: 38, maxLapS: 200, minTopMph: 60, maxTopMph: 260 },
+  } as Record<ClassId, { minLapS: number; maxLapS: number; minTopMph: number; maxTopMph: number }>,
+  /** lap time and top speed for a default-tune car by benchmark score, linear between knots (a strong card is a quick car). Integrated is scored 0 to 8000, discrete 0 to 10000. */
+  curve: {
+    integrated: [[0, 90, 120], [4000, 84, 130], [8000, 78, 140]],
+    discrete: [[0, 76, 150], [5000, 64, 177], [10000, 52, 205]],
+  } as Record<ClassId, readonly FormulaKnot[]>,
+  /** the allowances around the curve */
+  tolerance: {
+    /** fastest lap = curve lap x (1 - this): a very good tune plus the autopilot's line */
+    fastShare: 0.12,
+    /** slowest lap = curve lap x (1 + share) + seconds: a clumsy but honest drive */
+    slowShare: 0.4, slowExtra: 10,
+    /** top speed window: lowest = curve x (1 - low share); highest = curve x (1 + high share) + mph */
+    topLowShare: 0.3, topHighShare: 0.12, topExtraMph: 5,
+    /** the end of sector 1 as a share of the lap time, and the end of sector 2 as a share of the lap time */
+    sector1Share: [0.15, 0.5], sector2Share: [0.45, 0.85],
+    /** the lap's average speed must not beat the top speed by more than this (mph) and must be at least this share of it */
+    averageOverTopMph: 2, averageMinShare: 0.2,
+  },
+  /** the ghost of a formula lap: [seconds, distance along the lap in metres] pairs, at most this long */
+  ghost: { maxSeconds: 240, maxDistanceM: 20000 },
+} as const;
+
+export interface FormulaWindow {
+  /** the fastest and slowest believable lap time (s) */
+  minLapS: number;
+  maxLapS: number;
+  /** the believable top speed window (mph) */
+  minTopMph: number;
+  maxTopMph: number;
+}
+
+/** the formula window for a class and benchmark score (placeholder numbers, see FORMULA_PLACEHOLDER_TABLE); the outer limits are applied on top */
+export function formulaWindow(cls: ClassId, benchmarkScore: number): FormulaWindow {
+  const t = FORMULA_PLACEHOLDER_TABLE.tolerance, outer = FORMULA_PLACEHOLDER_TABLE.outer[cls], knots = FORMULA_PLACEHOLDER_TABLE.curve[cls];
+  const score = Math.min(Math.max(benchmarkScore, knots[0][0]), Math.min(CLASS_SCORE_CAP[cls], knots[knots.length - 1][0]));
+  let i = 1;
+  while (i < knots.length - 1 && knots[i][0] < score) i++;
+  const a = knots[i - 1], b = knots[i], u = b[0] === a[0] ? 0 : (score - a[0]) / (b[0] - a[0]);
+  const lap = a[1] + (b[1] - a[1]) * u, top = a[2] + (b[2] - a[2]) * u;
+  return {
+    minLapS: Math.max(outer.minLapS, lap * (1 - t.fastShare)),
+    maxLapS: Math.min(outer.maxLapS, lap * (1 + t.slowShare) + t.slowExtra),
+    minTopMph: Math.max(outer.minTopMph, top * (1 - t.topLowShare)),
+    maxTopMph: Math.min(outer.maxTopMph, top * (1 + t.topHighShare) + t.topExtraMph),
+  };
+}
+
+/** null when a formula lap is plausible for the score, otherwise a clear reason (the 422 message). Checks the lap time, the top speed, how the sectors share the lap, and lap average speed against top speed. */
+export function formulaImplausibleReason(cls: ClassId, benchmarkScore: number, track: string, run: { sector1: number; sector2: number; lap: number; topSpeed: number }): string | null {
+  const w = formulaWindow(cls, benchmarkScore), t = FORMULA_PLACEHOLDER_TABLE.tolerance, score = Math.round(benchmarkScore), f = (n: number) => n.toFixed(2);
+  const who = `a card of class ${cls} with benchmark score ${score}`;
+  if (run.lap < w.minLapS) return `lap time ${f(run.lap)} s is faster than plausible for ${who} (fastest ${f(w.minLapS)} s)`;
+  if (run.lap > w.maxLapS) return `lap time ${f(run.lap)} s is slower than plausible for ${who} (slowest ${f(w.maxLapS)} s)`;
+  if (run.topSpeed < w.minTopMph || run.topSpeed > w.maxTopMph)
+    return `top speed ${run.topSpeed.toFixed(0)} mph is outside ${w.minTopMph.toFixed(0)}-${w.maxTopMph.toFixed(0)} mph for ${who}`;
+  const s1 = run.sector1 / run.lap, s2 = run.sector2 / run.lap;
+  if (s1 < t.sector1Share[0] || s1 > t.sector1Share[1]) return `sector 1 (${f(run.sector1)} s) is not a believable share of a ${f(run.lap)} s lap`;
+  if (s2 < t.sector2Share[0] || s2 > t.sector2Share[1]) return `sector 2 (${f(run.sector2)} s) is not a believable share of a ${f(run.lap)} s lap`;
+  const lengthM = FORMULA_PLACEHOLDER_TABLE.trackLengthM[track];
+  if (lengthM) {
+    const averageMph = (lengthM / run.lap) * 2.236936;
+    if (averageMph > run.topSpeed + t.averageOverTopMph || averageMph < run.topSpeed * t.averageMinShare)
+      return `top speed ${run.topSpeed.toFixed(0)} mph does not fit a ${f(run.lap)} s lap (average ${averageMph.toFixed(0)} mph)`;
+  }
+  return null;
+}

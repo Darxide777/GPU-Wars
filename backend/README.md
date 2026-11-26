@@ -9,7 +9,8 @@ Cloudflare Worker + D1 (SQLite), TypeScript. Fits the Cloudflare free tier (see 
 - `POST /scores` submit a run (see `src/validate.ts`, `ScoreSubmission`). 200 `{ok, classRank, verified}`, 422 invalid, 413 too big, 429 rate limited, 403 origin.
 - `GET /leaderboard?scope=overall|class&class=<id>&category=manual|autopilot&limit=25` best ET per player, fastest first (limit max 100).
 - `GET /leader?class=<id>&category=manual|autopilot` full record of the class leader (splits, seed, tune, ghost) for building the ghost. 404 if none.
-- `GET /classes` list of class ids.
+- `GET /classes` list of class ids. `GET /modes` the modes and tracks.
+- `POST /scores`, `GET /leaderboard` and `GET /leader` take an optional `mode` (`drag` default, `formula`) and `track` (`strip`/`beach`); see `../docs/LEADERBOARD.md` ("Modes and tracks").
 
 Class ids live in `src/classes.ts` (dependency free, importable by the game): `integrated` and `discrete` for now. Reads (`GET`) allow any origin; `POST /scores` only the allowed origins.
 
