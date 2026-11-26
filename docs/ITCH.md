@@ -11,7 +11,7 @@ npm run package        # builds, checks, and writes dist/gpuwars-itch.zip
 
 `dist/` is not committed, so neither is the zip. The command refuses to write the zip when a check fails (an external URL or absolute path in `index.html`, a file that is missing, a sourcemap in the zip, too many files or too long a path). `npm test` runs the same checks (`tests/package.test.mjs`).
 
-The zip holds exactly: `index.html` (at the root), `dist/gpuwars.js` (the whole game, one script), and `assets/music/` (the two "Simulation Theory" songs and `library.json`). About 8 MB, almost all of it the songs.
+The zip holds exactly: `index.html` (at the root), `dist/gpuwars.js` (the whole game, one script), `assets/music/` (the two "Simulation Theory" songs and `library.json`) and `assets/sfx/` (the engine idle and throttle loops and the four Christmas tree beeps, about 120 KB of .ogg). About 8 MB, almost all of it the songs.
 
 ## Upload
 
@@ -34,9 +34,9 @@ To update, upload the new zip and delete the old one.
 | Works in an iframe | one iife script, no `top`/`parent` access, storage through `src/browser-store.ts` (falls back to memory when the iframe blocks localStorage) |
 | Resizes to its container | the canvas follows `innerWidth/innerHeight` on resize, rotation (`orientationchange`), `visualViewport` and fullscreen changes (`src/platform.ts`) |
 | Fullscreen | the button in `index.html` (hidden when the browser has no fullscreen API, for example iPhone Safari) and OPTIONS > FULLSCREEN |
-| Audio after a gesture | music starts from a key press or tap on the title/race (never on page load); `onFirstGesture` retries it once |
+| Audio after a gesture | music and sound effects start from a key press or tap (`sfx.unlock()` makes the Web Audio context then) on the title/race (never on page load); `onFirstGesture` retries it once |
 | Mobile | pointer events, `touch-action: none` on the canvas, on-screen controls, no pinch zoom, no pull-to-refresh (`overscroll-behavior: none`) |
-| Size limits (1000 files, 500 MB, 240-char paths, 200 MB a file) | 5 files, about 8 MB |
+| Size limits (1000 files, 500 MB, 240-char paths, 200 MB a file) | 11 files, about 8 MB |
 
 ## Checking it yourself
 

@@ -28,7 +28,7 @@ export const SHUTDOWN = { end: 760, brakeG: 1.6, chuteCda: 3.2, stopSpeed: 0.5, 
  * still in final stage for `armHold` seconds. Creeping past the stage beam into `overstageLimit` resets the stage bulb until the car backs out; crossing the final beam before green is a red light.
  * Turn `backupSpeed` first (how long the back up takes), then `burnoutSpeed`, `burnoutDistance` (the auto driver's dry burnout), `runOutPastTree`, then the beam spacing (`preStageRollout`, `overstageLimit`), then `wetGripLoss`. */
 export const STAGE = {
-  startX: -34, waterBoxStart: -26, waterBoxEnd: -19, burnoutDistance: 5, runOutPastTree: 8,
+  startX: -22, waterBoxStart: -14, waterBoxEnd: -7, burnoutDistance: 5, runOutPastTree: 12,
   /** the pre-stage beam is this far behind the final beam; the stage beam is `DRAG.stageRollout` behind it and deep stage `DRAG.deepStageRollout`; past `overstageLimit` before the final beam the stage bulb resets */
   preStageRollout: 0.8, overstageLimit: 0.05,
   /** how the car moves before the launch: the gas asks for up to `rollMaxSpeed` (m/s) and the car gains `rollAccel` (m/s2), a lifted gas coasts down `coastDecel`, the brake pulls `brakeDecel` */
@@ -106,15 +106,17 @@ export const WIND = { headRange: [-10, 10] as [number, number], crossRange: [-4,
  * Turn `gripRange` first (how much the strip changes under the tires), then `airRange` and `trackRange`, then `span` for how quickly it happens. */
 export const WEATHER = { airRange: [-4, 4] as [number, number], trackRange: [-9, 9] as [number, number], gripRange: [-0.08, 0.08] as [number, number], span: 12, hz: 0.17, wave: 0.18, salt: 0x27d4eb2f } as const;
 export const GHOST = { step: 0.05, maxSamples: 1200, maxTime: 60 } as const;
-export const RUBBER = { cell: 2, gain: 0.1, burnoutLength: 18, burnoutRate: 1.2, spinRate: 0.8, spinWidth: 6 } as const;
-export const STRIP_CELLS = Math.ceil((SHUTDOWN.end + 20) / RUBBER.cell) + 1;
+/** `behindLine` is how many metres of strip behind the start line keep rubber (a burnout before the line lays it too); the first cell of the strip is that far behind the line */
+export const RUBBER = { cell: 2, gain: 0.1, burnoutLength: 18, burnoutRate: 1.2, spinRate: 0.8, spinWidth: 6, behindLine: 40 } as const;
+export const STRIP_CELLS = Math.ceil((RUBBER.behindLine + SHUTDOWN.end + 20) / RUBBER.cell) + 1;
 export const createDragStrip = (lanes = 2): DragStrip => ({ rubber: Array.from({ length: lanes }, () => [Array.from({ length: STRIP_CELLS }, () => 0), Array.from({ length: STRIP_CELLS }, () => 0)]), version: 0 });
 export const cloneDragStrip = (strip: DragStrip): DragStrip => ({ rubber: (strip?.rubber ?? createDragStrip().rubber).map(side => side.map(cells => [...cells])), version: strip?.version ?? 0 });
 export const clearDragStrip = (strip: DragStrip): void => { for (const rows of strip?.rubber ?? []) for (const cells of rows) cells.fill(0); if (strip) strip.version++; };
-const stripCell = (x: number): number => clamp(Math.floor(Math.max(0, x) / RUBBER.cell), 0, STRIP_CELLS - 1);
+/** the cell a position along the strip (0 is the start line, negative behind it) falls in */
+const stripCell = (x: number): number => clamp(Math.floor((x + RUBBER.behindLine) / RUBBER.cell), 0, STRIP_CELLS - 1);
 export const rubberAt = (strip: DragStrip | undefined, lane: number, side: 0 | 1, x: number): number => {
   const rows = strip?.rubber?.[lane]; if (!rows || !rows[side]) return 0;
-  const raw = Math.max(0, x) / RUBBER.cell, i = clamp(Math.floor(raw), 0, STRIP_CELLS - 1), j = Math.min(STRIP_CELLS - 1, i + 1), cells = rows[side] as number[];
+  const raw = Math.max(0, x + RUBBER.behindLine) / RUBBER.cell, i = clamp(Math.floor(raw), 0, STRIP_CELLS - 1), j = Math.min(STRIP_CELLS - 1, i + 1), cells = rows[side] as number[];
   return (cells[i] ?? 0) + ((cells[j] ?? 0) - (cells[i] ?? 0)) * (raw - Math.floor(raw));
 };
 export const layRubber = (strip: DragStrip | undefined, lane: number, side: 0 | 1, x0: number, x1: number, amount: number): void => {
@@ -125,8 +127,8 @@ export const layRubber = (strip: DragStrip | undefined, lane: number, side: 0 | 
 };
 export const rubberShare = (strip: DragStrip | undefined, lane: number): number => {
   const rows = strip?.rubber?.[lane]; if (!rows) return 0;
-  const cells = Math.min(STRIP_CELLS, Math.ceil(RUBBER.burnoutLength / RUBBER.cell)); let sum = 0, n = 0;
-  for (const side of rows) for (let i = 0; i < cells; i++) { sum += side[i] ?? 0; n++; }
+  const first = stripCell(0), cells = Math.min(STRIP_CELLS - first, Math.ceil(RUBBER.burnoutLength / RUBBER.cell)); let sum = 0, n = 0;
+  for (const side of rows) for (let i = first; i < first + cells; i++) { sum += side[i] ?? 0; n++; }
   return n ? sum / n : 0;
 };
 const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
@@ -427,7 +429,7 @@ export function createDrag(o: { seed: number; entrants: Entrant[]; conditions?: 
       const pedalShare = manual ? clamp(pedal as number, 0.2, 1) : 1, slipMetres = STAGE.burnSlipSpeed * gas * pedalShare * dt, heat = STAGE.heatPerSlipMetre * slipMetres * (1 - (1 - STAGE.wetHeatShare) * r.wet);
       for (const w of tires) w.temp = Math.min(ty.maxTemp, w.temp + heat);
       r.burnDistance += travel;
-      if (rubberOn && r.x > 0) { const lay = STAGE.rubberPerMetre * travel * (1 - r.wet) * pedalShare; layRubber(strip, i, 0, Math.max(0, x0), r.x, lay); layRubber(strip, i, 1, Math.max(0, x0), r.x, lay); }
+      if (rubberOn) { const lay = STAGE.rubberPerMetre * travel * (1 - r.wet) * pedalShare; layRubber(strip, i, 0, x0, r.x, lay); layRubber(strip, i, 1, x0, r.x, lay); }
     }
     // where it is now: the burnout, the run-out, the back up, then the beams (pre-stage, stage, deep stage); creeping past the stage beam is over-staging
     let st: StagePhase = r.rolling ? 'rolling' : st0;

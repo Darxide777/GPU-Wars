@@ -38,6 +38,7 @@ src/platform.ts             fullscreen, audio unlock on first gesture, viewport 
 src/drag/autopilot.ts       the deterministic driver AI (createAutopilot), category 'autopilot'; drives the engine's own staging phases with player inputs
 tools/package.mjs, zip.mjs  npm run package: the itch.io zip (no dependencies)
 src/sound.ts                music only, from the two songs
+src/sfx.ts                  sound effects (Web Audio): engine idle/throttle loops crossfaded, the tree's four beeps; files in assets/sfx, volume is OPTIONS > SOUND EFFECTS (0 mutes)
 src/tune-slots.ts           the six named tune slots (pure functions)
 src/tune-slots-menu.ts      the menu rows for them
 src/gamepad.ts              the pad pressing menu keys
@@ -79,7 +80,7 @@ No drawing, no clock, no `Math.random`: `createDrag({ seed, strip, entrants })` 
 
 `Runner.stage` (`StagePhase`) goes `waterBoxApproach` -> `burnout` -> `runOut` -> `backup` -> `preStage` -> `staged` / `deepStaged` -> `rolling` -> `launched`. Positions are metres along the strip, 0 being the final beam (the start line); the car starts at `STAGE.startX` and nothing teleports: the gas, brake, burnout and `backUp` inputs move it through a small speed model (`stagingStep`).
 
-- **Water box** (`waterBoxStart..End`): wets the slicks (`Runner.wet`, less grip at the launch until they dry, a wet burnout heats little and lays no rubber).
+- **Water box** (`waterBoxStart..End`): wets the slicks (`Runner.wet`, less grip at the launch until they dry, a wet burnout heats little and lays no rubber). The water box sits just behind the start line (`waterBoxStart..End`, about -14 to -7 m) so a burnout carries on across the line and the launch lane gets fresh rubber; the autopilot keeps burning until `AUTOPILOT.burnoutPastLine`. Rubber is laid wherever the dry burnout is, also behind the line (`RUBBER.behindLine` metres of strip are kept before it), and the run-out stop (`runOutPastTree`) is past the end of the burnout.
 - **Burnout:** hold gas + burnout (or gas + brake) past the box start: the car rolls at `burnoutSpeed` with the rears spinning. Heat is `heatPerSlipMetre` per metre of slip, rubber is `rubberPerMetre` per metre on the dry strip (x > 0 only), and it dries the slicks.
 - **Run-out and back up:** after the burnout the car runs out past the tree, brakes to a stop, and BACK UP (new rebindable `backUp` action, default R) reverses at most `backupSpeed` with `Runner.reversing` (the reverse light). The panel shows the distance to the pre-stage beam (the speed is the panel's km/h).
 - **Beams:** pre-stage `STAGE.preStageRollout`, stage `DRAG.stageRollout`, deep stage `DRAG.deepStageRollout` behind the final beam (three distinct places), and `STAGE.overstageLimit`. Gas creeps the car; in stage (`catchSpeed` or slower) the trans-brake holds it, so gas only revs. A held `deepStage` creeps from pre-stage/stage to the deep beam and stops. Creeping into the over-stage zone resets the stage bulb (`Runner.overstaged`, label OVER-STAGED) until the car backs out past the stage beam.

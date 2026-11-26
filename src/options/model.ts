@@ -9,7 +9,7 @@ export type PadBinds = Record<string, number[]>;
 export type TouchShow = 'auto' | 'on' | 'off';
 export type DriverKind = 'manual' | 'autopilot';
 export interface TouchOptions { show: TouchShow; /** 0.7 (small) to 1.5 (large) */ size: number; /** the gas pedal reads where on it your thumb is (and the pressure where the screen reports it) */ analog: boolean; haptics: boolean }
-export interface Options { music: number; binds: Binds; padBinds: PadBinds; touch: TouchOptions; /** extra milliseconds before a press reaches the car (calibration, 0 to 100) */ latencyOffsetMs: number; driver: DriverKind }
+export interface Options { music: number; /** the engine and tree sound effects, 0 (mute) to 1 */ sfx: number; binds: Binds; padBinds: PadBinds; touch: TouchOptions; /** extra milliseconds before a press reaches the car (calibration, 0 to 100) */ latencyOffsetMs: number; driver: DriverKind }
 
 /** each action has up to two keys. A key does one thing: no two actions share a default. */
 export const DEFAULT_BINDS: Binds = {
@@ -52,7 +52,7 @@ export function sanitizeOptions(raw: unknown): Options {
   const t = (r.touch && typeof r.touch === 'object' ? r.touch : {}) as Record<string, any>;
   const touch: TouchOptions = { show: t.show === 'on' || t.show === 'off' ? t.show : 'auto', size: typeof t.size === 'number' && Number.isFinite(t.size) ? Math.max(0.7, Math.min(1.5, Math.round(t.size * 10) / 10)) : 1, analog: t.analog !== false, haptics: t.haptics !== false };
   const latencyOffsetMs = typeof r.latencyOffsetMs === 'number' && Number.isFinite(r.latencyOffsetMs) ? Math.max(0, Math.min(LATENCY_MAX_MS, Math.round(r.latencyOffsetMs))) : 0;
-  return { music: volume(r.music, 0.5), binds, padBinds, touch, latencyOffsetMs, driver: r.driver === 'autopilot' ? 'autopilot' : 'manual' };
+  return { music: volume(r.music, 0.5), sfx: volume(r.sfx, 0.7), binds, padBinds, touch, latencyOffsetMs, driver: r.driver === 'autopilot' ? 'autopilot' : 'manual' };
 }
 export function loadOptions(store: Store): Options { let raw: unknown = null; try { raw = JSON.parse(store.get(OPTIONS_KEY) || 'null'); } catch (e) { /* damaged: use the defaults */ } return sanitizeOptions(raw); }
 export function saveOptions(store: Required<Store>, o: Options): void { try { store.set(OPTIONS_KEY, JSON.stringify(o)); } catch (e) { /* cannot be kept */ } }

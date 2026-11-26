@@ -203,20 +203,20 @@ test('the one instruction line says the right thing in every staging phase, with
   // nothing after the launch, at a foul, an abort, the roll-out, a crash, or at the green
   for (const over of [{ launched: true, stage: 'launched' }, { rolling: true, stage: 'rolling' }, { foul: true }, { aborted: true }, { crashed: true }]) assert.equal(say('staged', -0.4, over), null, JSON.stringify(over));
   const { me, s } = posed('staged', -0.4); s.green = true; assert.equal(guidePrompt(me, s, keys), null, 'at the green nothing extra');
-  for (const [stage, x] of [['waterBoxApproach', -30], ['burnout', -15], ['runOut', 3], ['backup', 4], ['preStage', -0.6], ['staged', -0.4], ['deepStaged', -0.1]]) assert.ok(hasOne(stage, x), `${stage}: one single line`);
+  for (const [stage, x] of [['waterBoxApproach', STAGE.waterBoxStart - 4], ['burnout', STAGE.waterBoxEnd + 3], ['runOut', 3], ['backup', 4], ['preStage', -0.6], ['staged', -0.4], ['deepStaged', -0.1]]) assert.ok(hasOne(stage, x), `${stage}: one single line`);
 });
 
 test('the line uses the keys the player bound, and the touch buttons\' names on a phone', () => {
   const mine = { ...keys, gas: 'UP', brake: 'DOWN', backUp: 'B', launch: 'SPACE', deepStage: 'D' };
-  assert.equal(first('waterBoxApproach', -20, {}, mine), 'HOLD UP + DOWN: BURNOUT'); assert.equal(first('waterBoxApproach', -30, {}, mine), 'HOLD UP: ROLL INTO THE WATER BOX');
+  assert.equal(first('waterBoxApproach', STAGE.waterBoxStart + 4, {}, mine), 'HOLD UP + DOWN: BURNOUT'); assert.equal(first('waterBoxApproach', STAGE.waterBoxStart - 4, {}, mine), 'HOLD UP: ROLL INTO THE WATER BOX');
   assert.equal(first('runOut', 10, { v: 0 }, mine), 'BACK UP (B) 11 M'); assert.equal(first('staged', -0.4, {}, mine), 'WAIT FOR GREEN');
   assert.equal(first('preStage', -0.6, {}, mine), 'TAP UP: CREEP TO STAGE');
-  assert.equal(first('waterBoxApproach', -20, {}, touchKeys), 'HOLD GAS + BURN: BURNOUT'); assert.equal(first('runOut', 10, { v: 0 }, touchKeys), 'BACK UP (BACK UP) 11 M');
+  assert.equal(first('waterBoxApproach', STAGE.waterBoxStart + 4, {}, touchKeys), 'HOLD GAS + BURN: BURNOUT'); assert.equal(first('runOut', 10, { v: 0 }, touchKeys), 'BACK UP (BACK UP) 11 M');
   assert.equal(first('staged', -0.4, {}, touchKeys), 'WAIT FOR GREEN');
 });
 
 test('the autopilot shows one quiet word and no keys, in every phase', () => {
-  for (const [stage, x] of [['waterBoxApproach', -30], ['burnout', -15], ['runOut', 3], ['backup', 4], ['preStage', -0.6], ['staged', -0.4]]) {
+  for (const [stage, x] of [['waterBoxApproach', STAGE.waterBoxStart - 4], ['burnout', STAGE.waterBoxEnd + 3], ['runOut', 3], ['backup', 4], ['preStage', -0.6], ['staged', -0.4]]) {
     const v = say(stage, x, {}, { ...keys, auto: true }); assert.deepEqual(v, ['AUTOPILOT'], stage);
     const { race } = posed(stage, x); const f = frame(race, 800, 450, false, { auto: true }); assert.equal(f.promptItems.length, 1, 'one line'); assert.equal(f.promptItems[0].s, 'AUTOPILOT');
     assert.ok(!f.hud.some(i => /HOLD|BACK UP \(|CREEP|TAP |WAIT FOR/.test(i.s)), 'no key prompt');
@@ -257,7 +257,7 @@ test('the tachometer is at the bottom right at full size, and the panel no longe
 });
 
 test('the tachometer, the instruction line, the panel, the tree and the cars never overlap, in every staging phase and mid-run, at five sizes, with and without touch buttons', () => {
-  const poses = [['waterBoxApproach', -30, 0], ['burnout', -15, 3.5], ['runOut', 12, 0], ['backup', 4, -1.5], ['preStage', -0.6, 0], ['staged', -0.4, 0], ['deepStaged', -0.1, 0], ['launched', 150, 70]];
+  const poses = [['waterBoxApproach', STAGE.waterBoxStart - 4, 0], ['burnout', STAGE.waterBoxEnd + 3, 3.5], ['runOut', 12, 0], ['backup', 4, -1.5], ['preStage', -0.6, 0], ['staged', -0.4, 0], ['deepStaged', -0.1, 0], ['launched', 150, 70]];
   for (const [W, H] of TOUCH_SIZES) for (const touch of [false, true]) for (const [stage, x, v] of poses) {
     const { race, me } = posed(stage, x, { v, launched: stage === 'launched', rpm: 7000, gear: 2, reaction: 0.1, launchT: 0 }), f = frame(race, W, H, touch), S = scaleOf(H), label = `${W}x${H} touch=${touch} ${stage}`;
     assert.ok(f.tach, `${label}: the tachometer has a place`);

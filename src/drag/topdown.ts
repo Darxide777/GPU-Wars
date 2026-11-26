@@ -67,7 +67,7 @@ export function createDragTopDown() {
     const crossed = s.runners.some(r => r.crossed); ctx.setLineDash([2.5 * scale, 3.5 * scale]); ctx.strokeStyle = crossed ? C.red : 'rgba(255,225,77,0.6)'; ctx.lineWidth = Math.max(1.5, 0.25 * scale); ctx.beginPath(); ctx.moveTo(sx(0), 0); ctx.lineTo(sx(0), H); ctx.stroke(); ctx.setLineDash([]);
     ctx.shadowColor = C.mag; ctx.shadowBlur = 8; ctx.strokeStyle = C.mag; ctx.lineWidth = Math.max(2, 0.5 * scale); ctx.beginPath(); for (const l of [-half, half]) { ctx.moveTo(sx(l), 0); ctx.lineTo(sx(l), H); } ctx.stroke(); ctx.shadowBlur = 0;
     // rubber laid by this session's burnouts and spins: darker stripes that stay on the strip
-    for (const i of [0, 1]) for (const side of [0, 1] as const) for (let c = Math.max(0, Math.floor(xBot / RUBBER.cell)); c * RUBBER.cell <= xTop; c++) {
+    for (const i of [0, 1]) for (const side of [0, 1] as const) for (let c = Math.floor(Math.max(xBot, -RUBBER.behindLine) / RUBBER.cell); c * RUBBER.cell <= xTop; c++) {
       const amount = rubberAt(s.strip, i, side, (c + 0.5) * RUBBER.cell); if (amount < 0.02) continue;
       ctx.fillStyle = `rgba(0,0,0,${(0.15 + 0.55 * amount).toFixed(3)})`;
       ctx.fillRect(sx(laneX(i) + (side ? 1.0 : -1.0)) - 0.45 * scale, sy((c + 1) * RUBBER.cell), 0.9 * scale, RUBBER.cell * scale);
