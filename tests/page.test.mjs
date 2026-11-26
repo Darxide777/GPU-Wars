@@ -87,3 +87,27 @@ test('the screens show density altitude and the hot tire pressure, window.__drag
   assert.ok(!/NEW BEST PASS|improved/.test(page), 'no race against your own best pass');
   assert.doesNotMatch(page, /save\.ghost|BEST PASS/);
 });
+
+test('the tune screen has a free REPLACE TIRES row beside REPLACE CLUTCH, with help, and the slot rows are at the bottom', () => {
+  const page = read('src/drag/page.ts'), tune = page.slice(page.indexOf('function tuneItems()'), page.indexOf('/** the panel above the rows'));
+  const at = k => tune.indexOf(k);
+  assert.ok(at("id: 'replaceTires'") > at("id: 'replaceClutch'") && at("id: 'replaceTires'") < at("id: 'cool'"), 'REPLACE TIRES follows REPLACE CLUTCH');
+  assert.match(tune, /id: 'replaceTires'[^\n]*enter: \(\) => \{ tireWear = \[0, 0\]/, 'it resets both slicks');
+  assert.ok(TUNE_HINTS.replaceTires && /free/i.test(TUNE_HINTS.replaceTires), 'with a help text that says it is free');
+  assert.match(page, /tireWear = tireWearAfterRun\(me\)/, 'wear carries after a run');
+  assert.ok(at('...slotRows(') > at("id: 'reset'") && at('...slotRows(') > at("id: 'nitroGear'") && at('...slotRows(') < at('testItem(),\n    { id: \'back\''), 'the slot controls sit at the bottom, above TEST RUN and BACK');
+});
+
+test('every menu is locked to the size it has with its longest description showing', () => {
+  const page = read('src/drag/page.ts'), render = page.slice(page.indexOf('function render('), page.indexOf('// ---- the race ----'));
+  assert.match(render, /reserveHintSpace\(m\)/, 'render reserves the hint space for every menu');
+  assert.match(render, /for \(const it of m\.items\)[^\n]*it\.hint\?\.\(\)[^\n]*offsetHeight/, 'it measures every row\'s description');
+  assert.match(render, /el\.style\.minHeight = tallest/, 'and holds the hint line at the tallest');
+});
+
+test('EXIT FULLSCREEN is on the title menu only while fullscreen, and the decision is written down', () => {
+  const page = read('src/drag/page.ts'), itch = read('docs/ITCH.md');
+  assert.match(page, /isFullscreen\(\) \? \[\{ id: 'exit', label: 'EXIT FULLSCREEN'/, 'the row exists only in fullscreen');
+  assert.doesNotMatch(page, /window\.close|location\.href\s*=/, 'no attempt to close the page or navigate away');
+  assert.match(itch, /Exiting the game/); assert.match(itch, /window\.close/);
+});

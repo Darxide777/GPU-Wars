@@ -9,7 +9,7 @@ import { createRebinder, optionsItems, type Device } from '../options/screen.ts'
 import { createInput } from '../input/index.ts';
 import { createHaptics } from '../input/haptics.ts';
 import { createAutopilot, viewOf, AUTOPILOT_CATEGORY, type Autopilot, type RunCategory } from './autopilot.ts';
-import { fullscreenAvailable, onFirstGesture, toggleFullscreen, watchViewport } from '../platform.ts';
+import { fullscreenAvailable, isFullscreen, leaveFullscreen, onFirstGesture, toggleFullscreen, watchViewport } from '../platform.ts';
 import { createMenu, type Menu, type MenuItem } from '../arena/view/menu.ts';
 import { createPadMenu } from '../gamepad.ts';
 import { firstPad } from '../arena/view/pad.ts';
@@ -17,7 +17,7 @@ import { newSlotState, slotRows } from '../tune-slots-menu.ts';
 import { STOCK_CAR } from './spec-source.ts';
 import { calibrationLine } from '../benchmark/score.ts';
 import { clearSaveSlot, loadFromSlot, readyCar, recordRace, saveToSlot, saveTune, tuneSlots } from './model.ts';
-import { DRAG, FUEL, boostLimitOf, clutchAfterRun, conditionsForSeed, forecastText, createDrag, createDragStrip, clearDragStrip, fuelKg, fuelShareOf, ghostFromRunner, predictDrag, rubberShare, timeslip, type Drag, type Entrant } from './physics.ts';
+import { DRAG, FUEL, boostLimitOf, clutchAfterRun, tireWearAfterRun, conditionsForSeed, forecastText, createDrag, createDragStrip, clearDragStrip, fuelKg, fuelShareOf, ghostFromRunner, predictDrag, rubberShare, timeslip, type Drag, type Entrant } from './physics.ts';
 import { BOOST, defaultTune } from './tune.ts';
 import { tuneHint } from './tune-help.ts';
 import { drawProgress } from './hud.ts';
@@ -42,8 +42,8 @@ const music = createMusic({ music: options.music });
 let save: Save = loadSave(browserStore);
 const commit = (next: Save): void => { save = next; writeSave(browserStore, save); };
 
-// ---- what lasts for this visit only: clutch wear, the fuel load and the engine heat carry between races until you reset them ----
-let clutchCondition = 1, fuelLoad: number = FUEL.capacity, engineTemp: number | null = null;
+// ---- what lasts for this visit only: clutch and tire wear, the fuel load and the engine heat carry between races until you reset them ----
+let clutchCondition = 1, tireWear: [number, number] = [0, 0], fuelLoad: number = FUEL.capacity, engineTemp: number | null = null;
 const fuelOf = (): number => (Number.isFinite(fuelLoad) ? Math.max(FUEL.reserve, Math.min(FUEL.capacity, fuelLoad)) : FUEL.capacity);
 const engineOf = (): number => engineTemp ?? conditionsForSeed(raceSeed).airC;
 
@@ -88,8 +88,8 @@ const fuelItem = (): MenuItem => {
   const set = (d: number): void => { fuelLoad = fuelKg(FUEL.loads[Math.max(0, Math.min(FUEL.loads.length - 1, at() + d))] as number); };
   return { id: 'fuel', label: 'FUEL LOAD', value: () => `${Math.round(fuelOf())} KG ${Math.round(fuelShareOf(fuelOf()) * 100)}%`, hint: () => tuneHint('fuel'), left: () => set(-1), right: () => set(1) };
 };
-/** you, on the line: the stock car with the benchmark's numbers, your tune, and the clutch, fuel and engine heat you carry from the last race */
-const myEntrant = (): Entrant => { const { spec, tune } = readyCar(save, clutchCondition); return { name: 'YOU', spec, tune, ai: null, clutchCondition, fuel: fuelOf(), engineTemp: engineOf() }; };
+/** you, on the line: the stock car with the benchmark's numbers, your tune, and the clutch, tires, fuel and engine heat you carry from the last race */
+const myEntrant = (): Entrant => { const { spec, tune } = readyCar(save, clutchCondition); return { name: 'YOU', spec, tune, ai: null, clutchCondition, tireWear, fuel: fuelOf(), engineTemp: engineOf() }; };
 /** you for a ranked run: the same start for everyone (new clutch, full tank, cool engine) whatever you did earlier in the visit */
 const rankedEntrant = (): Entrant => { const start = rankedStart(), { spec, tune } = readyCar(save, start.clutchCondition); return { name: 'YOU', spec, tune, ai: null, ...start }; };
 
@@ -139,7 +139,7 @@ function statsTable(spec: DragSpec, tune: Tune, seed = raceSeed, kg = fuelOf()):
 let backFrom: Partial<Record<Screen, Screen>> = {}, isBackdrop = true, backdropKey = '';
 /** behind the menus: your car and the ghost on the line */
 function backdrop(): void {
-  const g = ghostToRace(), key = `${g?.total ?? 0}|${g?.marks.quarter ?? 0}|${raceSeed}|${clutchCondition}|${fuelOf()}|${engineOf()}|${JSON.stringify(save.tune)}|${save.benchmark?.score ?? 0}`; if (isBackdrop && key === backdropKey) return;
+  const g = ghostToRace(), key = `${g?.total ?? 0}|${g?.marks.quarter ?? 0}|${raceSeed}|${clutchCondition}|${tireWear.join(',')}|${fuelOf()}|${engineOf()}|${JSON.stringify(save.tune)}|${save.benchmark?.score ?? 0}`; if (isBackdrop && key === backdropKey) return;
   race = createDrag({ seed: raceSeed, strip, entrants: [myEntrant(), ...ghostList()] }); isBackdrop = true; backdropKey = key;
 }
 const raceItem = (): MenuItem => ({ id: 'race', label: 'RACE CLASS LEADER', value: () => `${sec(lb.leader().splits.quarter)} S TO BEAT`, hint: () => `Ranked run in ${lb.className()} against ${lb.leader().name}${lb.leader().source === 'fallback' ? ' (a bundled time: no leader online yet)' : ''}. Everyone races the same class day: ${RANKED.rubberPolicy}. ${lb.leaderNote()}`, enter: () => { startRace(ghostToRace() ? 'ghost' : 'solo'); } });
@@ -148,6 +148,10 @@ const driverItem = (): MenuItem => { const flip = (): void => { options.driver =
 const optionsDevice = { v: 'keyboard' as Device, get(): Device { return this.v; }, set(d: Device): void { this.v = d; } };
 const optionsHost = { options, save: () => saveOptions(browserStore, options), apply: (what: string): void => { if (what === 'music') music.volumesChanged(); }, say: (text: string): void => { msg = text; }, refresh: (): void => { render(); }, fullscreen: toggleFullscreen, back: (): void => show('title') };
 const rebinder = createRebinder(optionsHost);
+/** A web page cannot close itself, so the only exit that means anything is leaving fullscreen: the row exists only while the page is fullscreen (docs/ITCH.md, "Exiting the game"). */
+const exitRows = (): MenuItem[] => (isFullscreen() ? [{ id: 'exit', label: 'EXIT FULLSCREEN', hint: () => 'Leave fullscreen and stay on this menu. A web page cannot close itself: to quit, close the browser tab.', enter: () => { leaveFullscreen(); msg = 'LEFT FULLSCREEN. TO QUIT, CLOSE THIS TAB'; render(); } }] : []);
+document.addEventListener('fullscreenchange', () => { if (screen === 'title') show('title'); });
+document.addEventListener('webkitfullscreenchange', () => { if (screen === 'title') show('title'); });
 function show(next: Screen): void {
   const prev = screen; screen = next; menu = null; const scr = $('screen'); if (prev !== next) msg = '';
   if (next === 'tune' && prev !== next && prev !== 'race') backFrom[next] = prev;
@@ -164,6 +168,7 @@ function show(next: Screen): void {
       raceItem(), driverItem(),
       { id: 'records', label: 'RECORDS', hint: () => 'Your own best times on this computer.', enter: () => show('records') },
       { id: 'options', label: 'OPTIONS', hint: () => 'Rebind every control (keyboard and gamepad), volume, touch controls, input delay and fullscreen.', enter: () => show('options') },
+      ...exitRows(),
     ], sel.title ?? 3);
   } else if (next === 'options') {
     title('OPTIONS'); rebinder.cancel(); menu = createMenu(optionsItems(optionsHost, rebinder, optionsDevice), sel.options ?? 0);
@@ -243,16 +248,19 @@ function tuneItems(): MenuItem[] {
     num('wheelieBar', 'WHEELIE BAR', t => `${t.wheelieBar}/10`, (t, d) => { t.wheelieBar += d; }),
     num('nitroShot', 'NITRO SHOT', t => (noNitro() ? '-' : `${Math.round(t.nitroShot * 100)}%`), (t, d) => { t.nitroShot = r2(t.nitroShot + d * 0.05); }, noNitro),
     num('nitroGear', 'NITRO FIRES', t => (noNitro() ? '-' : t.nitroGear === 0 ? 'BY HAND' : `IN GEAR ${t.nitroGear}`), (t, d) => { t.nitroGear = Math.max(0, Math.min(t.ratios.length, t.nitroGear + d)); }, noNitro),
+    // The clutch is a wear item (it is driven automatically; there is no clutch key). Replacing it is free: it only resets the wear, so it is a choice about when, not about money.
+    { id: 'replaceClutch', label: 'REPLACE CLUTCH', hint: () => 'The clutch engages by itself, and slipping it on launches and shifts builds heat and wears the plates, so bites get softer over a session. Replacing it is free and puts it back to new.', value: () => (clutchCondition >= 1 ? 'NEW' : `${Math.round(clutchCondition * 100)}%`), enter: () => { clutchCondition = 1; show('tune'); } },
+    // Tires are a wear item the same way: the slicks' wear carries between races in a visit, and replacing them is free (it only resets the wear).
+    { id: 'replaceTires', label: 'REPLACE TIRES', hint: () => tuneHint('replaceTires'), value: () => { const worst = Math.max(tireWear[0], tireWear[1]); return worst <= 0 ? 'NEW' : `${Math.round((1 - worst) * 100)}%`; }, enter: () => { tireWear = [0, 0]; show('tune'); } },
+    { id: 'cool', label: 'COOL ENGINE', hint: () => 'Engine heat carries between races in this visit: burnouts and long boosted pulls retard the timing until you let it cool. This resets it to the day\'s air.', value: () => `${Math.round(engineOf())}C`, enter: () => { engineTemp = null; show('tune'); } },
+    { id: 'strip', label: 'CLEAR STRIP', hint: () => 'Burnouts and wheelspin leave rubber on the strip for the rest of this visit, adding grip where it lies. Clear it for a clean run.', value: () => `${Math.round(rubberShare(strip, 0) * 100)}% RUBBER`, enter: () => { clearDragStrip(strip); show('tune'); } },
+    { id: 'reset', label: 'RESET TUNE', hint: () => tuneHint('reset'), enter: () => { commit(saveTune(save, defaultTune(readyCar(save).car))); show('tune'); } },
+    // the six tune slots (which one, its name, SAVE, LOAD, CLEAR) sit at the bottom, just above TEST RUN and BACK
     ...slotRows({
       slots: () => tuneSlots(save), places: () => ['', STOCK_CAR.name], place: () => STOCK_CAR.name,
       save: (i, name) => { commit(saveToSlot(save, i, name, get().tune)); }, load: i => { commit(loadFromSlot(save, i)); }, clear: i => { commit(clearSaveSlot(save, i)); },
       refresh: (id, m) => { if (m) msg = m; sel[tuneTab] = Math.max(0, tuneItems().findIndex(it => it.id === id)); show('tune'); },
     }, slotState),
-    // The clutch is a wear item (it is driven automatically; there is no clutch key). Replacing it is free: it only resets the wear, so it is a choice about when, not about money.
-    { id: 'replaceClutch', label: 'REPLACE CLUTCH', hint: () => 'The clutch engages by itself, and slipping it on launches and shifts builds heat and wears the plates, so bites get softer over a session. Replacing it is free and puts it back to new.', value: () => (clutchCondition >= 1 ? 'NEW' : `${Math.round(clutchCondition * 100)}%`), enter: () => { clutchCondition = 1; show('tune'); } },
-    { id: 'cool', label: 'COOL ENGINE', hint: () => 'Engine heat carries between races in this visit: burnouts and long boosted pulls retard the timing until you let it cool. This resets it to the day\'s air.', value: () => `${Math.round(engineOf())}C`, enter: () => { engineTemp = null; show('tune'); } },
-    { id: 'strip', label: 'CLEAR STRIP', hint: () => 'Burnouts and wheelspin leave rubber on the strip for the rest of this visit, adding grip where it lies. Clear it for a clean run.', value: () => `${Math.round(rubberShare(strip, 0) * 100)}% RUBBER`, enter: () => { clearDragStrip(strip); show('tune'); } },
-    { id: 'reset', label: 'RESET TUNE', hint: () => tuneHint('reset'), enter: () => { commit(saveTune(save, defaultTune(readyCar(save).car))); show('tune'); } },
     testItem(),
     { id: 'back', label: 'BACK', hint: () => tuneHint('back'), enter: back },
   ];
@@ -276,7 +284,17 @@ function render(keepVisible = false): void {
     rows.appendChild(e); if (i === m.sel) visible.row = e;
   });
   if (keepVisible && visible.row) visible.row.scrollIntoView({ block: 'nearest' }); else card.scrollTop = top;
-  const cur = m.items[m.sel]; $('hint').textContent = cur?.hint?.() ?? '';
+  reserveHintSpace(m); const cur = m.items[m.sel]; $('hint').textContent = cur?.hint?.() ?? '';
+}
+/** Lock the menu to the size it has with its longest description showing: the hint line is given the height of the tallest hint of this menu, so hovering rows never resizes or bounces the card.
+ * The height is worked out once for each menu and card width (a resize measures again). */
+const hintHeights = new WeakMap<Menu, { width: number; height: number }>();
+function reserveHintSpace(m: Menu): void {
+  const el = $('hint'), width = card.clientWidth, known = hintHeights.get(m);
+  if (known && known.width === width) { el.style.minHeight = known.height + 'px'; return; }
+  el.style.minHeight = '';
+  let tallest = 0; for (const it of m.items) { el.textContent = it.hint?.() ?? ''; tallest = Math.max(tallest, el.offsetHeight); }
+  el.style.minHeight = tallest + 'px'; hintHeights.set(m, { width, height: tallest });
 }
 
 // ---- the race ----
@@ -291,7 +309,7 @@ function finishRace(): void {
   if (banked) return; banked = true; const s = race.state, me = s.runners[0] as Runner, slip = timeslip(me), crashed = !!slip.crashed;
   const won = !crashed && !me.aborted && (s.runners.length === 1 ? s.winner === 0 && !me.foul : s.winner === 0);
   const ranked = raceKind === 'ghost';      // (a ranked run starts fresh, so it leaves the visit's clutch, fuel and engine heat alone)
-  if (!ranked) { if (me.launched) clutchCondition = clutchAfterRun(me); fuelLoad = me.fuel; engineTemp = slip.engineTemp ?? engineOf(); }
+  if (!ranked) { if (me.launched) { clutchCondition = clutchAfterRun(me); tireWear = tireWearAfterRun(me); } fuelLoad = me.fuel; engineTemp = slip.engineTemp ?? engineOf(); }
   const slips = s.runners.map(timeslip), candidate = ghostFromRunner(me, s.greenAt, STOCK_CAR.id);
   // autopilot runs are a separate leaderboard category, on the same ranked class day, and never touch your local records or best-pass ghost
   const category: RunCategory = options.driver === 'autopilot' ? AUTOPILOT_CATEGORY : 'manual', res = category === 'autopilot' ? { save, records: [] as string[] } : recordRace(save, { kind: raceKind, won, slip, crashed }, Date.now()); if (category === 'manual') commit(res.save);
@@ -348,6 +366,6 @@ function frame(now: number): void {
 }
 window.__drag = () => {
   const s = race.state;
-  return { screen, tuneTab, phase: s.phase, stage: (s.runners[0] as Runner).stage, seed: raceSeed, conditions: s.conditions, menu: menu ? { sel: menu.items[menu.sel]?.id, items: menu.items.map(i => i.id) } : null, benchmark: save.benchmark, kind: raceKind, driver: options.driver, category: result?.category ?? null, clutch: clutchCondition, fuel: fuelOf(), ghost: (() => { const g = ghostToRace(); return g ? { et: g.marks.quarter ?? 0, total: g.total, samples: g.samples.length } : null; })(), leaderboard: { class: lb.playerClass(), category: lb.category, leader: lb.leader().name, source: lb.leader().source, status: lb.status, ranked: raceKind === 'ghost', configured: lb.configured }, winner: s.winner, runners: s.runners.map(r => ({ name: r.name, x: r.x, v: r.v, gear: r.gear, rpm: r.rpm, launched: r.launched, finished: r.finished, crashed: r.crashed })), result };
+  return { screen, tuneTab, phase: s.phase, stage: (s.runners[0] as Runner).stage, seed: raceSeed, conditions: s.conditions, menu: menu ? { sel: menu.items[menu.sel]?.id, items: menu.items.map(i => i.id) } : null, benchmark: save.benchmark, kind: raceKind, driver: options.driver, category: result?.category ?? null, clutch: clutchCondition, tireWear, fuel: fuelOf(), ghost: (() => { const g = ghostToRace(); return g ? { et: g.marks.quarter ?? 0, total: g.total, samples: g.samples.length } : null; })(), leaderboard: { class: lb.playerClass(), category: lb.category, leader: lb.leader().name, source: lb.leader().source, status: lb.status, ranked: raceKind === 'ghost', configured: lb.configured }, winner: s.winner, runners: s.runners.map(r => ({ name: r.name, x: r.x, v: r.v, gear: r.gear, rpm: r.rpm, launched: r.launched, finished: r.finished, crashed: r.crashed })), result };
 };
 show('title'); requestAnimationFrame(t => { last = t; frame(t); });
