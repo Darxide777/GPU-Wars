@@ -3,7 +3,7 @@
 import { DRAG } from '../drag/physics.ts';
 import type { Options } from '../options/model.ts';
 import { INPUT } from './constants.ts';
-import { createControlState, toDriverInput, type DriverInput } from './controls.ts';
+import { createControlState, toDriverInput, toFormulaInput, type DriverInput, type FormulaDriverInput } from './controls.ts';
 import { pushKey } from './keyboard.ts';
 import { createPadReader } from './pad.ts';
 import { createInputQueue } from './queue.ts';
@@ -11,19 +11,20 @@ import { createTouchControls, TOUCH_MENU } from './touch.ts';
 import type { PadState } from '../arena/view/pad.ts';
 
 export { INPUT } from './constants.ts';
-export type { DriverInput } from './controls.ts';
+export type { DriverInput, FormulaDriverInput } from './controls.ts';
 
 export interface InputHooks {
   /** the current options (read every time, so a rebind takes effect at once) */ options: () => Options;
   /** whether the race is on screen: input is ignored (and let go) otherwise */ racing: () => boolean;
   /** the window size in css pixels */ size: () => { w: number; h: number };
   /** the MENU touch button */ onMenu: () => void;
+  /** which game is being raced, for the touch buttons shown (default Drag) */ mode?: () => 'drag' | 'formula';
 }
 export function createInput(hooks: InputHooks) {
   const queue = createInputQueue(), state = createControlState(), pad = createPadReader(queue);
   let tickMs = 0, touchSeen = false, lastRacing = false;
   const delayMs = (): number => Math.max(0, Math.min(250, INPUT.eventQueueMs + hooks.options().latencyOffsetMs));
-  const touch = createTouchControls(queue, { size: () => hooks.options().touch.size, analog: () => hooks.options().touch.analog, width: () => hooks.size().w, height: () => hooks.size().h, onMenu: hooks.onMenu, active: () => hooks.racing() && touchVisible(), onTouchSeen: () => { touchSeen = true; } });
+  const touch = createTouchControls(queue, { mode: hooks.mode, size: () => hooks.options().touch.size, analog: () => hooks.options().touch.analog, width: () => hooks.size().w, height: () => hooks.size().h, onMenu: hooks.onMenu, active: () => hooks.racing() && touchVisible(), onTouchSeen: () => { touchSeen = true; } });
   /** are the touch controls on screen? */
   const touchVisible = (): boolean => { const t = hooks.options().touch.show; return t === 'on' || (t === 'auto' && (touchSeen || (typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches))); };
   const letGo = (t: number): void => { touch.releaseAll(t); queue.clear(); state.reset(); pad.reset(); };
@@ -45,6 +46,12 @@ export function createInput(hooks: InputHooks) {
       tickMs += DRAG.dt * 1000;
       for (const e of queue.drain(tickMs, delayMs())) state.apply(e);
       const input = toDriverInput(state); state.endTick(); return input;
+    },
+    /** Formula: one simulation tick of `dt` seconds (the Formula step, 1/60 s); returns what the Formula car reads. Use this OR `read()` for a race, never both. */
+    readFormula(dt: number): FormulaDriverInput {
+      tickMs += dt * 1000;
+      for (const e of queue.drain(tickMs, delayMs())) state.apply(e);
+      const input = toFormulaInput(state); state.endTick(); return input;
     },
     /** for tests and the race start: forget everything pending */
     reset(t = 0): void { letGo(t); },

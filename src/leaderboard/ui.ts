@@ -4,12 +4,12 @@ import type { Store } from '../browser-store.ts';
 import type { BenchmarkResult } from '../save.ts';
 import type { DragGhost, Timeslip, Tune } from '../drag/types.ts';
 import { DEFAULT_CLASS, classLabel, isClassId, type Category, type ClassId } from '../classes.ts';
-import { createLeaderboardClient, type Board, type Failure, type LeaderboardClient } from './client.ts';
+import { createLeaderboardClient, type Board, type Failure, type LeaderboardClient, type SubmitOk } from './client.ts';
 import { buildLeaderGhost } from './ghost.ts';
 import { fallbackLeader, type LeaderRecord } from './leader.ts';
 import { buildScorePayload, whyNotRanked } from './payload.ts';
 import { createLetterPicker, type LetterPicker } from './letter-picker.ts';
-import { loadIdentity, saveIdentity, type Profile } from './profile.ts';
+import { fasterRun, loadIdentity, saveIdentity, type PendingRun, type Profile } from './profile.ts';
 import { LEADERBOARD_API } from './config.ts';
 
 type FetchFn = Parameters<typeof createLeaderboardClient>[0]['fetchFn'];
@@ -56,12 +56,16 @@ export function createLeaderboardUi(o: UiOptions) {
       const payload = buildScorePayload({ playerName: profile.playerName, category: runCategory, benchmark, slip, tune, seed, ghost });
       if (!payload) { status = 'THIS RUN COULD NOT BE RANKED'; o.onChange(); return status; }
       status = 'SENDING TO THE LEADERBOARD...'; o.onChange();
-      // keep the faster of this run and one waiting from earlier (same class and category) so a long offline spell sends only the best
-      const waiting = profile.pending, best = waiting && waiting.class === payload.class && waiting.category === payload.category && waiting.splits.quarter < payload.splits.quarter ? waiting : payload;
-      const r = await client.submit(best);
-      if (r.ok) { profile = { ...profile, pending: null }; saveIdentity(o.store, profile); status = `SENT: RANK ${r.classRank} IN ${classLabel(payload.class)}${r.verified ? ' (VERIFIED)' : ''}`; leaderAsked = ''; }
-      else { profile = { ...profile, pending: r.kind === 'rejected' ? null : best }; saveIdentity(o.store, profile); status = r.kind === 'rejected' ? r.message : `${r.message}${r.kind === 'rate-limited' ? '' : ': SAVED, WILL SEND NEXT TIME'}`; }
+      const r = await api.sendRun(payload);
+      if (r.ok) { status = `SENT: RANK ${r.classRank} IN ${classLabel(payload.class)}${r.verified ? ' (VERIFIED)' : ''}`; leaderAsked = ''; }
+      else status = r.kind === 'rejected' ? r.message : `${r.message}${r.kind === 'rate-limited' ? '' : ': SAVED, WILL SEND NEXT TIME'}`;
       o.onChange(); return status;
+    },
+    /** send a run of EITHER mode and keep it for later if it could not be sent (offline, a server problem): the one waiting slot keeps the faster run of the same mode, class and category, so a long offline spell sends only the best. A refused run is dropped. Both modes use this. */
+    async sendRun(payload: PendingRun): Promise<SubmitOk | Failure> {
+      const best = fasterRun(profile.pending, payload), r = await client.submit(best);
+      profile = { ...profile, pending: r.ok || r.kind === 'rejected' ? null : best }; saveIdentity(o.store, profile);
+      return r;
     },
     /** try to send a run kept from an offline spell (called when the records screen opens) */
     async sendPending(): Promise<void> {

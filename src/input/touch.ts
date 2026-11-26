@@ -8,7 +8,8 @@ export interface TouchRect { id: string; label: string; x: number; y: number; w:
 export const TOUCH_MENU = 'menu';
 
 /** where each control sits for a screen of w by h and a size multiplier (0.7 to 1.5). Landscape puts the two steering buttons bottom-left and the pedals bottom-right; portrait gives steering the whole bottom row (a button each half). */
-export function touchLayout(w: number, h: number, size = 1): TouchRect[] {
+export function touchLayout(w: number, h: number, size = 1, mode: 'drag' | 'formula' = 'drag'): TouchRect[] {
+  if (mode === 'formula') return formulaTouchLayout(w, h, size);
   const portrait = h > w, fit = portrait ? Math.min(w / 5, h / 6.8) : Math.min(w / 8, h / 5.4), u = Math.min(Math.max(36, Math.min(w, h) * 0.16) * size, fit), m = u * 0.22, out: TouchRect[] = [];      // (the cap keeps every button on a small screen, whatever the size setting)
   const add = (id: string, label: string, x: number, y: number, ww: number, hh: number, kind: TouchRect['kind'] = 'button'): TouchRect => { const r = { id, label, x, y, w: ww, h: hh, kind }; out.push(r); return r; };
   const floor = portrait ? h - m - 1.2 * u - m : h - m;      // the lowest edge of the right-hand stacks
@@ -28,6 +29,21 @@ export function touchLayout(w: number, h: number, size = 1): TouchRect[] {
   add(TOUCH_MENU, 'MENU', m, m, 1.1 * u, 0.6 * u);
   return out;
 }
+/** The Formula buttons: the steering pair, gas, brake, nitro, shift up and down, the driving line toggle and MENU. Same sizes and places as Drag's (so a thumb finds the same spots), without the controls a standing lap does not have (GO, burnout, back up, deep stage, chute). */
+export function formulaTouchLayout(w: number, h: number, size = 1): TouchRect[] {
+  const portrait = h > w, fit = portrait ? Math.min(w / 5, h / 6.8) : Math.min(w / 8, h / 5.4), u = Math.min(Math.max(36, Math.min(w, h) * 0.16) * size, fit), m = u * 0.22, out: TouchRect[] = [];
+  const add = (id: string, label: string, x: number, y: number, ww: number, hh: number, kind: TouchRect['kind'] = 'button'): TouchRect => { const r = { id, label, x, y, w: ww, h: hh, kind }; out.push(r); return r; };
+  const floor = portrait ? h - m - 1.2 * u - m : h - m;
+  const steerWidth = portrait ? w - 2 * m : Math.max(2.2 * u, Math.min(4.4 * u, w - 4.3 * u - 5 * m)), steerEach = (steerWidth - m) / 2;
+  add('steerLeft', '<', m, h - m - 1.2 * u, steerEach, 1.2 * u); add('steerRight', '>', m + steerEach + m, h - m - 1.2 * u, steerEach, 1.2 * u);
+  const gas = add('gas', 'GAS', w - m - 1.5 * u, floor - 3 * u, 1.5 * u, 3 * u, 'pedal');
+  const brake = add('brake', 'BRAKE', gas.x - m - 1.4 * u, floor - 1.5 * u, 1.4 * u, 1.5 * u);
+  add('nitro', 'NITRO', brake.x, brake.y - m - u, 1.4 * u, u);
+  if (portrait) { add('shiftUp', 'UP', brake.x - m - 1.4 * u, floor - u, 1.4 * u, u); add('shiftDown', 'DOWN', brake.x - m - 1.4 * u, floor - 2 * u - m, 1.4 * u, u); add('drivingLine', 'LINE', brake.x - m - 1.4 * u, floor - 3 * u - 2 * m, 1.4 * u, u); }
+  else { const shiftY = h - 2 * m - 1.2 * u - u; add('shiftDown', 'DOWN', m, shiftY, 1.3 * u, u); add('shiftUp', 'UP', m + 1.3 * u + m, shiftY, 1.3 * u, u); add('drivingLine', 'LINE', m + 2 * (1.3 * u + m), shiftY, 1.3 * u, u); }
+  add(TOUCH_MENU, 'MENU', m, m, 1.1 * u, 0.6 * u);
+  return out;
+}
 const inside = (r: TouchRect, x: number, y: number): boolean => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
 /** the rectangle under a point, the later (higher) one first */
 export function hitTest(layout: TouchRect[], x: number, y: number): TouchRect | null { for (let i = layout.length - 1; i >= 0; i--) if (inside(layout[i] as TouchRect, x, y)) return layout[i] as TouchRect; return null; }
@@ -38,11 +54,11 @@ export function pedalValue(r: TouchRect, y: number, pressure: number, analog: bo
   const real = pressure > 0 && pressure < 1 && pressure !== 0.5, frac = real ? pressure : Math.max(0, Math.min(1, (r.y + r.h - y) / r.h));
   return Math.max(INPUT.touchMinGas, Math.pow(frac, INPUT.touchAnalogCurve));
 }
-export interface TouchHooks { size: () => number; analog: () => boolean; width: () => number; height: () => number; onMenu: () => void; active: () => boolean; onTouchSeen: () => void }
+export interface TouchHooks { /** which game's buttons to show (default Drag) */ mode?: () => 'drag' | 'formula'; size: () => number; analog: () => boolean; width: () => number; height: () => number; onMenu: () => void; active: () => boolean; onTouchSeen: () => void }
 export function createTouchControls(queue: InputQueue, hooks: TouchHooks) {
   const pointers = new Map<number, string>(), pressedIds = new Map<string, number>();
   let layout: TouchRect[] = [], layoutKey = '', pedal = 0;
-  const current = (): TouchRect[] => { const key = `${hooks.width()}x${hooks.height()}x${hooks.size()}`; if (key !== layoutKey) { layout = touchLayout(hooks.width(), hooks.height(), hooks.size()); layoutKey = key; } return layout; };
+  const current = (): TouchRect[] => { const mode = hooks.mode?.() ?? 'drag', key = `${hooks.width()}x${hooks.height()}x${hooks.size()}x${mode}`; if (key !== layoutKey) { layout = touchLayout(hooks.width(), hooks.height(), hooks.size(), mode); layoutKey = key; } return layout; };
   const rectOf = (id: string): TouchRect | undefined => current().find(r => r.id === id);
   function press(id: string, pointerId: number, x: number, y: number, pressure: number, t: number): void {
     pointers.set(pointerId, id); pressedIds.set(id, (pressedIds.get(id) ?? 0) + 1);

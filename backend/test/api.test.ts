@@ -233,7 +233,7 @@ describe('migration 0002: two classes', () => {
   };
   const all = async (h: ReturnType<typeof makeDbWithRaw>) => (await h.d1.prepare('SELECT player_key, class_id, category, quarter_et, created_at FROM scores ORDER BY player_key, category, class_id').all<any>()).results;
 
-  it('is the migration after 0001, and 0001 is untouched', () => { expect(MIGRATION_FILES).toEqual(['0001_init.sql', MIGRATION]); });
+  it('is the migration after 0001, and 0001 is untouched', () => { expect(MIGRATION_FILES.slice(0, 2)).toEqual(['0001_init.sql', MIGRATION]); });
   it('maps every discrete-* id to discrete and keeps the best ET per player, category and class', async () => {
     const h = old(); h.applyMigration(MIGRATION);
     expect(await all(h)).toEqual([
@@ -252,7 +252,7 @@ describe('migration 0002: two classes', () => {
     const empty = makeDbWithRaw(1); empty.applyMigration(MIGRATION); expect(await all(empty)).toEqual([]);
   });
   it('the migrated board works through the API and a new submission still improves the kept row', async () => {
-    const h = old(); h.applyMigration(MIGRATION);
+    const h = old(); h.applyMigration(MIGRATION); h.applyMigration('0003_modes.sql');
     const env = mkEnv({ DB: h.d1, RATE_LIMIT_PER_MINUTE: '100' });
     const lb = await (await get(env, '/leaderboard?scope=class&class=discrete')).json() as any;
     expect(lb.entries.map((e: any) => [e.playerName, e.quarterEt])).toEqual([['alice', 4.5], ['carol', 5.2], ['bob', 5.7]]);

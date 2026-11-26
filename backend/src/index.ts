@@ -1,5 +1,5 @@
-import { CLASS_IDS, isCategory, isClassId } from './classes';
-import { validateSubmission, verifyBySimulation, MAX_BODY_BYTES } from './validate';
+import { CLASS_IDS, DEFAULT_TRACK, MODE_IDS, MODE_METRIC, TRACKS, isCategory, isClassId } from './classes';
+import { parseModeAndTrack, validateSubmission, verifyBySimulation, MAX_BODY_BYTES } from './validate';
 
 export interface Env {
   DB: D1Database;
@@ -91,50 +91,68 @@ async function postScore(request: Request, env: Env, cors: Record<string, string
   const s = result.value;
   const sim = await verifyBySimulation(s);
   const key = s.playerName.toLowerCase();
+  // One ranking column in both modes (quarter_et holds the quarter-mile ET in drag and the lap time in formula). Drag keeps its five splits; formula keeps its three sectors as JSON.
+  const dragSplits = s.mode === 'drag' ? s.splits : null;
+  const sectorsJson = s.mode === 'formula' ? JSON.stringify(s.splits) : null;
+  const topOrTrapSpeed = s.mode === 'drag' ? s.trapSpeed : s.topSpeed;
   await env.DB.prepare(
-    `INSERT INTO scores (player_key, player_name, class_id, category, quarter_et, trap_speed, reaction_time,
-       split_60ft, split_330, split_eighth, split_1000, benchmark_score, benchmark_version, gpu_id, seed,
+    `INSERT INTO scores (player_key, player_name, mode, track_id, class_id, category, quarter_et, trap_speed, reaction_time,
+       split_60ft, split_330, split_eighth, split_1000, sectors_json, benchmark_score, benchmark_version, gpu_id, seed,
        tune_json, ghost_json, verified, created_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-     ON CONFLICT(player_key, class_id, category) DO UPDATE SET
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+     ON CONFLICT(player_key, mode, track_id, class_id, category) DO UPDATE SET
        player_name=excluded.player_name, quarter_et=excluded.quarter_et, trap_speed=excluded.trap_speed,
        reaction_time=excluded.reaction_time, split_60ft=excluded.split_60ft, split_330=excluded.split_330,
-       split_eighth=excluded.split_eighth, split_1000=excluded.split_1000, benchmark_score=excluded.benchmark_score,
+       split_eighth=excluded.split_eighth, split_1000=excluded.split_1000, sectors_json=excluded.sectors_json,
+       benchmark_score=excluded.benchmark_score,
        benchmark_version=excluded.benchmark_version, gpu_id=excluded.gpu_id, seed=excluded.seed,
        tune_json=excluded.tune_json, ghost_json=excluded.ghost_json, verified=excluded.verified,
        created_at=excluded.created_at
      WHERE excluded.quarter_et < scores.quarter_et`,
   ).bind(
-    key, s.playerName, s.class, s.category, s.splits.quarter, s.trapSpeed, s.reactionTime,
-    s.splits.ft60, s.splits.ft330, s.splits.eighth, s.splits.ft1000, s.benchmarkScore, s.benchmarkVersion,
+    key, s.playerName, s.mode, s.track, s.class, s.category, s.timeS, topOrTrapSpeed, s.reactionTime,
+    dragSplits?.ft60 ?? null, dragSplits?.ft330 ?? null, dragSplits?.eighth ?? null, dragSplits?.ft1000 ?? null, sectorsJson,
+    s.benchmarkScore, s.benchmarkVersion,
     s.gpuId, s.seed, JSON.stringify(s.tune), s.ghost ? JSON.stringify(s.ghost) : null, sim.verified ? 1 : 0, now,
   ).run();
   const better = await env.DB.prepare(
-    'SELECT COUNT(*) AS n FROM scores WHERE class_id=? AND category=? AND quarter_et < (SELECT quarter_et FROM scores WHERE player_key=? AND class_id=? AND category=?)',
-  ).bind(s.class, s.category, key, s.class, s.category).first<{ n: number }>();
-  return json({ ok: true, classRank: (better?.n ?? 0) + 1, verified: sim.verified }, 200, cors);
+    `SELECT COUNT(*) AS n FROM scores WHERE mode=? AND track_id=? AND class_id=? AND category=? AND quarter_et <
+       (SELECT quarter_et FROM scores WHERE player_key=? AND mode=? AND track_id=? AND class_id=? AND category=?)`,
+  ).bind(s.mode, s.track, s.class, s.category, key, s.mode, s.track, s.class, s.category).first<{ n: number }>();
+  return json({ ok: true, mode: s.mode, track: s.track, classRank: (better?.n ?? 0) + 1, verified: sim.verified }, 200, cors);
 }
 
 interface Row {
-  player_name: string; class_id: string; category: string; quarter_et: number; trap_speed: number;
-  reaction_time: number; split_60ft: number; split_330: number; split_eighth: number; split_1000: number;
+  player_name: string; mode: string; track_id: string; class_id: string; category: string; quarter_et: number; trap_speed: number;
+  reaction_time: number; split_60ft: number | null; split_330: number | null; split_eighth: number | null; split_1000: number | null; sectors_json: string | null;
   benchmark_score: number; benchmark_version: string; gpu_id: string; seed: number; tune_json: string;
   ghost_json: string | null; verified: number; created_at: number;
 }
 
+/** A row for the API. Drag rows look exactly as before (quarterEt, trapSpeed, splits) plus mode, track and timeS; formula rows carry timeS, topSpeed and three sector splits. */
 function publicRow(r: Row, full: boolean) {
+  const isDrag = r.mode !== 'formula';
   const base = {
-    playerName: r.player_name, class: r.class_id, category: r.category, quarterEt: r.quarter_et,
-    trapSpeed: r.trap_speed, benchmarkScore: r.benchmark_score, verified: r.verified === 1,
+    playerName: r.player_name, mode: r.mode, track: r.track_id, class: r.class_id, category: r.category, timeS: r.quarter_et,
+    ...(isDrag ? { quarterEt: r.quarter_et, trapSpeed: r.trap_speed } : { topSpeed: r.trap_speed }),
+    benchmarkScore: r.benchmark_score, verified: r.verified === 1,
   };
   if (!full) return base;
+  const splits = isDrag
+    ? { ft60: r.split_60ft, ft330: r.split_330, eighth: r.split_eighth, ft1000: r.split_1000, quarter: r.quarter_et }
+    : (r.sectors_json ? JSON.parse(r.sectors_json) : null);
   return {
     ...base,
     reactionTime: r.reaction_time,
-    splits: { ft60: r.split_60ft, ft330: r.split_330, eighth: r.split_eighth, ft1000: r.split_1000, quarter: r.quarter_et },
+    splits,
     benchmarkVersion: r.benchmark_version, gpuId: r.gpu_id, seed: r.seed,
     tune: JSON.parse(r.tune_json), ghost: r.ghost_json ? JSON.parse(r.ghost_json) : null, date: r.created_at,
   };
+}
+
+/** the mode and track of a read; both are optional and default to drag on the strip */
+function readModeAndTrack(url: URL) {
+  return parseModeAndTrack(url.searchParams.get('mode') ?? undefined, url.searchParams.get('track') ?? undefined);
 }
 
 async function getLeaderboard(url: URL, env: Env, cors: Record<string, string>): Promise<Response> {
@@ -142,21 +160,23 @@ async function getLeaderboard(url: URL, env: Env, cors: Record<string, string>):
   const category = url.searchParams.get('category') ?? 'manual';
   if (scope !== 'overall' && scope !== 'class') return json({ error: 'scope must be overall or class' }, 400, cors);
   if (!isCategory(category)) return json({ error: 'bad category' }, 400, cors);
+  const mt = readModeAndTrack(url);
+  if (!mt.ok) return json({ error: mt.error }, 400, cors);
   const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get('limit') ?? '25', 10) || 25));
   let rows: Row[];
   if (scope === 'class') {
     const cls = url.searchParams.get('class');
     if (!isClassId(cls)) return json({ error: 'unknown class' }, 400, cors);
-    rows = (await env.DB.prepare('SELECT * FROM scores WHERE class_id=? AND category=? ORDER BY quarter_et ASC, created_at ASC LIMIT ?')
-      .bind(cls, category, limit).all<Row>()).results;
+    rows = (await env.DB.prepare('SELECT * FROM scores WHERE mode=? AND track_id=? AND class_id=? AND category=? ORDER BY quarter_et ASC, created_at ASC LIMIT ?')
+      .bind(mt.mode, mt.track, cls, category, limit).all<Row>()).results;
   } else {
-    // Best run per player across all classes.
+    // Best run per player across all classes of this mode and track.
     rows = (await env.DB.prepare(
       `SELECT * FROM (SELECT s.*, ROW_NUMBER() OVER (PARTITION BY player_key ORDER BY quarter_et ASC, created_at ASC) AS rn
-         FROM scores s WHERE category=?) WHERE rn=1 ORDER BY quarter_et ASC, created_at ASC LIMIT ?`,
-    ).bind(category, limit).all<Row>()).results;
+         FROM scores s WHERE mode=? AND track_id=? AND category=?) WHERE rn=1 ORDER BY quarter_et ASC, created_at ASC LIMIT ?`,
+    ).bind(mt.mode, mt.track, category, limit).all<Row>()).results;
   }
-  return json({ scope, category, entries: rows.map((r, i) => ({ rank: i + 1, ...publicRow(r, false) })) }, 200, cors, CACHE.board);
+  return json({ scope, mode: mt.mode, track: mt.track, category, entries: rows.map((r, i) => ({ rank: i + 1, ...publicRow(r, false) })) }, 200, cors, CACHE.board);
 }
 
 async function getLeader(url: URL, env: Env, cors: Record<string, string>): Promise<Response> {
@@ -164,8 +184,10 @@ async function getLeader(url: URL, env: Env, cors: Record<string, string>): Prom
   const category = url.searchParams.get('category') ?? 'manual';
   if (!isClassId(cls)) return json({ error: 'unknown class' }, 400, cors);
   if (!isCategory(category)) return json({ error: 'bad category' }, 400, cors);
-  const row = await env.DB.prepare('SELECT * FROM scores WHERE class_id=? AND category=? ORDER BY quarter_et ASC, created_at ASC LIMIT 1')
-    .bind(cls, category).first<Row>();
+  const mt = readModeAndTrack(url);
+  if (!mt.ok) return json({ error: mt.error }, 400, cors);
+  const row = await env.DB.prepare('SELECT * FROM scores WHERE mode=? AND track_id=? AND class_id=? AND category=? ORDER BY quarter_et ASC, created_at ASC LIMIT 1')
+    .bind(mt.mode, mt.track, cls, category).first<Row>();
   if (!row) return json({ error: 'no leader yet' }, 404, cors);
   return json(publicRow(row, true), 200, cors, CACHE.board);
 }
@@ -186,6 +208,9 @@ export async function handle(request: Request, env: Env, now = Date.now()): Prom
     if (url.pathname === '/leaderboard' && request.method === 'GET') return await getLeaderboard(url, env, cors);
     if (url.pathname === '/leader' && request.method === 'GET') return await getLeader(url, env, cors);
     if (url.pathname === '/classes' && request.method === 'GET') return json({ classes: CLASS_IDS }, 200, cors, CACHE.classes);
+    // The modes, their tracks and the default track (what to pass as ?mode= and ?track=).
+    if (url.pathname === '/modes' && request.method === 'GET')
+      return json({ modes: MODE_IDS.map((id) => ({ id, tracks: TRACKS[id], defaultTrack: DEFAULT_TRACK[id], metric: MODE_METRIC[id] })) }, 200, cors, CACHE.classes);
     return json({ error: 'not found' }, 404, cors);
   } catch {
     return json({ error: 'internal error' }, 500, cors);

@@ -15,6 +15,25 @@ export type ClassId = (typeof CLASS_IDS)[number];
 export const CATEGORIES = ['manual', 'autopilot'] as const;
 export type Category = (typeof CATEGORIES)[number];
 
+/** The game modes the leaderboard knows. Every score belongs to one mode and one track. 'drag' is the original quarter-mile mode (the default everywhere, so an old game build that sends no mode keeps working). */
+export const MODE_IDS = ['drag', 'formula'] as const;
+export type ModeId = (typeof MODE_IDS)[number];
+export const DEFAULT_MODE: ModeId = 'drag';
+
+/** The tracks of each mode, as data so more can be added (a city or mountain circuit later). The first track is the default one for the mode. A new track needs a row here and, for formula, a row in FORMULA_LAP_TABLE (plausible.ts). */
+export const TRACKS: Record<ModeId, readonly string[]> = { drag: ['strip'], formula: ['beach'] };
+export const DEFAULT_TRACK: Record<ModeId, string> = { drag: 'strip', formula: 'beach' };
+
+/** What the ranking number of a mode is. Both modes store it in the database column `quarter_et` (the old name is kept so the live Worker keeps reading the table), and the API calls it `timeS`. */
+export const MODE_METRIC: Record<ModeId, 'quarter_et' | 'lap_time'> = { drag: 'quarter_et', formula: 'lap_time' };
+
+export function isModeId(value: unknown): value is ModeId {
+  return typeof value === 'string' && (MODE_IDS as readonly string[]).includes(value);
+}
+export function isTrackOf(mode: ModeId, value: unknown): value is string {
+  return typeof value === 'string' && TRACKS[mode].includes(value);
+}
+
 export interface ClassBounds {
   minQuarterEt: number; // seconds
   maxQuarterEt: number;

@@ -42,3 +42,12 @@ export function toDriverInput(c: ControlState): DriverInput {
     brake: braking, chute: c.active('chute'), deepStage: c.active('deepStage'), backUp: c.active('backUp'), steer: clamp(steer, -1, 1),
   };
 }
+
+/** what the Formula car reads (src/formula/types.ts `FormulaInput`) plus the driving-line toggle press. Gas and brake are shares, steer is -1 to 1, a shift is a press (true for the one tick it lands). */
+export interface FormulaDriverInput { throttle: number; brake: number; steer: number; shiftUp: boolean; shiftDown: boolean; nitro: boolean; toggleLine: boolean }
+/** turns the held controls into the Formula car's input. Same gas and steering as `toDriverInput`; differences: the launch key does nothing (a standing start has no launch button, so Enter never shifts), and a shift is only the tick the press landed (a held key shifts once). */
+export function toFormulaInput(c: ControlState): FormulaDriverInput {
+  const gas = Math.max(c.active('gas') ? 1 : 0, c.analogOf('gasPad') ?? 0, c.analogOf('gasTouch') ?? 0);
+  const steer = (c.active('steerRight') ? 1 : 0) - (c.active('steerLeft') ? 1 : 0) + (c.analogOf('steerTouch') ?? 0) + (c.analogOf('steerPad') ?? 0);
+  return { throttle: clamp(gas, 0, 1), brake: c.active('brake') ? 1 : 0, steer: clamp(steer, -1, 1), shiftUp: c.tapped('shiftUp'), shiftDown: c.tapped('shiftDown'), nitro: c.active('nitro'), toggleLine: c.tapped('drivingLine') };
+}
