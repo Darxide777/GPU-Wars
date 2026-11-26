@@ -1,5 +1,6 @@
 // From timed passes to a score, with no screen and no clock in it (so the tests can feed it numbers).
-import { BENCHMARK, CLASS_SCORE_SHARE, type BackendId } from './constants.ts';
+import { BENCHMARK, CLASS_SCORE_SHARE, MASKED_GPU_RULE, type BackendId } from './constants.ts';
+import { REFERENCE_CARDS } from './reference.ts';
 import { type ClassId } from '../classes.ts';
 
 const median = (values: number[]): number => { const s = [...values].sort((a, b) => a - b), m = s.length >> 1; return s.length === 0 ? 0 : s.length % 2 ? (s[m] as number) : ((s[m - 1] as number) + (s[m] as number)) / 2; };
@@ -32,6 +33,13 @@ export function scoreFromRate(rate: number, backend: BackendId): number {
   return Math.round(Math.min(1, Math.max(0, share)) * top);
 }
 
+/** the work rate above which a masked card is DISCRETE: the strongest built-in reference times the margin (constants.ts, MASKED_GPU_RULE) */
+export const maskedDiscreteRate = (): number => (REFERENCE_CARDS.find(c => c.name === MASKED_GPU_RULE.referenceCard)?.rate ?? Infinity) * MASKED_GPU_RULE.margin;
+/** the class of a masked card from its measured rate: never a faster class than the speed supports (a bad or missing rate is integrated) */
+export const classForMaskedRate = (rate: number, backend: BackendId = 'webgl2'): ClassId => (backend !== 'canvas2d' && Number.isFinite(rate) && rate > maskedDiscreteRate() ? 'discrete' : 'integrated');
+/** the lowest score a masked card can have in the discrete class (what a rate just over the line scores) */
+export const maskedDiscreteMinScore = (): number => scoreFromRate(maskedDiscreteRate(), 'webgl2');
+
 /** the highest score a class may have */
 export const classScoreCap = (id: ClassId): number => Math.round(BENCHMARK.maxScore * CLASS_SCORE_SHARE[id]);
 /** a score kept to what is possible: a whole number from 0 to the class's cap */
@@ -48,15 +56,15 @@ export function checkDurations(passWallMs: number[], runMs: number, wasHidden: b
 }
 
 /** everything the run produced */
-export interface BenchmarkOutcome { ok: boolean; reason: string; score: number; rawScore: number; capped: boolean; sustain: number; backend: BackendId; rates: number[]; discarded: number[]; /** the mean work rate of the kept passes (units per second): the number docs/CALIBRATION.md asks you to report */ meanRate: number }
+export interface BenchmarkOutcome { ok: boolean; /** the class the score was kept for: `id` for a known card, from the speed for a masked one */ cls: ClassId; /** true when the class came from the measured speed (masked card) */ classFromSpeed: boolean; reason: string; score: number; rawScore: number; capped: boolean; sustain: number; backend: BackendId; rates: number[]; discarded: number[]; /** the mean work rate of the kept passes (units per second): the number docs/CALIBRATION.md asks you to report */ meanRate: number }
 
 /** from the passes (work rate and clock time of each) to the outcome */
-export function outcomeFromPasses(passes: { rate: number; wallMs: number }[], runMs: number, wasHidden: boolean, backend: BackendId, id: ClassId): BenchmarkOutcome {
-  const rates = passes.map(p => p.rate), blank = { score: 0, rawScore: 0, capped: false, sustain: 0, backend, rates, discarded: [] as number[], meanRate: 0 };
+export function outcomeFromPasses(passes: { rate: number; wallMs: number }[], runMs: number, wasHidden: boolean, backend: BackendId, id: ClassId, masked = false): BenchmarkOutcome {
+  const rates = passes.map(p => p.rate), blank = { cls: id, classFromSpeed: false, score: 0, rawScore: 0, capped: false, sustain: 0, backend, rates, discarded: [] as number[], meanRate: 0 };
   const dur = checkDurations(passes.map(p => p.wallMs), runMs, wasHidden); if (!dur.ok) return { ok: false, reason: dur.reason, ...blank };
   const sum = summarizePasses(rates); if (!sum.ok) return { ok: false, reason: sum.reason, ...blank, sustain: sum.sustain, discarded: sum.discarded };
-  const raw = scoreFromRate(sum.rate, backend), score = capScore(raw, id);
-  return { ok: true, reason: '', score, rawScore: raw, capped: score < raw, sustain: sum.sustain, backend, rates, discarded: sum.discarded, meanRate: sum.rate };
+  const cls = masked ? classForMaskedRate(sum.rate, backend) : id, raw = scoreFromRate(sum.rate, backend), score = capScore(raw, cls);
+  return { ok: true, reason: '', cls, classFromSpeed: masked, score, rawScore: raw, capped: score < raw, sustain: sum.sustain, backend, rates, discarded: sum.discarded, meanRate: sum.rate };
 }
 
 /** the work rate in plain words, for example "612.0 G units/s" */

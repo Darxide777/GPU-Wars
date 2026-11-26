@@ -79,7 +79,8 @@ test('calibration: the reference iGPU (AMD Radeon 8060S) lands near 10 s, and th
   const ref = REFERENCE_CARDS.find(c => c.name === 'AMD Radeon 8060S');
   assert.ok(ref, 'the reference table lists the 8060S');
   const score = Math.min(scoreFromRate(ref.rate, 'webgl2'), classScoreCap('integrated')), c = card('integrated', score);
-  assert.ok(Math.abs(c.et - 10) < 0.35, `the 8060S: score ${score} gives ${c.et.toFixed(2)} s`);
+  assert.equal(ref.source, 'measured'); assert.equal(score, 5005, 'the measured owner score on the unchanged scale');
+  assert.ok(Math.abs(c.et - (ref.targetEt ?? 10.3)) < 0.35, `the 8060S: score ${score} gives ${c.et.toFixed(2)} s`);
   assert.ok(score < classScoreCap('integrated'), 'near the top of integrated but not capped, so a faster iGPU can still score higher');
   const none = readyCar(emptySave()), st = rankedStart();
   const noneEt = predictDrag(none.spec, none.tune, RANKED.seed, RANKED.conditions, st.fuel, st.engineTemp, rankedStrip()).slip.quarter;

@@ -22,12 +22,11 @@ import { BOOST, defaultTune } from './tune.ts';
 import { tuneHint } from './tune-help.ts';
 import { drawProgress } from './hud.ts';
 import { createDragTopDown } from './topdown.ts';
-import { PENDING_GPU, gpuLine, readGpuIdentity, type GpuIdentity } from '../benchmark/gpu.ts';
+import { PENDING_GPU, MASKED_NOTE, gpuLine, readGpuIdentity, type GpuIdentity } from '../benchmark/gpu.ts';
 import { openBenchmarkScreen, type BenchmarkScreen } from '../benchmark/screen.ts';
 import { benchmarkItem, benchmarkLine, classItem, type BenchmarkContext } from '../benchmark/menu.ts';
 import { repairBenchmark, resultFromRun } from '../benchmark/rules.ts';
 import { dynoPeaks, dynoSvg } from '../benchmark/dyno.ts';
-import type { ClassId } from '../classes.ts';
 import { createLeaderboardUi } from '../leaderboard/ui.ts';
 import { RANKED, densityAltitudeFt, rankedStart, rankedStrip } from '../leaderboard/ranked.ts';
 import { deltaRowsHtml, markDeltas } from '../leaderboard/delta.ts';
@@ -99,15 +98,15 @@ let gpu: GpuIdentity = PENDING_GPU;
 let benchScreen: BenchmarkScreen | null = null;
 const benchContext: BenchmarkContext = {
   save: () => save, gpu: () => gpu, say: text => { msg = text; }, refresh: () => { if (screen === 'title') render(); },
-  start: cls => { show('bench'); music.startMusic(); benchScreen = openBenchmarkScreen({ cls, playing: () => music.nowPlaying(), onFinish: r => finishBenchmark(cls, r) }); },
+  start: (cls, masked) => { show('bench'); music.startMusic(); benchScreen = openBenchmarkScreen({ cls, masked, playing: () => music.nowPlaying(), onFinish: r => finishBenchmark(r) }); },
 };
-function finishBenchmark(cls: ClassId, r: Parameters<Parameters<typeof openBenchmarkScreen>[0]['onFinish']>[0]): void {
+function finishBenchmark(r: Parameters<Parameters<typeof openBenchmarkScreen>[0]['onFinish']>[0]): void {
   benchScreen?.close(); benchScreen = null;
   if (r.status === 'done') {
-    commit({ ...save, benchmark: resultFromRun({ score: r.outcome.score, sustain: r.outcome.sustain, cls, gpuId: gpu.gpuId, now: Date.now() }) });
-    const spec = readyCar(save).spec, peaks = dynoPeaks(spec), line = calibrationLine(r.outcome, cls);
-    console.log(`[GPU Wars benchmark] ${line} | ${gpuLine(gpu)}`);
-    soon = { title: 'BENCHMARK DONE', help: `SCORE ${r.outcome.score} (RAW ${r.outcome.rawScore})${r.outcome.capped ? ' (CAPPED FOR YOUR CLASS)' : ''}`, text: `${gpuLine(gpu)}. ${line}. Your car now makes ${Math.round(peaks.hp)} hp at ${peaks.hpRpm} rpm and ${Math.round(peaks.torqueNm)} Nm of torque. ${r.outcome.discarded.length ? `${r.outcome.discarded.length} unsteady pass(es) were thrown away. ` : ''}Drawn with ${r.outcome.backend}. The game cannot see an overclock: run the benchmark again yourself after overclocking or changing your GPU.` };
+    commit({ ...save, benchmark: resultFromRun({ score: r.outcome.score, sustain: r.outcome.sustain, cls: r.outcome.cls, gpuId: gpu.gpuId, now: Date.now(), classFromSpeed: r.outcome.classFromSpeed }) });
+    const spec = readyCar(save).spec, peaks = dynoPeaks(spec), cls = r.outcome.cls, line = calibrationLine(r.outcome, cls);
+    console.log(`[GPU Wars benchmark] ${line} | ${gpuLine(gpu, cls)}`);
+    soon = { title: 'BENCHMARK DONE', help: `SCORE ${r.outcome.score} (RAW ${r.outcome.rawScore})${r.outcome.capped ? ' (CAPPED FOR YOUR CLASS)' : ''}`, text: `${gpuLine(gpu, cls)}.${gpu.masked ? ' ' + MASKED_NOTE + '.' : ''} ${line}. Your car now makes ${Math.round(peaks.hp)} hp at ${peaks.hpRpm} rpm and ${Math.round(peaks.torqueNm)} Nm of torque. ${r.outcome.discarded.length ? `${r.outcome.discarded.length} unsteady pass(es) were thrown away. ` : ''}Drawn with ${r.outcome.backend}. The game cannot see an overclock: run the benchmark again yourself after overclocking or changing your GPU.` };
     show('soon');
   } else if (r.status === 'failed') { soon = { title: 'BENCHMARK FAILED', help: 'NOT SCORED', text: `${r.reason}. Nothing was saved. Run it again from the BENCHMARK row.` }; show('soon'); }
   else show('title');

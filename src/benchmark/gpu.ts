@@ -25,6 +25,8 @@ export interface GpuIdentity {
   software: boolean;
   /** false until the browser has been asked (the page starts with a placeholder) */
   ready: boolean;
+  /** the browser is hiding the real card (privacy mode, a generic placeholder name): `gpuClass` is then only the safe default (integrated) and the benchmark's measured speed decides the class (see `classForMaskedRate` in score.ts) */
+  masked: boolean;
 }
 
 /** how sure one reading is: 'plain' when it names the card or a known part, 'guess' when it only falls back to the default */
@@ -44,6 +46,30 @@ const AMD_INTEGRATED_NAMES = /\b(?:raven|picasso|renoir|cezanne|lucienne|barcelo
 /** separate cards by gfx id */
 const AMD_DISCRETE_GFX = new Set(['gfx803', 'gfx900', 'gfx906', 'gfx908', 'gfx90a', 'gfx1010', 'gfx1011', 'gfx1012', 'gfx1030', 'gfx1031', 'gfx1032', 'gfx1034', 'gfx1100', 'gfx1101', 'gfx1102', 'gfx1200', 'gfx1201', 'gfx700', 'gfx701', 'gfx702', 'gfx703', 'gfx704', 'gfx705', 'gfx802']);
 const AMD_DISCRETE_NAMES = /\bnavi\s?[1-4]\d\b|\bpolaris\s?\d+\b|\bellesmere\b|\bbaffin\b|\blexa\b|\bvega\s?(?:10|20)\b|\bfiji\b|\btonga\b|\bhawaii\b|\bbonaire\b|\bpitcairn\b|\btahiti\b|\boland\b|\bcape verde\b|\bverde\b/;
+
+// ---- MASKED (PLACEHOLDER) RENDERER NAMES ----
+// Browsers that hide the card do NOT return an empty string: they return a fixed, plausible-looking name that is NOT the user's card. Reading it as a real card put a Radeon 8060S (a strong iGPU)
+// in the DISCRETE class, because the placeholder says "AMD Radeon R9 200 Series". What the browsers report (checked against Mozilla's bug tracker and Mozilla's WebGL tests):
+//  - Firefox 91+ buckets UNMASKED_RENDERER into a few fixed values and appends ", or similar" (bugzilla.mozilla.org/show_bug.cgi?id=1722113 for the bucketing; the strings are shown in
+//    bug 1916271: "ANGLE (NVIDIA, NVIDIA GeForce GTX 980 Direct3D11 vs_5_0 ps_5_0), or similar"; bug 1941847: "Apple M1, or similar"; bug 1897537 and bug 1693745: the same GTX 980 string on other cards).
+//    On Windows the buckets are the GTX 980 / GTX 1050 style names, on Linux/AMD it is "AMD Radeon R9 200 Series, or similar" (the owner's machine), on Intel "Intel(R) HD Graphics, or similar".
+//  - Firefox with privacy.resistFingerprinting returns the vendor and renderer "Mozilla" (bug 1916271; dom/canvas/test/webgl-mochitest/test_renderer_strings.html).
+//  - Tor Browser is Firefox with resistFingerprinting: the same. Brave's shields and other privacy browsers return generic ANGLE/"Generic Renderer"-style names or "Google Inc." only (not verified against their docs here).
+//  - Chrome with SwiftShader says "ANGLE (Google, Vulkan 1.3.0 (SwiftShader ...))": that is a software renderer (handled apart); other "ANGLE (Google, Vulkan ..." forms name no card either.
+// The ", or similar" suffix is the one reliable sign. The bare fixed names can also be a real old card, so they count as masked only when no WebGPU adapter confirms the same kind of card.
+const MASKED_SUFFIX = /,\s*or similar\s*$/i;
+const MASKED_ALWAYS = /^(?:.*\s)?(?:mozilla|generic renderer|generic gpu|generic graphics)$|\bgeneric renderer\b|\bangle \(google, vulkan\b/i;
+const MASKED_FIXED_NAMES = /\bradeon r9 200 series\b|\bgeforce gtx 980\b|\bgeforce gtx 1050\b|\bintel\(?r?\)? hd graphics(?!\s*\d)(?!.*\buhd\b)|\bhd graphics$/i;
+/** why the name is a placeholder (empty text: it is not). `corroborated` is true when WebGPU names a real card of its own, which turns the bare fixed names back into real names */
+export function maskedReason(webText: string, corroborated = false): string {
+  const t = webText.replace(/\s+/g, ' ').trim();
+  if (!t || SOFTWARE.test(t)) return '';
+  if (MASKED_SUFFIX.test(t)) return 'THE NAME ENDS IN ", OR SIMILAR": A BROWSER PLACEHOLDER';
+  if (MASKED_ALWAYS.test(t)) return 'A GENERIC PLACEHOLDER NAME';
+  if (!corroborated && MASKED_FIXED_NAMES.test(t)) return 'A FIXED PLACEHOLDER NAME THAT BROWSERS USE FOR EVERY CARD';
+  return '';
+}
+export const MASKED_NOTE = 'YOUR BROWSER IS HIDING THE REAL GPU NAME (PRIVACY MODE): CLASS SET FROM MEASURED SPEED';
 
 /** worked out from ONE text (all lower case): is it built in, who makes it, which generation */
 function verdictOf(raw: string): Verdict {
@@ -116,8 +142,14 @@ export function identify(r: GpuReadings, ready = true): GpuIdentity {
   const webText = normalizeGpuText(`${r.webglVendor} ${r.webglRenderer}`), a = r.adapter;
   const adapterText = normalizeGpuText(a ? [a.vendor, a.architecture, a.device, a.description].filter(s => !!s).join(' ') : '');
   const web = verdictOf(webText), gpu = adapterVerdict(a), pick = combineVerdicts(web, gpu);
+  // masked: a placeholder name, or WebGL and WebGPU both plain about DIFFERENT kinds of card (one built in, one separate: neither can be trusted alone)
+  const corroborated = gpu.strength === 'plain' && !gpu.software;
+  let masked = maskedReason(webText, corroborated);
+  const disagree = web.strength === 'plain' && gpu.strength === 'plain' && !web.software && !gpu.software && web.integrated !== gpu.integrated;
+  if (!masked && disagree) masked = 'WEBGL AND WEBGPU NAME DIFFERENT KINDS OF CARD';
+  if (masked) return { gpuId: webText || adapterText || 'unknown', source: webText ? 'webgl' : 'webgpu', gpuClass: 'integrated', why: `${masked}: TREATED AS UNKNOWN, BUILT IN UNTIL MEASURED`, software: false, ready, masked: true };
   const gpuId = webText || adapterText || 'unknown', source: GpuIdentity['source'] = webText ? 'webgl' : adapterText ? 'webgpu' : 'none';
-  return { gpuId, source, gpuClass: pick.cls, why: pick.why, software: pick.software, ready };
+  return { gpuId, source, gpuClass: pick.cls, why: pick.why, software: pick.software, ready, masked: false };
 }
 /** the same from two plain strings (the old call shape; WebGPU's text is read as a single description) */
 export function identityFromText(webglText: string, webgpuText: string): GpuIdentity { return identify({ webglVendor: '', webglRenderer: webglText, adapter: webgpuText ? { description: webgpuText } : null }); }
@@ -130,7 +162,7 @@ export function normalizeGpuText(raw: string): string {
 }
 
 /** what the result screen and the console say the game saw */
-export function gpuLine(g: GpuIdentity): string { return `GPU SEEN: ${g.gpuId.slice(0, 90)} | CLASS: ${classLabel(g.gpuClass)} (${g.why.toLowerCase()})`; }
+export function gpuLine(g: GpuIdentity, finalClass?: ClassId): string { return `GPU SEEN: ${g.gpuId.slice(0, 90)} | CLASS: ${classLabel(finalClass ?? g.gpuClass)} (${g.why.toLowerCase()})${g.masked ? ` | ${MASKED_NOTE}` : ''}`; }
 
 /** ask the browser what the card is: WebGL's debug renderer info and WebGPU's adapter info */
 export async function readGpuIdentity(): Promise<GpuIdentity> {
@@ -153,4 +185,4 @@ export async function readGpuIdentity(): Promise<GpuIdentity> {
   return identify({ webglVendor, webglRenderer, adapter });
 }
 /** the placeholder the page holds until the browser has answered */
-export const PENDING_GPU: GpuIdentity = { gpuId: 'unknown', source: 'none', gpuClass: 'integrated', why: 'CHECKING THE GRAPHICS CARD', software: false, ready: false };
+export const PENDING_GPU: GpuIdentity = { gpuId: 'unknown', source: 'none', gpuClass: 'integrated', why: 'CHECKING THE GRAPHICS CARD', software: false, ready: false, masked: false };
