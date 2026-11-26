@@ -3,8 +3,29 @@
 import type { Store } from '../browser-store.ts';
 import { LEADERBOARD_STORE_KEY } from './config.ts';
 import type { ScorePayload } from './payload.ts';
+import type { FormulaScorePayload } from './client.ts';
 
-export interface Profile { clientId: string; playerName: string; pending: ScorePayload | null }
+/** a run waiting to be sent: either mode's payload. A Formula payload has `mode: 'formula'`; a Drag payload has no mode field (the shape an older build saved), so a saved Drag pending still loads. */
+export type PendingRun = ScorePayload | FormulaScorePayload;
+export interface Profile { clientId: string; playerName: string; pending: PendingRun | null }
+
+export const isFormulaRun = (run: PendingRun): run is FormulaScorePayload => (run as FormulaScorePayload).mode === 'formula';
+/** the ranking time of a waiting run: the quarter-mile time in Drag, the lap time in Formula */
+export const pendingTime = (run: PendingRun): number => (isFormulaRun(run) ? run.splits.lap : run.splits.quarter);
+/** of the run already waiting and a new one, the one to keep: the faster, when both are the same mode, class and category; otherwise the new one (there is one waiting slot) */
+export function fasterRun(waiting: PendingRun | null, fresh: PendingRun): PendingRun {
+  if (!waiting || isFormulaRun(waiting) !== isFormulaRun(fresh) || waiting.class !== fresh.class || waiting.category !== fresh.category) return fresh;
+  return pendingTime(waiting) < pendingTime(fresh) ? waiting : fresh;
+}
+const isNum = (v: unknown): boolean => typeof v === 'number' && Number.isFinite(v);
+/** a saved waiting run, if it is shaped like either mode's payload (anything else is dropped rather than sent) */
+export function cleanPending(raw: unknown): PendingRun | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const r = raw as Record<string, unknown>, splits = r.splits as Record<string, unknown> | undefined;
+  if (!splits || typeof splits !== 'object' || typeof r.class !== 'string' || typeof r.category !== 'string') return null;
+  if (r.mode === 'formula') return isNum(splits.lap) ? (raw as FormulaScorePayload) : null;
+  return (r.mode === undefined || r.mode === 'drag') && isNum(splits.quarter) ? (raw as ScorePayload) : null;
+}
 
 /** the name rules of the server (backend validate.ts sanitizeName): letters, digits, space, _ - . and 3 to 16 characters */
 export function cleanPlayerName(raw: unknown): string | null {
@@ -30,7 +51,7 @@ export function loadIdentity(store: Store): Profile {
   try { const parsed = JSON.parse(store.get(LEADERBOARD_STORE_KEY) || 'null'); if (parsed && typeof parsed === 'object') raw = parsed as Record<string, unknown>; } catch (e) { /* damaged: start fresh */ }
   const clientId = typeof raw.clientId === 'string' && /^[\w-]{8,64}$/.test(raw.clientId) ? raw.clientId : makeClientId();
   const playerName = cleanPlayerName(raw.playerName) ?? defaultName(clientId);
-  const pending = raw.pending && typeof raw.pending === 'object' && !Array.isArray(raw.pending) ? (raw.pending as ScorePayload) : null;
+  const pending = cleanPending(raw.pending);
   return { clientId, playerName, pending };
 }
 export function saveIdentity(store: Store, profile: Profile): void {

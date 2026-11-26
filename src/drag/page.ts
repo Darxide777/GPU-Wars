@@ -34,7 +34,7 @@ import { createLeaderboardUi } from '../leaderboard/ui.ts';
 import { createFormulaMode } from '../formula/page.ts';
 import { createFormulaOnline } from '../formula/online.ts';
 import type { FormulaRaceKind } from '../formula/model.ts';
-import { DEFAULT_TRACK, type ModeId } from '../classes.ts';
+import type { ModeId } from '../classes.ts';
 import { RANKED, densityAltitudeFt, rankedStart, rankedStrip } from '../leaderboard/ranked.ts';
 import { deltaRowsHtml, markDeltas } from '../leaderboard/delta.ts';
 import { classLabel } from '../classes.ts';
@@ -86,7 +86,7 @@ const onlineChanged = (): void => {
 };
 const lb = createLeaderboardUi({ store: browserStore, benchmark: () => save.benchmark, onChange: onlineChanged });
 /** FORMULA's leader and lap sending (src/formula/online.ts: the shared client with `mode: 'formula'`); its category is the driver option */
-const online = createFormulaOnline({ client: lb.client, benchmark: () => save.benchmark, playerName: () => lb.profile.playerName, category: () => (options.driver === 'autopilot' ? 'autopilot' : 'manual'), onChange: onlineChanged });
+const online = createFormulaOnline({ client: lb.client, benchmark: () => save.benchmark, playerName: () => lb.profile.playerName, category: () => (options.driver === 'autopilot' ? 'autopilot' : 'manual'), onChange: onlineChanged, sendRun: p => lb.sendRun(p) });
 /** the leader is fetched after your first key or tap (never at load: itch.io pages make no request on start), and again each time the title menu opens */
 let touchedPage = false;
 const askLeader = (): void => { touchedPage = true; void (mode === 'formula' ? online.refreshLeader() : lb.refreshLeader()); };
@@ -152,18 +152,16 @@ function statsTable(spec: DragSpec, tune: Tune, seed = raceSeed, kg = fuelOf()):
 }
 // ---- the LEADERBOARD screen: the boards are cached for a minute, so flipping between them asks the server once each ----
 const boardsChanged = (): void => { if (screen === 'leaderboard') { drawBoard(); render(); } };
-const dragBoards = createBoardScreen({ client: lb.client, playerName: () => lb.profile.playerName, onChange: boardsChanged });
-/** the Formula boards: the same screen logic with the client asked for the formula mode and track (the lap time comes back as `quarterEt`, the ranking time in both modes) */
-const formulaBoards = createBoardScreen({ client: { configured: lb.client.configured, board: (scope, cls, category, limit) => lb.client.board(scope, cls, category, limit, { mode: 'formula', track: DEFAULT_TRACK.formula }) }, playerName: () => lb.profile.playerName, onChange: boardsChanged });
-const activeBoards = () => (mode === 'formula' ? formulaBoards : dragBoards);
+/** ONE board screen for both modes: it asks the server for the mode and track it shows (`mode`, `toggleMode`), and names its own column titles (`columns`). It starts in the mode the page is in. */
+const boards = createBoardScreen({ client: lb.client, playerName: () => lb.profile.playerName, onChange: boardsChanged, mode });
 let drawnBoard = '';
 /** the board as a fixed-height scrolling list (loading, failure and empty states fill the same box) */
 function drawBoard(): void {
   const box = $('lbscroll'); if (!box) return;
-  const view = activeBoards().view(), overall = activeBoards().overall, top = box.scrollTop, shown = activeBoards().key + view.state;
-  $('lbhead').textContent = `${mode.toUpperCase()}  ${activeBoards().choice.label}  ${activeBoards().category.toUpperCase()}`;
+  const view = boards.view(), overall = boards.overall, top = box.scrollTop, shown = boards.key + view.state;
+  $('lbhead').textContent = `${boards.modeLabel}${boards.tracks.length > 1 || boards.mode === 'formula' ? ' ' + boards.trackLabel : ''}  ${boards.choice.label}  ${boards.category.toUpperCase()}`;
   box.className = 'lbscroll' + (overall ? ' overall' : '');
-  const cols = `<div class="lbrow lbcols"><span>#</span><span>NAME</span><span>${mode === 'formula' ? 'LAP TIME' : '1/4 MILE'}</span><span>${mode === 'formula' ? 'TOP SPEED' : 'TRAP'}</span><span class="c">CLASS</span></div>`;
+  const cols = `<div class="lbrow lbcols"><span>#</span><span>NAME</span><span>${boards.columns.time}</span><span>${boards.columns.speed}</span><span class="c">CLASS</span></div>`;
   const message = (title: string, detail: string): string => `<div class="lbmsg"><b>${escapeHtml(title)}</b>${escapeHtml(detail)}</div>`;
   let foot = '';
   if (view.state === 'loading') box.innerHTML = cols + message('LOADING...', '');
@@ -177,10 +175,11 @@ function drawBoard(): void {
 }
 /** the keys of the LEADERBOARD screen; true when one was used. Left/right flip boards, up/down and page keys scroll (a gamepad's d-pad sends the same keys). */
 function boardKey(k: string): boolean {
-  if (k === 'arrowleft' || k === 'a') { activeBoards().step(-1); return true; }
-  if (k === 'arrowright' || k === 'd') { activeBoards().step(1); return true; }
-  if (k === 'tab' || k === 'c') { activeBoards().toggleCategory(); return true; }
-  if (k === 'enter' || k === ' ') { activeBoards().refresh(); return true; }
+  if (k === 'arrowleft' || k === 'a') { boards.step(-1); return true; }
+  if (k === 'arrowright' || k === 'd') { boards.step(1); return true; }
+  if (k === 'tab' || k === 'c') { boards.toggleCategory(); return true; }
+  if (k === 'm') { boards.toggleMode(); return true; }
+  if (k === 'enter' || k === ' ') { boards.refresh(); return true; }
   const box = $('lbscroll'), first = box.querySelector('.lbrow:not(.lbcols)') as HTMLElement | null; if (!first) return false;
   const rowHeight = first.offsetHeight || 1, total = box.querySelectorAll('.lbrow:not(.lbcols)').length, visible = Math.floor((box.clientHeight - rowHeight) / rowHeight);
   const rows = scrollKeyRows(k, visible, total); if (rows === 0) return false;
@@ -250,14 +249,16 @@ function show(next: Screen): void {
   } else if (next === 'leaderboard') {
     title('LEADERBOARD');
     $('extra').innerHTML = '<div class="lbhead" id="lbhead"></div><div class="lbscroll" id="lbscroll"></div><div class="lbfoot" id="lbfoot"></div>';
-    const flip = (d: number) => (): void => activeBoards().step(d), category = (): void => activeBoards().toggleCategory();
+    boards.setMode(mode);
+    const flip = (d: number) => (): void => boards.step(d), category = (): void => boards.toggleCategory(), flipMode = (): void => boards.toggleMode();
     menu = createMenu([
-      { id: 'board', label: 'BOARD', value: () => activeBoards().choice.label, hint: () => 'Left and right: next board. Up and down, page keys, wheel or drag: scroll. C or Tab: manual or autopilot. Enter: refresh. Esc: back.', left: flip(-1), right: flip(1) },
-      { id: 'category', label: 'CATEGORY', value: () => activeBoards().category.toUpperCase(), hint: () => 'Manual: you drive. Autopilot: the driver AI races for you. They are separate boards.', left: category, right: category },
-      { id: 'refresh', label: 'REFRESH', hint: () => 'Ask the leaderboard again (also the way to retry after an error).', enter: () => activeBoards().refresh() },
+      { id: 'board', label: 'BOARD', value: () => boards.choice.label, hint: () => 'Left and right: next board. Up and down, page keys, wheel or drag: scroll. C or Tab: manual or autopilot. Enter: refresh. Esc: back.', left: flip(-1), right: flip(1) },
+      { id: 'mode', label: 'MODE', value: () => boards.modeLabel, hint: () => 'DRAG or FORMULA: each has its own boards. M also flips it.', left: flipMode, right: flipMode },
+      { id: 'category', label: 'CATEGORY', value: () => boards.category.toUpperCase(), hint: () => 'Manual: you drive. Autopilot: the driver AI races for you. They are separate boards.', left: category, right: category },
+      { id: 'refresh', label: 'REFRESH', hint: () => 'Ask the leaderboard again (also the way to retry after an error).', enter: () => boards.refresh() },
       { id: 'back', label: 'BACK', enter: () => show('title') },
     ]);
-    void lb.sendPending(); void activeBoards().load(); drawBoard();
+    void lb.sendPending(); void boards.load(); drawBoard();
   } else if (next === 'name') {
     const pk = lb.picker; if (!pk) { show('records'); return; }
     title('YOUR NAME');

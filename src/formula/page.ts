@@ -31,7 +31,7 @@ export interface FormulaHost {
   /** the first gamepad, or null */ pad: () => PadState | null; /** keep the options (after the driving line key flips one) */ saveOptions: () => void;
 }
 /** what the timeslip screen shows and says after a lap */
-export interface FormulaResult { kind: FormulaRaceKind; category: 'manual' | 'autopilot'; slip: FormulaTimeslip; ghost: FormulaGhost | null; won: boolean; records: string[]; tune: FormulaTune; engine: number }
+export interface FormulaResult { kind: FormulaRaceKind; category: 'manual' | 'autopilot'; slip: FormulaTimeslip; ghost: FormulaGhost | null; won: boolean; records: string[]; tune: FormulaTune; engine: number; /** the ghost was the bundled placeholder lap, not a real player's */ bundled: boolean }
 
 const sec = (v: number | null | undefined): string => (v === null || v === undefined || !Number.isFinite(v) ? '-' : v.toFixed(3));
 const kmh = (v: number | undefined): string => (v === undefined || !v ? '-' : `${Math.round(v)} KM/H`);
@@ -94,8 +94,8 @@ export function createFormulaMode(host: FormulaHost) {
   /** the race item on the title menu: the class leader's lap to beat */
   function raceItem(go: () => void): MenuItem {
     return {
-      id: 'race', label: 'RACE CLASS LEADER', value: () => { const r = host.online.leader(); return r ? `${sec(r.timeS)} S TO BEAT` : 'NO LEADER YET'; },
-      hint: () => { const r = host.online.leader(); return `One ranked lap of ${track.name} in ${host.online.className()} from a standing start${r ? ` against ${r.name}` : ' (no leader online yet: you set the first time)'}. A clean lap is sent to the leaderboard. ${host.online.note()}`.trim(); },
+      id: 'race', label: 'RACE CLASS LEADER', value: () => { const r = host.online.leader(); return `${sec(r.timeS)} S TO BEAT${host.online.source() === 'fallback' ? ' (BUNDLED)' : ''}`; },
+      hint: () => { const r = host.online.leader(), bundled = host.online.source() === 'fallback'; return `One ranked lap of ${track.name} in ${host.online.className()} from a standing start against ${r.name}${bundled ? ' (a bundled placeholder time: no real leader online yet)' : ''}. A clean lap is sent to the leaderboard. ${host.online.note()}`.trim(); },
       enter: go,
     };
   }
@@ -136,8 +136,8 @@ export function createFormulaMode(host: FormulaHost) {
     // autopilot laps are a separate leaderboard category and never touch your own records
     const rec = cat === 'autopilot' ? { save: host.save(), records: [] as string[] } : recordFormulaLap(host.save(), { kind, slip, won }, Date.now());
     if (cat === 'manual') host.commit(rec.save);
-    if (kind === 'ranked') void host.online.submitLap(slip, tune);
-    result = { kind, category: cat, slip, ghost, won, records: rec.records, tune, engine: spec.engine };
+    if (kind === 'ranked') void host.online.submitLap(slip, tune, race.trace());
+    result = { kind, category: cat, slip, ghost, won, records: rec.records, tune, engine: spec.engine, bundled: kind === 'ranked' && host.online.source() === 'fallback' };
   }
   /** the picture: the race (or the grid behind a menu); `avoid` are the touch buttons the HUD stays clear of */
   function drawFrame(ctx: CanvasRenderingContext2D, W: number, H: number, now: number, racing: boolean, avoid: Rect[]): void {
@@ -159,13 +159,14 @@ export function createFormulaMode(host: FormulaHost) {
       + s.sectors.map((t, i) => line(`SECTOR ${i + 1}`, sec(t), gs[i] !== undefined ? sec(gs[i]) : '-')).join('')
       + line('LAP TIME', s.finished ? sec(s.lapTime) : red('DNF'), g ? sec(g.lapTime) : '-') + line('TOP SPEED', kmh(s.topSpeed), g && g.topSpeed ? kmh(g.topSpeed) : '-') + line('WALL HITS', String(s.wallHits), '-')
       + `</table><div class="pts">${R.records.length ? 'NEW: ' + R.records.join(', ') : ''}</div>`;
+    const bundledNote = R.bundled && vs ? `<p class="help" id="lbbundled">THE LEADER LAP IS A BUNDLED PLACEHOLDER, NOT A REAL PLAYER.${host.online.note() ? ' ' + host.online.note() : ''}</p>` : '';
     if (vs && g && s.finished) {
       const rows: [string, string][] = [];
       if (s.reaction !== null && s.reaction >= 0) rows.push(['R/T', delta(s.reaction - g.reaction)]);
       s.sectors.forEach((t, i) => { if (gs[i] !== undefined) rows.push([`SECTOR ${i + 1}`, delta(t - (gs[i] as number))]); });
       rows.push(['LAP TIME', delta(s.lapTime - g.lapTime)]);
-      html += `${table(`VS ${g.name} (${host.online.className()})`, rows)}<p class="help" id="lbstatus">${host.online.status}</p>`;
-    } else if (R.kind === 'ranked') html += `<p class="help" id="lbstatus">${host.online.status}</p>`;
+      html += `${table(`VS ${g.name} (${host.online.className()})`, rows)}<p class="help" id="lbstatus">${host.online.status}</p>${bundledNote}`;
+    } else if (R.kind === 'ranked') html += `<p class="help" id="lbstatus">${host.online.status}</p>${bundledNote}`;
     return { title, ok, html };
   }
   /** the RECORDS screen's tables (your own bests on this computer; the online boards are on the LEADERBOARD screen) */

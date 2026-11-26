@@ -11,6 +11,7 @@ test('the built page loads, switches to FORMULA, tunes, runs a test lap and a ra
   assert.ok(log.tune.items.every(i => i !== 'replaceTires')); assert.match(log.stats.html, /PREDICTED/); assert.equal(log.raceScreen, 'race');
   assert.equal(log.testLap.end, 'slip'); assert.equal(log.testLap.result.valid, true); assert.ok(log.testLap.result.lapTime > 30 && log.testLap.result.lapTime < 70); assert.match(log.testLap.slip, /SECTOR 1/); assert.match(log.testLap.slip, /LAP TIME/);
   assert.equal(log.records.screen, 'records'); assert.match(log.records.html, /YOUR BESTS: FORMULA/); assert.equal(log.board.screen, 'leaderboard'); assert.match(log.board.head, /^FORMULA/);
+  assert.match(log.board.cols, /LAP/); assert.match(log.board.cols, /TOP SPEED/); assert.ok(log.board.items.includes('mode'), 'the board screen has a MODE row'); assert.match(log.boardDrag.head, /^DRAG/, 'the M key flips the board to DRAG'); assert.match(log.boardDrag.cols, /1\/4 MILE/); assert.match(log.boardDrag.cols, /TRAP/);
   assert.equal(log.ranked.end, 'slip'); assert.equal(log.ranked.result.kind, 'ranked');
   assert.equal(log.dragMode, 'drag'); assert.equal(log.dragRace.screen, 'race'); assert.equal(log.dragRace.mode, 'drag'); assert.equal(log.dragRace.stillRacing, true);
 });
