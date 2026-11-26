@@ -125,8 +125,8 @@ export const FORMULA_LAP_TABLE = {
   } as Record<ClassId, { minLapS: number; maxLapS: number; minTopMph: number; maxTopMph: number }>,
   /** lap time and top speed for a default-tune car by benchmark score, linear between knots (a strong card is a quick car). Integrated is scored 0 to 8000, discrete 0 to 10000. The knots are the same scores as `FORMULA_SCORE_TO_ENGINE` (src/formula/car.ts): the 1302 row is the S24 Ultra, the 5005 row the Radeon 8060S. */
   curve: {
-    integrated: [[0, 55.02, 199], [650, 53.0, 206], [1302, 51.02, 214], [3000, 49.17, 222], [5005, 47.0, 233], [6500, 45.77, 239], [8000, 44.5, 246]],
-    discrete: [[0, 43.0, 254], [2000, 40.95, 267], [4000, 39.68, 276], [6000, 38.9, 282], [8000, 38.35, 286], [10000, 38.08, 288]],
+    integrated: [[0, 55.02, 198], [650, 53.0, 206], [1302, 51.0, 214], [3000, 49.18, 222], [5005, 47.0, 232], [6500, 45.78, 238], [8000, 44.5, 245]],
+    discrete: [[0, 43.0, 254], [2000, 40.95, 267], [4000, 39.68, 275], [6000, 38.9, 281], [8000, 38.37, 285], [10000, 38.0, 288]],
   } as Record<ClassId, readonly FormulaKnot[]>,
   /** the allowances around the curve */
   tolerance: {
