@@ -4,11 +4,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createDrag, AUTO_DRIVER, STAGE, DRAG, stageLabel } from '../src/drag/physics.ts';
 import { createDragTopDown, carNoseY } from '../src/drag/topdown.ts';
-import { drawProgress, drawRunPanel, runPanelBox, stagingPrompt, wrapNote } from '../src/drag/hud.ts';
+import { drawProgress, runPanelBox, stagingPrompt, wrapNote, PHONE_HUD } from '../src/drag/hud.ts';
+import { touchLayout } from '../src/input/touch.ts';
 import { DRAG_CARS } from '../src/drag/data.ts';
 import { defaultTune, specFor } from '../src/drag/tune.ts';
 
 const SIZES = [[800, 450], [1280, 720], [420, 860], [360, 640]];
+/** the four sizes plus a touch landscape phone */
+const TOUCH_SIZES = [...SIZES, [844, 390]];
+const MIN_FONT = PHONE_HUD.minFont;
 const scaleOf = H => Math.max(0.7, Math.min(1.6, H / 720));
 const keys = { launch: 'X', nitro: 'N', manual: true, gas: 'W', burnout: 'J', brake: 'S', chute: 'C', deepStage: 'H', backUp: 'R' };
 /** a canvas that keeps every text with its place, size and alignment, and every filled rectangle */
@@ -32,7 +36,7 @@ const hit = (a, b) => a.x0 < b.x1 - 0.5 && b.x0 < a.x1 - 0.5 && a.y0 < b.y1 - 0.
 const car = DRAG_CARS[0], spec = specFor(car, {}), tune = { ...defaultTune(car), shift: 'auto' };
 const raceOf = (quick = false) => createDrag({ seed: 5, quickStart: quick, entrants: [{ name: 'YOU', spec, tune, ai: AUTO_DRIVER }, { name: 'BEST PASS', spec, tune, ai: AUTO_DRIVER }] });
 /** one whole frame as the page draws it: the strip, then the HUD */
-function frame(race, W, H, k = 0) { const r = recorder(), td = createDragTopDown(); td.draw(r.ctx, W, H, race.state, 0, 0.016, race.state.t); const strip = r.items.length; drawProgress(r.ctx, W, H, race.state, 0, scaleOf(H), keys); return { ...r, strip, box: runPanelBox(W, H, scaleOf(H), race.state.runners[0]) }; }
+function frame(race, W, H, touch = false) { const r = recorder(), td = createDragTopDown(), avoid = touch ? touchLayout(W, H, 1) : [], k = { ...keys, avoid }; td.draw(r.ctx, W, H, race.state, 0, 0.016, race.state.t); const strip = r.items.length; drawProgress(r.ctx, W, H, race.state, 0, scaleOf(H), k); return { ...r, strip, avoid, box: runPanelBox(W, H, scaleOf(H), race.state.runners[0], avoid) }; }
 /** the tree's backing box (see drawTree) */
 const treeBox = (W, S, lanes) => ({ x0: W / 2 - (lanes * 13 + 6) * S, x1: W / 2 + (lanes * 13 + 6) * S, y0: 60 * S, y1: 60 * S + 15 * S * 7 + 12 * S });
 const MOVED = /AIR|TRACK|DENSITY|DA |ALT|RHO|WIND|FRONT AIR|PSI|FUEL|ENGINE|REAR WEIGHT|BRAKE \d|CHUTE \d|RANKED|FREE PLAY|CLASS|LEADER|GHOST|BEST PASS|\bVS\b|TRAP|1\/4 MILE|60 FT \d|1\/8 \d|NOSE|WEAR|CLUTCH \d|DELTA/;
@@ -61,7 +65,7 @@ test('a value is written once: air temperature and the rest of the conditions ar
   for (const [W, H] of SIZES) {
     const f = frame(race, W, H), all = f.items.map(i => i.s);
     assert.equal(all.filter(t => /KM\/H/.test(t)).length, 1, `${W}x${H}: speed once`); assert.equal(all.filter(t => /RPM/.test(t)).length, 1, 'rpm once');
-    assert.equal(all.filter(t => /R\/T/.test(t)).length, 1, 'reaction once'); assert.equal(all.filter(t => /^TIME/.test(t)).length, 1, 'the run timer once');
+    assert.equal(all.filter(t => /R\/T/.test(t)).length, 1, 'reaction once'); assert.equal(all.filter(t => /^T \d/.test(t)).length, 1, 'the run timer once');
     assert.equal(all.filter(t => /NITRO|BOOST/.test(t) && !/:/.test(t)).length, all.filter(t => /NITRO|BOOST/.test(t) && !/:/.test(t)).length);
   }
   const stagedRace = raceOf(true), f = frame(stagedRace, 1280, 720); assert.equal(f.items.filter(t => /STAGED/.test(t.s)).length, 1, 'the stage name is written once');
@@ -89,7 +93,7 @@ test('the staging text never overlaps: stage line, key prompts, beam and mark na
         const inPanel = t.b.x0 >= panel.x0 - 1 && t.b.x1 <= panel.x1 + 1;
         if (!inPanel) { assert.ok(t.b.x0 >= wall - 1, `${label}: "${t.i.s}" (x ${t.b.x0.toFixed(0)}) is beside the strip, past its wall at ${wall.toFixed(0)}`); assert.ok(!hit(t.b, tree), `${label}: "${t.i.s}" overlaps the tree`); assert.ok(t.b.x1 <= W + 1, `${label}: "${t.i.s}" runs off the screen`); }
         else assert.ok(!hit(t.b, tree), `${label}: panel text "${t.i.s}" overlaps the tree`);
-        assert.ok(t.i.size >= 6.5, `${label}: "${t.i.s}" is only ${t.i.size.toFixed(1)}px`);
+        assert.ok(t.i.size >= MIN_FONT - 1e-9, `${label}: "${t.i.s}" is only ${t.i.size.toFixed(1)}px`);
       }
       assert.ok(panel.x1 < tree.x0, `${label}: the panel is left of the tree`);
       // the keys to press are wrapped inside the panel and never cut off
@@ -111,4 +115,38 @@ test('the keys to press and the warnings live in the panel: wrapped, bounded, an
   for (const w of ['WHEELSPIN', 'FRONT UP']) assert.ok(words.includes(w), `${w} is shown`); assert.ok(words.some(t => /CLUTCH (HOT|BURNING)/.test(t)), 'a hot clutch is a warning, not a gauge');
   me.lift = 0; me.spin = false; me.clutchTemp = 20; const calm = frame(race, 1280, 720).items.map(i => i.s); assert.ok(!calm.includes('FRONT UP') && !calm.includes('WHEELSPIN') && !calm.some(t => /CLUTCH/.test(t)), 'nothing warns when nothing is wrong');
   assert.deepEqual(wrapNote('ABCD EFGH IJKL', 9), ['ABCD EFGH', 'IJKL']);
+});
+
+test('with the touch buttons on screen, no panel text or gauge touches a button, at the four sizes and a touch landscape phone, whatever the phase', () => {
+  for (const [W, H] of TOUCH_SIZES) {
+    const rects = touchLayout(W, H, 1), phases = ['waterBoxApproach', 'burnout', 'backup', 'preStage', 'staged', 'launched'];
+    for (const stage of phases) for (const loaded of [true, false]) {
+      const race = raceOf(true), me = race.state.runners[0]; me.stage = stage; me.launched = stage === 'launched'; me.reaction = 0.05; me.launchT = 0; me.spin = me.launched; me.lift = me.launched ? 1 : 0; me.clutchTemp = loaded ? 400 : 20;
+      const f = frame(race, W, H, true), label = `${W}x${H} ${stage}`, panel = { x0: f.box.x, x1: f.box.x + f.box.w, y0: f.box.y, y1: f.box.y + f.box.h };
+      assert.ok(!f.box.layout.lane, `${label}: the lane gauge is hidden under touch`);
+      for (const r of rects) { const rb = { x0: r.x, x1: r.x + r.w, y0: r.y, y1: r.y + r.h }; assert.ok(!hit(panel, rb), `${label}: the panel box overlaps the ${r.id} button`); }
+      for (const i of f.items.slice(f.strip)) { const b = boxOf(i); for (const r of rects) assert.ok(!hit(b, { x0: r.x, x1: r.x + r.w, y0: r.y, y1: r.y + r.h }), `${label}: "${i.s}" is under the ${r.id} button`); }
+      const start = f.rects.findIndex(g => g.x === f.box.x && g.y === f.box.y && g.w === f.box.w); assert.ok(start >= 0, `${label}: the panel backing is drawn`);
+      for (const g of f.rects.slice(start)) for (const r of rects) assert.ok(!hit({ x0: g.x, x1: g.x + g.w, y0: g.y, y1: g.y + g.h }, { x0: r.x, x1: r.x + r.w, y0: r.y, y1: r.y + r.h }), `${label}: a gauge or the backing is under the ${r.id} button`);
+      assert.ok(f.items.slice(f.strip).some(i => /KM\/H/.test(i.s)) && f.items.slice(f.strip).some(i => /RPM/.test(i.s)), `${label}: speed and rpm are still shown`);
+    }
+  }
+});
+
+test('every label is at least the minimum font size on phone-sized windows and with touch on', () => {
+  for (const [W, H] of TOUCH_SIZES) for (const touch of [false, true]) {
+    const race = raceOf(), me = race.state.runners[0];
+    for (let k = 0; k < 240 * 60 && race.state.phase !== 'over'; k++) {
+      race.step(); if (k % 120) continue; me.spin = k % 240 === 0; me.lift = k % 360 === 0 ? 1 : 0;
+      const f = frame(race, W, H, touch); for (const i of f.items) assert.ok(i.size >= MIN_FONT - 1e-9, `${W}x${H} touch=${touch}: "${i.s}" is ${i.size.toFixed(1)}px`);
+      for (const i of f.items.slice(f.strip)) { const b = boxOf(i); if (b.x0 < f.box.x + f.box.w) assert.ok(b.x1 <= f.box.x + f.box.w + 1, `${W}x${H} touch=${touch}: "${i.s}" runs out of the panel`); }
+    }
+  }
+});
+
+test('the rows that go first on a small window are the least useful ones, and the full panel is kept when it fits', () => {
+  const me = raceOf(true).state.runners[0];
+  assert.ok(runPanelBox(1280, 720, 1, me).layout.lane && runPanelBox(1280, 720, 1, me).layout.tires, 'a big window keeps everything');
+  const tight = runPanelBox(844, 390, 0.7, me, touchLayout(844, 390, 1)); assert.ok(!tight.layout.lane && tight.layout.notes <= 5, 'touch landscape hides the lane gauge first');
+  assert.deepEqual([...PHONE_HUD.dropOrder], ['lane', 'notes2', 'tires', 'boost', 'nitro', 'notes1']);
 });

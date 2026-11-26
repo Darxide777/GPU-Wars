@@ -18,13 +18,23 @@ const LANE_HUD = { slideAt: 0.15, markerW: 16, markerH: 28, turnGain: 6 } as con
  * The left panel. Sizes are in `unit`s (one text row) that shrink to fit the window: `minUnit`/`maxUnit` are px per row (the max grows with the window, `fontShare` of a row is the text),
  * `chars` is the widest line the panel is built for, `widthShare` the most of a narrow window it may take. The row counts are fixed so nothing jumps when a row appears.
  */
-const PANEL = { margin: 8, pad: 6, gap: 0.3, minUnit: 10, maxUnit: 16, fontShare: 0.84, chars: 22, charW: 0.6, widthShare: 0.5, topClear: 0, notesRows: 5, rows: { stage: 1.4, timing: 1, lamps: 1, rpmBar: 0.8, drive: 2.3, nitro: 1.7, boost: 1.7, tires: 1.7, lane: 2.8 } } as const;
+const PANEL = { margin: 8, pad: 6, gap: 0.3, minUnit: 10, maxUnit: 16, fontShare: 0.84, chars: 22, charW: 0.6, widthShare: 0.5, notesRows: 5, rows: { stage: 1.4, timing: 1, lamps: 1, rpmBar: 0.8, drive: 2.3, nitro: 1.7, boost: 1.7, tires: 1.7, lane: 2.8 } } as const;
 /** half the tree's width in px at S = 1 (two lanes of 26 px and the 6 px of backing) */
 const TREE_HALF = 32;
 /** the panel's box on the screen and the row height used: tests check every readout lies inside it */
-export interface RunPanelBox { x: number; y: number; w: number; h: number; unit: number }
-/** the names of the keys the HUD tells the player to press; `top` keeps the panel clear of a touch MENU button above it */
-export interface DragKeyLabels { launch: string; nitro: string; manual: boolean; auto?: boolean; burnout?: string; gas?: string; brake?: string; chute?: string; deepStage?: string; clutch?: string; backUp?: string; top?: number }
+export interface RunPanelBox { x: number; y: number; w: number; h: number; unit: number; layout: PanelLayout }
+/** which blocks the panel shows at this size */
+export interface PanelLayout { lane: boolean; tires: boolean; boost: boolean; nitro: boolean; notes: number }
+/**
+ * THE NUMBERS TO TURN AFTER A PHONE TEST. `minFont` is the smallest text (px) the panel will ever write: when the rows would need smaller text, the panel DROPS rows instead, in `dropOrder`
+ * (the least useful first: the lane gauge, then the notes cut to 2 rows, the tire bars, the boost bar, the nitro bar, the notes cut to 1 row). `hiddenWithTouch` are dropped at once whenever
+ * the touch buttons are on screen. The panel also stays clear of every touch button: its rows only use the space above the first button under it.
+ */
+export const PHONE_HUD = { minFont: 10, hiddenWithTouch: ['lane'], dropOrder: ['lane', 'notes2', 'tires', 'boost', 'nitro', 'notes1'], touchGap: 4 } as const;
+/** the names of the keys the HUD tells the player to press; `avoid` is the touch buttons on screen (empty when touch is off): the panel stays clear of every one */
+export interface DragKeyLabels { launch: string; nitro: string; manual: boolean; auto?: boolean; burnout?: string; gas?: string; brake?: string; chute?: string; deepStage?: string; clutch?: string; backUp?: string; avoid?: TouchSpot[] }
+/** a touch button's rectangle (the page passes the layout of src/input/touch.ts) */
+export interface TouchSpot { id: string; x: number; y: number; w: number; h: number }
 
 /** a line split at spaces into rows of at most `max` characters (a longer word is cut) */
 export function wrapNote(str: string, max: number): string[] {
@@ -32,38 +42,50 @@ export function wrapNote(str: string, max: number): string[] {
   while (rest.length > max) { let cut = rest.lastIndexOf(' ', max); if (cut <= 0) cut = max; out.push(rest.slice(0, cut).trim()); rest = rest.slice(cut).trim(); }
   out.push(rest); return out;
 }
-/** the panel's size for this window: the row height, its width and how many rows it needs */
-export function runPanelBox(W: number, H: number, S: number, me: Runner): RunPanelBox {
-  const R = PANEL.rows, rows = R.stage + R.timing + R.lamps + R.rpmBar + R.drive + PANEL.notesRows + (me.spec.nitroSecs > 0 ? R.nitro : 0) + (me.spec.boostCap > 0 ? R.boost : 0) + R.tires + R.lane, count = rows + 9 * PANEL.gap;
-  const top = PANEL.margin + (PANEL_TOP.value ?? 0), portrait = W < H, sc = Math.max(0.9, S);
-  // a tall narrow window keeps the panel above the car's nose when that still leaves rows of at least minUnit; otherwise the panel runs down the whole left side (its backing is see-through)
-  const room = H - top - PANEL.margin, above = carNoseY(H) - top - PANEL.margin, usable = portrait && above / count >= PANEL.minUnit ? above : room;
-  const unit = Math.max(PANEL.minUnit, Math.min(PANEL.maxUnit * sc, usable / count)), font = unit * PANEL.fontShare;
-  // never wider than the gap to the tree (the tree is two lanes of bulbs, 26 px each, around the middle)
-  const w = Math.max(80, Math.min(W * PANEL.widthShare, W / 2 - TREE_HALF * S - 2 * PANEL.margin, font * PANEL.charW * PANEL.chars + 2 * PANEL.pad));
-  return { x: PANEL.margin, y: top, w, h: count * unit + 2 * PANEL.pad, unit };
+/** the blocks left after the first `level` steps of the drop order (plus the ones hidden under touch) */
+function layoutAt(me: Runner, level: number, touch: boolean): PanelLayout {
+  const gone = new Set<string>(PHONE_HUD.dropOrder.slice(0, level)); if (touch) for (const g of PHONE_HUD.hiddenWithTouch) gone.add(g);
+  return { lane: !gone.has('lane'), tires: !gone.has('tires'), boost: me.spec.boostCap > 0 && !gone.has('boost'), nitro: me.spec.nitroSecs > 0 && !gone.has('nitro'), notes: gone.has('notes1') ? 1 : gone.has('notes2') ? 2 : PANEL.notesRows };
 }
-/** (the top inset is set per frame by drawProgress, from the keys) */
-const PANEL_TOP: { value?: number } = {};
-/** the lines the notes rows may hold (they are wrapped to this many characters) */
-const NOTE_CHARS = PANEL.chars;
+/** the rows (in units) a layout needs, with the gaps between its blocks */
+function rowsOf(l: PanelLayout): number {
+  const R = PANEL.rows, blocks = [R.stage, R.timing, R.lamps, R.rpmBar, R.drive, l.notes, l.nitro ? R.nitro : 0, l.boost ? R.boost : 0, l.tires ? R.tires : 0, l.lane ? R.lane : 0].filter(v => v > 0);
+  return blocks.reduce((a, b) => a + b, 0) + (blocks.length - 1) * PANEL.gap;
+}
+/** the panel's size for this window: the row height, its width and which blocks fit (text never goes under PHONE_HUD.minFont and never under a touch button) */
+export function runPanelBox(W: number, H: number, S: number, me: Runner, avoid: TouchSpot[] = []): RunPanelBox {
+  const touch = avoid.length > 0, portrait = W < H, sc = Math.max(0.9, S), minUnit = PHONE_HUD.minFont / PANEL.fontShare;
+  // never wider than the gap to the tree (the tree is two lanes of bulbs, 26 px each, around the middle)
+  const wide = Math.max(80, Math.min(W * PANEL.widthShare, W / 2 - TREE_HALF * S - 2 * PANEL.margin)), x0 = PANEL.margin;
+  // the space for rows: below the MENU button, above the first touch button under the panel
+  const menu = avoid.find(r => r.id === 'menu'), top = Math.max(PANEL.margin, menu ? menu.y + menu.h + PHONE_HUD.touchGap : 0);
+  let bottom = H - PANEL.margin; for (const r of avoid) if (r.id !== 'menu' && r.x < x0 + wide && r.x + r.w > x0 && r.y + r.h > top) bottom = Math.min(bottom, r.y - PHONE_HUD.touchGap);
+  // a tall narrow window keeps the panel above the car's nose when that fits; otherwise it may run down the whole left side (its backing is see-through)
+  const bands = portrait ? [Math.min(bottom, carNoseY(H) - PANEL.margin) - top - 2 * PANEL.pad, bottom - top - 2 * PANEL.pad] : [bottom - top - 2 * PANEL.pad];
+  let pick: { layout: PanelLayout; usable: number } | null = null;
+  for (const usable of bands) { for (let level = 0; level <= PHONE_HUD.dropOrder.length && !pick; level++) { const layout = layoutAt(me, level, touch); if (usable / rowsOf(layout) >= minUnit) pick = { layout, usable }; } if (pick) break; }
+  const last = layoutAt(me, PHONE_HUD.dropOrder.length, touch), { layout, usable } = pick ?? { layout: last, usable: (bands[bands.length - 1] as number) }, count = rowsOf(layout);
+  const unit = Math.max(minUnit, Math.min(PANEL.maxUnit * sc, usable / count)), font = unit * PANEL.fontShare;
+  const w = Math.min(wide, font * PANEL.charW * PANEL.chars + 2 * PANEL.pad);
+  return { x: x0, y: top, w, h: count * unit + 2 * PANEL.pad, unit, layout };
+}
 
 /** the left panel: see the comment on PANEL for what is in it and why nothing else is */
 export function drawRunPanel(ctx: CanvasRenderingContext2D, W: number, H: number, s: DragHudState, mine: number, S: number, keys: DragKeyLabels): RunPanelBox {
-  const me = (s.runners[mine] ?? s.runners[0]) as Runner, box = runPanelBox(W, H, S, me), u = box.unit, font = u * PANEL.fontShare, x = box.x + PANEL.pad, w = box.w - 2 * PANEL.pad, R = PANEL.rows, time = s.t;
+  const me = (s.runners[mine] ?? s.runners[0]) as Runner, box = runPanelBox(W, H, S, me, keys.avoid), L = box.layout, u = box.unit, font = u * PANEL.fontShare, x = box.x + PANEL.pad, w = box.w - 2 * PANEL.pad, R = PANEL.rows, time = s.t;
   ctx.save(); ctx.fillStyle = 'rgba(5,1,15,0.72)'; ctx.fillRect(box.x, box.y, box.w, box.h);
   let y = box.y + PANEL.pad;
   /** a line of writing, shrunk so it never leaves the panel */
-  const line = (str: string, row: number, col: string, size = font, align: CanvasTextAlign = 'left', alpha = 1, at = x, room = w): void => { const fit = Math.min(size, room / (Math.max(1, str.length) * PANEL.charW)); text(ctx, str, align === 'right' ? at + room : align === 'center' ? at + room / 2 : at, y + row * u - u * 0.22, fit, col, align, alpha); };
+  const line = (str: string, row: number, col: string, size = font, align: CanvasTextAlign = 'left', alpha = 1, at = x, room = w): void => { const fit = Math.max(PHONE_HUD.minFont, Math.min(size, room / (Math.max(1, str.length) * PANEL.charW))); text(ctx, str, align === 'right' ? at + room : align === 'center' ? at + room / 2 : at, y + row * u - u * 0.22, fit, col, align, alpha); };
   const bar = (top: number, bx: number, bw: number, bh: number, f: number, col: string): void => { ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.strokeRect(bx, top, bw, bh); ctx.fillStyle = col; ctx.fillRect(bx + 2, top + 2, Math.max(0, (bw - 4) * clamp01(f)), Math.max(1, bh - 4)); };
   const next = (rows: number): void => { y += (rows + PANEL.gap) * u; };
   // the stage: the one word that says where you are in the sequence (or the foul), and AUTO in front of it when the autopilot is driving
-  const phase = me.aborted ? 'ABORT' : me.foul ? 'RED LIGHT' : me.rolling ? 'ROLLING' : me.crossed ? 'CROSSED THE LINE' : me.wall ? 'WALL' : !me.launched ? (stageLabel(me) || 'STAGED') : '', phaseCol = me.aborted || me.foul || me.crossed || me.overstaged ? C.red : me.wall ? C.org : me.rolling ? '#34ff7a' : me.stage === 'staged' || me.stage === 'deepStaged' ? C.yel : C.cyan;
+  const phase = me.aborted ? 'ABORT' : me.foul ? 'RED LIGHT' : me.rolling ? 'ROLLING' : me.crossed ? 'OVER THE LINE' : me.wall ? 'WALL' : !me.launched ? (stageLabel(me) || 'STAGED') : '', phaseCol = me.aborted || me.foul || me.crossed || me.overstaged ? C.red : me.wall ? C.org : me.rolling ? '#34ff7a' : me.stage === 'staged' || me.stage === 'deepStaged' ? C.yel : C.cyan;
   if (phase) line(`${keys.auto ? 'AUTO ' : ''}${phase}`, R.stage, phaseCol, font * 1.15); next(R.stage);
   // reaction time and the run timer (the elapsed time since the launch, frozen at the finish line)
   const run = me.finished && me.marks.quarter !== undefined ? me.marks.quarter : me.launched ? Math.max(0, s.t - me.launchT) : null;
   if (me.reaction !== null && me.reaction >= 0 && !me.foul) line(`R/T ${me.reaction.toFixed(3)}`, R.timing, C.white);
-  if (run !== null) line(`TIME ${run.toFixed(2)}`, R.timing, C.yel, font, 'right'); next(R.timing);
+  if (run !== null) line(`T ${run.toFixed(2)}`, R.timing, C.yel, font, 'right'); next(R.timing);
   // the shift light: five lamps that fill as you near the shift point, all flashing at it, then the rpm bar with its redline
   const sp = me.spec, target = me.tune.shiftRpm, fill = (me.rpm - (target - 1500)) / 1500, flash = me.rpm >= target - 80, lampR = u * 0.32;
   for (let i = 0; i < 5; i++) { const on = flash ? Math.floor(time * 16) % 2 === 0 : fill > i / 5, col = i < 2 ? '#34ff7a' : i < 4 ? '#ffe14d' : C.red; ctx.beginPath(); ctx.arc(x + lampR + i * (w - 2 * lampR) / 4, y + u * 0.5, lampR, 0, Math.PI * 2); ctx.fillStyle = on ? col : 'rgba(255,255,255,0.1)'; glow(ctx, on ? col : null, 10); ctx.fill(); glow(ctx, null, 0); }
@@ -85,20 +107,20 @@ export function drawRunPanel(ctx: CanvasRenderingContext2D, W: number, H: number
       if (!keys.auto && sp.nitroSecs > 0 && me.tune.nitroGear === 0 && !me.nitroOn && me.nitroLeft > 0) notes.push([`${keys.nitro}: NITRO`, C.vio, 0.85]);
       if (keys.manual && me.gear < me.tune.ratios.length && me.rpm >= me.tune.shiftRpm - 80) notes.push([`${keys.launch}: SHIFT`, C.red, 0.9]);
     }
-    let row = 0; for (const [str, col, alpha] of notes) for (const part of wrapNote(str, NOTE_CHARS)) { if (row >= PANEL.notesRows) break; line(part, row + 1, col, font, 'left', alpha); row++; } }
-  next(PANEL.notesRows);
-  if (sp.nitroSecs > 0) {
+    const cols = Math.max(12, Math.floor(w / (font * PANEL.charW))); let row = 0; for (const [str, col, alpha] of notes) for (const part of wrapNote(str, cols)) { if (row >= L.notes) break; line(part, row + 1, col, font, 'left', alpha); row++; } }
+  next(L.notes);
+  if (L.nitro) {
     const f = me.nitroLeft / sp.nitroSecs, col = me.nitroOn ? C.org : C.vio;
     line(`${me.nitroOn ? 'NITRO!' : 'NITRO'} ${Math.round(me.nitroGain * 100)}%`, 1, col); bar(y + u * 1.05, x, w, u * 0.55, f, col); next(R.nitro);
   }
-  if (sp.boostCap > 0) {
+  if (L.boost) {
     const limit = boostLimitOf(me.tune), boost = Math.max(0, Math.min(BOOST.maxLimit, me.boost)), col = limit > BOOST.safeLimit ? C.org : C.cyan, retard = Math.round((Number.isFinite(me.retard) ? me.retard : 0) * 100);
-    line(`BOOST ${Math.round(boost * 100)}%${retard > 1 ? `  TIMING -${retard}%` : ''}`, 1, retard > 1 ? C.red : col); bar(y + u * 1.05, x, w, u * 0.55, boost / BOOST.maxLimit, col); next(R.boost);
+    line(`BOOST ${Math.round(boost * 100)}%${retard > 1 ? ` -${retard}%` : ''}`, 1, retard > 1 ? C.red : col); bar(y + u * 1.05, x, w, u * 0.55, boost / BOOST.maxLimit, col); next(R.boost);
   }
   // the two rear tires' temperatures (cyan cold, green in the window, orange too hot)
-  { const T = DRAG.tire, air = (s.weather ?? s.conditions).airC, gap = 6, bw = (w - gap) / 2; for (let k = 0; k < 2; k++) { const t = me.tires[k]!, temp = Number.isFinite(t.temp) ? t.temp : air, col = temp < T.windowLo ? C.cyan : temp <= T.windowHi ? '#34ff7a' : C.org, bx = x + k * (bw + gap); line(`${k === 0 ? 'L' : 'R'} ${Math.round(temp)}\u00b0`, 1, col, font, 'left', 1, bx, bw); bar(y + u * 1.05, bx, bw, u * 0.55, (temp - air) / Math.max(1, T.hot - air), col); } }
-  next(R.tires);
-  drawLane(ctx, x, y, w, R.lane * u, me, 0, u, font);
+  if (L.tires) { const T = DRAG.tire, air = (s.weather ?? s.conditions).airC, gap = 6, bw = (w - gap) / 2; for (let k = 0; k < 2; k++) { const t = me.tires[k]!, temp = Number.isFinite(t.temp) ? t.temp : air, col = temp < T.windowLo ? C.cyan : temp <= T.windowHi ? '#34ff7a' : C.org, bx = x + k * (bw + gap); line(`${k === 0 ? 'L' : 'R'} ${Math.round(temp)}\u00b0`, 1, col, font, 'left', 1, bx, bw); bar(y + u * 1.05, bx, bw, u * 0.55, (temp - air) / Math.max(1, T.hot - air), col); } }
+  if (L.tires) next(R.tires);
+  if (L.lane) drawLane(ctx, x, y, w, R.lane * u, me, 0, u, font);
   ctx.restore();
   return box;
 }
@@ -143,7 +165,7 @@ export function stagingPrompt(me: Runner, s: DragHudState, keys: DragKeyLabels):
 export function drawProgress(ctx: CanvasRenderingContext2D, W: number, H: number, s: DragHudState, mine: number, S: number, keys: DragKeyLabels): void {
   const me = (s.runners[mine] ?? s.runners[0]) as Runner;
   drawTree(ctx, W, s, S);
-  PANEL_TOP.value = keys.top ?? PANEL.topClear; drawRunPanel(ctx, W, H, s, mine, S, keys);
+  drawRunPanel(ctx, W, H, s, mine, S, keys);
   if (me.crashed) { const size = Math.min(54 * S, (W - 24) / (11 * PANEL.charW)); text(ctx, 'You crashed', W / 2, H * 0.42, size, C.red, 'center', 0.6 + 0.4 * Math.sin(s.t * 20)); }
 }
 

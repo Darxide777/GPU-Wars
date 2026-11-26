@@ -16,7 +16,9 @@ export const CAR_Y_SHARE = 0.68;
 /** where the nose of a car standing still is on the screen (the highest it gets): the left panel stays above this on a narrow screen */
 export const carNoseY = (H: number): number => H * CAR_Y_SHARE - 2.7 * H / 28;
 /** the labels written to the right of the strip (water box, beams, marks): their size, the gap from the wall, and the lowest px between two labels */
-const SIDE_LABEL = { minSize: 8, maxSize: 14, gap: 8, spacing: 1.15 } as const;
+/** the short form of a name when its full form would need text under minSize to fit beside a narrow strip */
+const SHORT_NAME: Record<string, string> = { 'END OF STRIP': 'END', '66 FT TRAP': 'TRAP', 'WATER BOX': 'WATER', 'PRE-STAGE': 'PRE', '1/8 MILE': '1/8', '1000 FT': '1000' };
+const SIDE_LABEL = { minSize: 10, maxSize: 14, gap: 8, spacing: 1.15 } as const;
 const SMOKE_TOP = { windDrift: 0.8 } as const;
 const CHUTE_TOP = { minWidth: 0.5, maxWidth: 1.8, minHeight: 0.3, maxHeight: 0.8, back: 3.6, lift: 1.0, minAlpha: 0.25, alphaSpan: 0.6 } as const;
 const TIRE_SPIN = { stripes: 3, gap: 0.75, skew: 0.18, hz: 14, line: 0.09 } as const;
@@ -34,10 +36,11 @@ function drawSideNames(ctx: CanvasRenderingContext2D, names: SideName[], wallX: 
   for (const n of sorted) { n.at = Math.max(n.at, floor + size * SIDE_LABEL.spacing); floor = n.at; }
   ctx.textAlign = 'left';
   for (const n of sorted) {
-    // a long name on a narrow window is made smaller rather than cut off
-    const fit = Math.min(size, room / (n.text.length * 0.6)); ctx.font = `bold ${Math.max(6, fit)}px monospace`;
+    // a long name on a narrow window is shortened first, and only then made smaller (never under minSize)
+    const label = n.text.length * 0.6 * SIDE_LABEL.minSize > room && SHORT_NAME[n.text] ? SHORT_NAME[n.text] as string : n.text;
+    const fit = Math.max(SIDE_LABEL.minSize, Math.min(size, room / (label.length * 0.6))); ctx.font = `bold ${fit}px monospace`;
     if (n.line && n.at - 4 !== n.beam) { ctx.strokeStyle = n.col; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(wallX, n.beam); ctx.lineTo(x - 1, n.at - fit * 0.35); ctx.stroke(); }
-    ctx.fillStyle = n.col; ctx.fillText(n.text, x, n.at);
+    ctx.fillStyle = n.col; ctx.fillText(label, x, n.at);
   }
 }
 export function createDragTopDown() {

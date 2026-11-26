@@ -325,8 +325,8 @@ onFirstGesture(() => { if (screen === 'race') music.startMusic(); });      // (a
 const fsButton = $('fs'); if (fullscreenAvailable()) { fsButton.style.display = 'block'; fsButton.onclick = toggleFullscreen; }
 const topDown = createDragTopDown();
 let last = performance.now();
-/** the room the left panel leaves at the top for the touch MENU button, when the touch controls are on screen */
-function touchMenuClear(): number { if (options.driver !== 'manual' || !input.touchVisible()) return 0; const m = input.touch.layout.find(r => r.id === 'menu'); return m ? m.y + m.h : 0; }
+/** the touch buttons the left panel must stay clear of (none when the touch controls are not on screen) */
+function touchSpots(): { id: string; x: number; y: number; w: number; h: number }[] { return options.driver === 'manual' && input.touchVisible() ? input.touch.layout : []; }
 function frame(now: number): void {
   const dt = Math.min(0.1, (now - last) / 1000); last = now; padMenu(); if (screen === 'options') rebinder.pad(firstPad());
   if (screen === 'bench') { requestAnimationFrame(frame); return; }      // (nothing else draws while the benchmark measures the card)
@@ -339,7 +339,7 @@ function frame(now: number): void {
   topDown.draw(ctx, W, H, race.state, 0, dt, now / 1000);
   if (screen === 'race') {
     const label = (id: string, fallback: string): string => keyLabel((options.binds[id] ?? [])[0] ?? fallback);
-    drawProgress(ctx, W, H, s, 0, S, { launch: label('launch', ' '), nitro: label('nitro', 'Shift'), manual: me.tune.shift === 'manual' && options.driver === 'manual', auto: !!me.ai || options.driver === 'autopilot', burnout: label('burnout', 'j'), gas: label('gas', 'w'), brake: label('brake', 's'), chute: label('chute', 'n'), deepStage: label('deepStage', 'h'), backUp: label('backUp', 'r'), top: touchMenuClear() });
+    drawProgress(ctx, W, H, s, 0, S, { launch: label('launch', ' '), nitro: label('nitro', 'Shift'), manual: me.tune.shift === 'manual' && options.driver === 'manual', auto: !!me.ai || options.driver === 'autopilot', burnout: label('burnout', 'j'), gas: label('gas', 'w'), brake: label('brake', 's'), chute: label('chute', 'n'), deepStage: label('deepStage', 'h'), backUp: label('backUp', 'r'), avoid: touchSpots() });
     // the touch controls go on top of the panel, unchanged
     input.draw(ctx, options.driver === 'manual');
   }
