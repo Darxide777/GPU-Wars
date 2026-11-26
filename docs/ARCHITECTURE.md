@@ -32,7 +32,7 @@ src/save.ts                 the ONE save: benchmark result, tune, tune slots and
 src/browser-store.ts        localStorage that never throws, with a memory fallback (blocked itch iframes)
 src/options/model.ts        settings: music volume, rebindable key binds and gamepad binds (assignKeySlot, assignPadButton), touch options, input delay, driver (manual/autopilot)
 src/options/screen.ts       the OPTIONS rows and the rebinding flow (no page in it, tested)
-src/input/                  the input layer: queue.ts (timestamped events), controls.ts (held/edge state -> DriverInput), keyboard.ts, pad.ts, touch.ts (layout, analog pedal and steering, pointer events), haptics.ts, constants.ts (INPUT), index.ts (createInput)
+src/input/                  the input layer: queue.ts (timestamped events), controls.ts (held/edge state -> DriverInput), keyboard.ts, pad.ts, touch.ts (layout, analog pedal, steering buttons, pointer events), haptics.ts, constants.ts (INPUT), index.ts (createInput)
 src/platform.ts             fullscreen, audio unlock on first gesture, viewport change watcher
 src/drag/autopilot.ts       the deterministic driver AI (createAutopilot), category 'autopilot'; drives the engine's own staging phases with player inputs
 tools/package.mjs, zip.mjs  npm run package: the itch.io zip (no dependencies)

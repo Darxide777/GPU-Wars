@@ -5,7 +5,7 @@ import { createInputQueue } from '../src/input/queue.ts';
 import { createControlState, toDriverInput } from '../src/input/controls.ts';
 import { pushKey, actionsForKey } from '../src/input/keyboard.ts';
 import { createPadReader } from '../src/input/pad.ts';
-import { touchLayout, hitTest, pedalValue, sliderValue } from '../src/input/touch.ts';
+import { touchLayout, hitTest, pedalValue } from '../src/input/touch.ts';
 import { createHaptics, hapticPattern } from '../src/input/haptics.ts';
 import { INPUT } from '../src/input/constants.ts';
 import { DEFAULT_BINDS, DEFAULT_PAD_BINDS, assignKey, assignKeySlot, assignPadButton, clearSecondKey, resetControls, sanitizeOptions } from '../src/options/model.ts';
@@ -67,7 +67,7 @@ test('analog gas and steering: the biggest of key and analog, steering sums and 
   q.push({ t: 5, kind: 'analog', control: 'gasTouch', source: 't:1', value: NaN }); assert.equal(tick(q, s, 6).throttle, 0, 'NaN lets go of the analog value');
 });
 test('touch layout: every control present, on screen, none overlapping, in landscape and portrait and at every size', () => {
-  const ids = ['steer', 'gas', 'brake', 'nitro', 'chute', 'launch', 'burnout', 'backUp', 'deepStage', 'shiftUp', 'shiftDown', 'menu'];
+  const ids = ['steerLeft', 'steerRight', 'gas', 'brake', 'nitro', 'chute', 'launch', 'burnout', 'backUp', 'deepStage', 'shiftUp', 'shiftDown', 'menu'];
   for (const [w, h] of [[844, 390], [1280, 720], [390, 844], [360, 640]]) for (const size of [0.7, 1, 1.5]) {
     const L = touchLayout(w, h, size); assert.deepEqual(L.map(r => r.id).sort(), [...ids].sort());
     for (const r of L) assert.ok(r.x >= 0 && r.y >= 0 && r.x + r.w <= w + 0.5 && r.y + r.h <= h + 0.5, `${r.id} on screen at ${w}x${h} x${size}`);
@@ -75,13 +75,12 @@ test('touch layout: every control present, on screen, none overlapping, in lands
   }
   const L = touchLayout(844, 390), gas = L.find(r => r.id === 'gas'); assert.equal(hitTest(L, gas.x + 5, gas.y + 5).id, 'gas'); assert.equal(hitTest(L, 1, 200), null);
 });
-test('touch analog: the gas follows the thumb along the pedal, pressure counts when real, the slider is centred with a dead zone', () => {
+test('touch analog: the gas follows the thumb along the pedal, pressure counts when real, and steering is a left and a right button', () => {
   const r = { id: 'gas', label: '', x: 0, y: 0, w: 100, h: 200, kind: 'pedal' };
   const low = pedalValue(r, 190, 0.5, true), mid = pedalValue(r, 100, 0.5, true), top = pedalValue(r, 0, 0.5, true);
   assert.ok(low >= INPUT.touchMinGas && low < mid && mid < top && top === 1);
   assert.equal(pedalValue(r, 0, 0.5, false), 1, 'analog off: full gas'); assert.ok(Math.abs(pedalValue(r, 190, 0.8, true) - Math.pow(0.8, INPUT.touchAnalogCurve)) < 1e-9, 'a real pressure wins over position');
-  const s = { id: 'steer', label: '', x: 0, y: 0, w: 200, h: 50, kind: 'slider' };
-  assert.equal(sliderValue(s, 100), 0); assert.equal(sliderValue(s, 104), 0, 'dead zone'); assert.equal(sliderValue(s, 200), 1); assert.equal(sliderValue(s, 0), -1); assert.ok(sliderValue(s, 150) > 0 && sliderValue(s, 150) < 0.5);
+  const L = touchLayout(844, 390), left = L.find(r => r.id === 'steerLeft'), right = L.find(r => r.id === 'steerRight'); assert.ok(left.x < right.x && left.kind === 'button' && right.kind === 'button', 'steering is two buttons, left then right');
 });
 test('the pad: buttons are edges at the poll time, triggers are analog gas, the stick steers, and a held button is not repeated', () => {
   const q = createInputQueue(), s = createControlState(), reader = createPadReader(q);
@@ -138,4 +137,9 @@ test('the rebinding flow: pick a row, press a key, conflicts are told, Escape ca
   row('reset').enter(); assert.deepEqual(options.binds, DEFAULT_BINDS); assert.deepEqual(options.padBinds, DEFAULT_PAD_BINDS);
   row('latency').right(); row('latency').right(); assert.equal(options.latencyOffsetMs, 10); for (let i = 0; i < 40; i++) row('latency').right(); assert.equal(options.latencyOffsetMs, 100);
   row('driver').right(); assert.equal(options.driver, 'autopilot'); assert.ok(menu.items.length > 20);
+});
+test('touch steering buttons steer fully at once, like the keys', () => {
+  const q = createInputQueue(), s = createControlState();
+  q.push({ t: 1, kind: 'down', control: 'steerRight', source: 't:1', value: 1 }); assert.equal(tick(q, s, 2).steer, 1);
+  q.push({ t: 3, kind: 'up', control: 'steerRight', source: 't:1', value: 1 }); q.push({ t: 4, kind: 'down', control: 'steerLeft', source: 't:2', value: 1 }); assert.equal(tick(q, s, 5).steer, -1);
 });
