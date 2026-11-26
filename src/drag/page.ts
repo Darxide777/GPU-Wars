@@ -305,7 +305,7 @@ const syncCategory = (): void => { const c = options.driver === 'autopilot' ? AU
 function startRace(kind: DragRaceKind): void {
   syncCategory(); raceKind = kind; screenBefore = screen; msg = ''; const ranked = kind === 'ghost', entrants = [ranked ? rankedEntrant() : myEntrant()], g = ranked ? ghostToRace() : null; if (g) entrants.push(ghostEntrant(g));
   if (ranked) { raceSeed = RANKED.seed; lb.clearStatus(); }      // (a ranked run is the fixed class day: the same seed, weather and fresh strip for everyone)
-  race = createDrag(ranked ? { seed: RANKED.seed, conditions: RANKED.conditions, strip: rankedStrip(), entrants } : { seed: raceSeed, strip, entrants }); isBackdrop = false; banked = false; overT = 0; acc = 0; result = null; input.reset(performance.now()); autopilot = createAutopilot(); show('race');
+  gasWasOn = false; race = createDrag(ranked ? { seed: RANKED.seed, conditions: RANKED.conditions, strip: rankedStrip(), entrants } : { seed: raceSeed, strip, entrants }); isBackdrop = false; banked = false; overT = 0; acc = 0; result = null; input.reset(performance.now()); autopilot = createAutopilot(); show('race');
 }
 function finishRace(): void {
   if (banked) return; banked = true; const s = race.state, me = s.runners[0] as Runner, slip = timeslip(me), crashed = !!slip.crashed;
@@ -324,7 +324,7 @@ const input = createInput({ options: () => options, racing: () => screen === 'ra
 const haptics = createHaptics(() => options.touch.haptics);
 const padMenu = createPadMenu(() => screen !== 'race' && rebinder.pending?.device !== 'gamepad');
 /** the input for this tick goes to the car: the driver's (keys, touch, pad) or the autopilot's */
-let pedal = 0;      // (the gas of the last tick, for the engine sound)
+let pedal = 0, gasWasOn = false;      // (the gas of the last tick, for the engine sound)
 function readInput(): void { const inp = options.driver === 'autopilot' ? autopilot.decide(viewOf(race, 0, (race.state.runners[0] as Runner).stage)) : input.read(); pedal = inp.throttle; race.setInput(0, inp); }
 addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
@@ -356,6 +356,7 @@ function frame(now: number): void {
     while (acc >= DRAG.dt && n++ < 60) { acc -= DRAG.dt; readInput(); race.step(); haptics.onEvents(race.events); for (const e of race.events) { if (e.t === 'amber') sfx.treeLight('amber', e.n); else if (e.t === 'green') sfx.treeLight('green'); } }
     if (s.phase === 'over') { finishRace(); if ((overT += dt) > 1.6) show('slip'); }
   }
+  if (screen === 'race' && s.green) { if (pedal >= 0.5) gasWasOn = true; else if (pedal < 0.05 && gasWasOn) { gasWasOn = false; sfx.liftOff(); } }      // (every time the gas comes off after the green)
   sfx.engine(pedal, screen === 'race', s.green || me.stage === 'burnout');      // (the throttle sound: in the burnout and after the green; otherwise idle only)
   topDown.draw(ctx, W, H, race.state, 0, dt, now / 1000);
   if (screen === 'race') {

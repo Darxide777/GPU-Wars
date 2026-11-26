@@ -20,7 +20,7 @@ test('each tree light has its own beep file: ambers 1 to 3, then the green', () 
 });
 
 test('every sound file is in assets/sfx and small', () => {
-  for (const f of [SFX_FILES.idle, SFX_FILES.throttle, SFX_FILES.full, ...SFX_FILES.tree]) { const url = new URL('../' + f, import.meta.url); assert.ok(existsSync(url), f); assert.ok(statSync(url).size > 1000 && statSync(url).size < 300 * 1024, `${f} is a sensible size`); }
+  for (const f of [SFX_FILES.idle, SFX_FILES.throttle, SFX_FILES.full, SFX_FILES.lift, ...SFX_FILES.tree]) { const url = new URL('../' + f, import.meta.url); assert.ok(existsSync(url), f); assert.ok(statSync(url).size > 1000 && statSync(url).size < 300 * 1024, `${f} is a sensible size`); }
 });
 
 test('the sound effects volume is an option (0 mutes), kept in range, and the page plays the tree and engine', () => {
@@ -32,4 +32,9 @@ test('the sound effects volume is an option (0 mutes), kept in range, and the pa
 test('only the idle sound plays in staging; the throttle sounds are allowed in the burnout and after the green', () => {
   assert.deepEqual(engineMix(1, true, false), { idle: 1, throttle: 0, full: 0 }, 'full gas in the run-out, back up and stage is still the idle sound');
   const after = engineMix(1, true, true); assert.ok(after.idle < 1e-9 && Math.abs(after.full - 1) < 1e-9);
+});
+
+test('the lift-off sound plays every time the gas comes off after the green', () => {
+  const page = readFileSync(new URL('../src/drag/page.ts', import.meta.url), 'utf8');
+  assert.match(page, /screen === 'race' && s\.green/); assert.match(page, /gasWasOn/); assert.match(page, /sfx\.liftOff\(\)/); assert.match(page, /gasWasOn = false; race = createDrag/);
 });
