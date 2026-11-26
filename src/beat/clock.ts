@@ -9,8 +9,6 @@ export interface TrackAnalysis {
   intensity: number[];
   /** bass, mid and high energy `rate` times a second, 0 to 99 */
   bands: { rate: number; bass: number[]; mid: number[]; high: number[] };
-  /** an equalizer: `bands` bands from low to high, `rate` times a second, as base64 text of bytes [time][band] (0 to 255) */
-  eq?: { bands: number; rate: number; data: string };
 }
 export interface Analysis { version: number; tracks: Record<string, TrackAnalysis> }
 
@@ -25,12 +23,10 @@ export interface BeatState {
   intensity: number;
   /** bass, mid and high energy right now, 0 to 1 */
   bass: number; mid: number; high: number;
-  /** the equalizer: the level of each band from low to high right now, 0 to 1 (empty when there is none) */
-  eq: readonly number[];
   /** false when there is no music, or no analysis for it */
   on: boolean;
 }
-export const NO_BEAT: BeatState = { eq: [], pulse: 0, pulse2: 0, pulseHalf: 0, phase: 1, index: 0, intensity: 0, bass: 0, mid: 0, high: 0, on: false };
+export const NO_BEAT: BeatState = { pulse: 0, pulse2: 0, pulseHalf: 0, phase: 1, index: 0, intensity: 0, bass: 0, mid: 0, high: 0, on: false };
 
 /** a hit: 1 at the start of the beat and a fast fall to 0 (cubic), like a drum */
 const hit = (phase: number): number => { const k = 1 - Math.min(1, Math.max(0, phase)); return k * k * k; };
@@ -40,20 +36,6 @@ export function beatBefore(beats: readonly number[], t: number): number {
   let lo = 0, hi = beats.length;
   while (lo < hi) { const m = (lo + hi) >> 1; if ((beats[m] as number) <= t) lo = m + 1; else hi = m; }
   return lo - 1;
-}
-
-const eqCache = new WeakMap<object, Uint8Array>();
-/** the equalizer bytes of a track, decoded once */
-function eqBytes(track: TrackAnalysis): Uint8Array | null {
-  if (!track.eq) return null;
-  let b = eqCache.get(track); if (!b) { const s = atob(track.eq.data); b = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) b[i] = s.charCodeAt(i); eqCache.set(track, b); }
-  return b;
-}
-/** the equalizer levels at time t: each band blended between the two nearest readings */
-function eqAt(track: TrackAnalysis, t: number): number[] {
-  const bytes = eqBytes(track), n = track.eq ? track.eq.bands : 0; if (!bytes || !n) return [];
-  const rows = Math.floor(bytes.length / n), f = Math.max(0, t * (track.eq as { rate: number }).rate), i = Math.min(Math.floor(f), rows - 1), j = Math.min(i + 1, rows - 1), w = f - Math.floor(f);
-  return Array.from({ length: n }, (_, b) => (((bytes[i * n + b] as number) * (1 - w) + (bytes[j * n + b] as number) * w) / 255));
 }
 
 /** a value from an evenly spaced list at time t seconds, blended between the two nearest entries; `scale` turns the stored numbers into 0 to 1 */
@@ -70,7 +52,6 @@ export function beatAt(track: TrackAnalysis | undefined, time: number): BeatStat
   const state: BeatState = { ...NO_BEAT, on: true };
   state.intensity = Math.min(1, Math.max(0, sample(track.intensity, 1, t, 100)));
   const b = track.bands;
-  state.eq = eqAt(track, t);
   state.bass = sample(b.bass, b.rate, t, 99); state.mid = sample(b.mid, b.rate, t, 99); state.high = sample(b.high, b.rate, t, 99);
   if (i < 0 || i >= last) return state;       // before the first beat or after the last: no pulse
   const t0 = track.beats[i] as number, t1 = track.beats[i + 1] as number;
@@ -83,5 +64,5 @@ export function beatAt(track: TrackAnalysis | undefined, time: number): BeatStat
 /** a made-up steady beat for trying the effects without music: 120 bpm, with a slow swell */
 export function demoBeat(seconds: number): BeatState {
   const phase = (seconds * 2) % 1, swell = 0.5 + 0.5 * Math.sin(seconds * 0.4);
-  return { eq: Array.from({ length: 16 }, (_, i) => Math.min(1, Math.max(0, (0.35 + 0.65 * hit(phase)) * (0.5 + 0.5 * Math.sin(seconds * 3 + i * 0.7)) * (1 - i * 0.03)))), pulse: hit(phase), pulse2: hit((phase * 2) % 1), pulseHalf: hit((((Math.floor(seconds * 2)) & 1) + phase) / 2), phase, index: Math.floor(seconds * 2), intensity: swell, bass: hit(phase) * 0.8, mid: swell * 0.6, high: 0.4 + 0.4 * Math.sin(seconds * 7), on: true };
+  return { pulse: hit(phase), pulse2: hit((phase * 2) % 1), pulseHalf: hit((((Math.floor(seconds * 2)) & 1) + phase) / 2), phase, index: Math.floor(seconds * 2), intensity: swell, bass: hit(phase) * 0.8, mid: swell * 0.6, high: 0.4 + 0.4 * Math.sin(seconds * 7), on: true };
 }

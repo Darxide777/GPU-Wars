@@ -5,6 +5,9 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { createBrowserStore, memoryStore } from '../src/browser-store.ts';
 import { DEFAULT_BINDS, BIND_ROWS, assignKey, sanitizeOptions } from '../src/options/model.ts';
 import { tuneHint, TUNE_HINTS } from '../src/drag/tune-help.ts';
+import { SONG } from '../src/sound.ts';
+import { PALETTE } from '../src/benchmark/workload.ts';
+import { NO_BEAT } from '../src/beat/clock.ts';
 const read = p => readFileSync(new URL('../' + p, import.meta.url), 'utf8');
 const walk = dir => readdirSync(new URL('../' + dir, import.meta.url)).flatMap(f => { const p = dir + '/' + f; return statSync(new URL('../' + p, import.meta.url)).isDirectory() ? walk(p) : [p]; });
 
@@ -55,10 +58,23 @@ test('the game plays only music, and has no 3D, hub, shop, rivals, points or pro
   assert.ok(!existsSync(new URL('../src/drag/view3d.ts', import.meta.url)) && !existsSync(new URL('../assets/audio', import.meta.url)));
 });
 
-test('the song list is just the two versions of Simulation Theory by Chromium Halo', () => {
-  const library = JSON.parse(read('assets/music/library.json')), files = readdirSync(new URL('../assets/music/', import.meta.url)).filter(f => /\.(ogg|mp3|opus|wav|flac|m4a)$/.test(f));
-  assert.deepEqual(library.tracks.map(t => t.id).sort(), ['simulation-theory', 'simulation-theory-vipers-remix']); assert.equal(files.length, 2);
-  for (const t of library.tracks) { assert.equal(t.artist, 'Chromium Halo'); assert.match(t.title, /^Simulation Theory/); assert.ok(files.includes(t.file)); }
+test('the only song is Simulation Theory by Chromium Halo (not the remix), used by the benchmark only, with no equalizer', () => {
+  const files = readdirSync(new URL('../assets/music/', import.meta.url)).sort();
+  assert.deepEqual(files, ['analysis.json', 'simulation-theory.ogg']);
+  const analysis = JSON.parse(read('assets/music/analysis.json')); assert.deepEqual(Object.keys(analysis.tracks), ['simulation-theory']); assert.equal(analysis.tracks['simulation-theory'].eq, undefined, 'no equalizer data');
+  assert.ok(SONG.id in analysis.tracks && SONG.file === 'simulation-theory.ogg' && SONG.title === 'Simulation Theory' && SONG.artist === 'Chromium Halo');
+  const page = read('src/drag/page.ts');
+  assert.equal(page.split('startMusic()').length - 1, 1, 'music starts in one place: the benchmark'); assert.doesNotMatch(page, /onFirstGesture\([^)]*startMusic/, 'the first key press or tap does not start music (only sound effects unlock)');
+  assert.ok(!existsSync(new URL('../src/beat/eq.ts', import.meta.url)) && !existsSync(new URL('../src/neon/building-eq.ts', import.meta.url)));
+  for (const f of walk('src').filter(f => f.endsWith('.ts'))) assert.doesNotMatch(read(f), /building-eq|eqNow|library\.json|vipers/i, f);
+});
+
+test('the benchmark screen shows the song and band top-left and draws in the game palette with no equalizer', () => {
+  const screen = read('src/benchmark/screen.ts'), workload = read('src/benchmark/workload.ts');
+  assert.match(screen, /bm-song[^>]*top:\d+px;left:\d+px/); assert.match(screen, /SONG\.title/); assert.match(screen, /SONG\.artist/);
+  assert.deepEqual(PALETTE.magenta.map(v => Math.round(v * 255)), [255, 43, 214]); assert.deepEqual(PALETTE.cyan.map(v => Math.round(v * 255)), [33, 230, 255]); assert.deepEqual(PALETTE.background.map(v => Math.round(v * 255)), [5, 1, 15]);
+  assert.doesNotMatch(workload, /uBars|uPeaks|EQ_BANDS/);
+  assert.equal(NO_BEAT.eq, undefined);
 });
 
 test('the save store never throws: with no localStorage it keeps things in memory for the visit', () => {

@@ -1,32 +1,28 @@
-// The music, played through the page's audio. GPU Wars has no sound effects: only the two versions of "Simulation Theory" by Chromium Halo, one after the other.
-// (The page may use Math.random to pick which song starts: that is not part of the simulation.)
-import libraryJson from '../assets/music/library.json';
+// The music, played through the page's audio. The only song in GPU Wars is "Simulation Theory" by Chromium Halo (the owner's band), and it plays only during the benchmark.
+// Races have no music.
 
-/** the songs in assets/music, found by the build (build.mjs, tools/music-tags.mjs) with the title and artist from each file's tags or name */
-export interface Song { file: string; id: string; title: string; artist: string }
-export const SONGS: Song[] = (libraryJson as { tracks: Song[] }).tracks;
+/** the one song: its file in assets/music, its id in assets/music/analysis.json (the beat data the benchmark's effects follow), its title and its band */
+export const SONG = { file: 'simulation-theory.ogg', id: 'simulation-theory', title: 'Simulation Theory', artist: 'Chromium Halo' } as const;
 
 /** `vol.music` is shared with the options: change it and call `volumesChanged()` */
 export function createMusic(vol: { music: number }) {
-  let song: HTMLAudioElement | null = null, current = '', next = Math.floor(Math.random() * Math.max(1, SONGS.length));
-  function playNext(): void {
-    if (vol.music <= 0 || !SONGS.length) return;
+  let song: HTMLAudioElement | null = null;
+  function play(): void {
+    if (vol.music <= 0) return;
     try {
       if (song) song.pause();
-      const pick = SONGS[next % SONGS.length] as Song; next = (next + 1) % SONGS.length; current = pick.id;
-      song = new Audio('assets/music/' + encodeURIComponent(pick.file));      // (a relative path: itch.io serves the game from a folder)
-      song.volume = vol.music; song.addEventListener('ended', playNext); song.play().catch(() => { /* no sound until the page is clicked */ });
+      song = new Audio('assets/music/' + encodeURIComponent(SONG.file));      // (a relative path: itch.io serves the game from a folder)
+      song.volume = vol.music; song.play().catch(() => { /* no sound until the page is clicked */ });
     } catch (e) { /* no audio available */ }
   }
   return {
-    /** starts a song if none is playing */
-    startMusic(): void { if (!song || song.paused) playNext(); },
-    stopMusic(): void { if (song) { song.pause(); song = null; current = ''; } },
-    /** which song is playing and how far into it, or null (not playing, or paused) */
+    /** starts the song from the beginning if it is not playing */
+    startMusic(): void { if (!song || song.paused) play(); },
+    stopMusic(): void { if (song) { song.pause(); song = null; } },
+    /** the song and how far into it, or null (not playing, or paused) */
     nowPlaying(): { name: string; time: number; title: string; artist: string } | null {
       if (!song || song.paused) return null;
-      const s = SONGS.find(t => t.id === current);
-      return { name: current, time: song.currentTime, title: s ? s.title : current, artist: s ? s.artist : '' };
+      return { name: SONG.id, time: song.currentTime, title: SONG.title, artist: SONG.artist };
     },
     /** `vol.music` changed */
     volumesChanged(): void { if (song) { song.volume = vol.music; if (vol.music <= 0) song.pause(); else if (song.paused) song.play().catch(() => { /* ignore */ }); } },

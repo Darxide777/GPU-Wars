@@ -1,4 +1,4 @@
-// The itch.io package: npm run package writes dist/gpuwars-itch.zip with index.html at the root, the bundle and the music, nothing external, no sourcemaps.
+// The itch.io package: npm run package writes dist/gpuwars-itch.zip with index.html at the root, the bundle and the one song, nothing external, no sourcemaps.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -17,9 +17,8 @@ test('npm run package builds dist/gpuwars-itch.zip that passes the itch.io check
   const zipPath = new URL('../dist/' + ITCH.zipName, import.meta.url); assert.ok(existsSync(zipPath));
   const entries = readZip(readFileSync(zipPath)), names = entries.map(e => e.name);
   assert.ok(names.includes('index.html'), 'index.html is at the root'); assert.ok(names.includes('dist/gpuwars.js'));
-  assert.ok(names.some(n => n === 'assets/music/simulation-theory.ogg') && names.includes('assets/music/simulation-theory-vipers-remix.ogg') && names.includes('assets/music/library.json'));
+  assert.deepEqual(names.filter(n => n.startsWith('assets/music/')), ['assets/music/simulation-theory.ogg'], 'the only song is Simulation Theory (the beat data is inside the bundle)');
   for (const f of ['idle', 'throttle', 'tree-1', 'tree-2', 'tree-3', 'tree-4']) assert.ok(names.includes(`assets/sfx/${f}.ogg`), `${f} sound effect is packaged`);
-  assert.equal(names.filter(n => n.startsWith('assets/music/') && n.endsWith('.ogg')).length, 2, 'only the two Simulation Theory songs');
   assert.ok(!names.some(n => n.endsWith('.map') || n.startsWith('/') || n.endsWith('/') || n.includes('node_modules') || n.startsWith('tests/') || n.startsWith('src/')), 'no maps, folders or sources');
   assert.deepEqual(checkFiles(entries.map(e => ({ name: e.name, data: e.data }))), []);
   const js = entries.find(e => e.name === 'dist/gpuwars.js').data.toString('utf8'); assert.ok(!/sourceMappingURL/.test(js), 'no pointer to a sourcemap that is not in the zip');
