@@ -18,6 +18,7 @@ test('npm run package builds dist/gpuwars-itch.zip that passes the itch.io check
   const entries = readZip(readFileSync(zipPath)), names = entries.map(e => e.name);
   assert.ok(names.includes('index.html'), 'index.html is at the root'); assert.ok(names.includes('dist/gpuwars.js'));
   assert.ok(names.some(n => n === 'assets/music/simulation-theory.ogg') && names.includes('assets/music/simulation-theory-vipers-remix.ogg') && names.includes('assets/music/library.json'));
+  for (const f of ['idle', 'throttle', 'tree-1', 'tree-2', 'tree-3', 'tree-4']) assert.ok(names.includes(`assets/sfx/${f}.ogg`), `${f} sound effect is packaged`);
   assert.equal(names.filter(n => n.startsWith('assets/music/') && n.endsWith('.ogg')).length, 2, 'only the two Simulation Theory songs');
   assert.ok(!names.some(n => n.endsWith('.map') || n.startsWith('/') || n.endsWith('/') || n.includes('node_modules') || n.startsWith('tests/') || n.startsWith('src/')), 'no maps, folders or sources');
   assert.deepEqual(checkFiles(entries.map(e => ({ name: e.name, data: e.data }))), []);

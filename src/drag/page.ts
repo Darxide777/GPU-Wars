@@ -3,6 +3,7 @@
 // Rows that are not built yet say COMING SOON and say which phase brings them. Everything is drawn on one canvas with the neon menu card over it.
 import { loadSave, writeSave, type Save } from '../save.ts';
 import { browserStore } from '../browser-store.ts';
+import { createSfx } from '../sfx.ts';
 import { createMusic } from '../sound.ts';
 import { keyLabel, loadOptions, saveOptions } from '../options/model.ts';
 import { createRebinder, optionsItems, type Device } from '../options/screen.ts';
@@ -37,6 +38,7 @@ const $ = (id: string): HTMLElement => document.getElementById(id) as HTMLElemen
 const cv = $('cv') as HTMLCanvasElement, ctx = cv.getContext('2d') as CanvasRenderingContext2D, card = document.querySelector('.card') as HTMLElement;
 const options = loadOptions(browserStore);      // (changed in place by the OPTIONS screen: always read `options.binds`, never keep a copy)
 const music = createMusic({ music: options.music });
+const sfx = createSfx(options);
 
 // ---- the save (kept in the browser when it can be; in memory when the page is in a blocked iframe) ----
 let save: Save = loadSave(browserStore);
@@ -146,7 +148,7 @@ const raceItem = (): MenuItem => ({ id: 'race', label: 'RACE CLASS LEADER', valu
 /** DRIVER: MANUAL / AUTOPILOT (also in OPTIONS). Autopilot runs are their own leaderboard category. */
 const driverItem = (): MenuItem => { const flip = (): void => { options.driver = options.driver === 'manual' ? 'autopilot' : 'manual'; saveOptions(browserStore, options); show('title'); }; return { id: 'driver', label: 'DRIVER', value: () => (options.driver === 'autopilot' ? 'AUTOPILOT' : 'MANUAL'), hint: () => 'MANUAL: you drive. AUTOPILOT: the car drives itself with the same controls. Autopilot runs count in their own leaderboard category and do not touch your manual records.', left: flip, right: flip, enter: flip }; };
 const optionsDevice = { v: 'keyboard' as Device, get(): Device { return this.v; }, set(d: Device): void { this.v = d; } };
-const optionsHost = { options, save: () => saveOptions(browserStore, options), apply: (what: string): void => { if (what === 'music') music.volumesChanged(); }, say: (text: string): void => { msg = text; }, refresh: (): void => { render(); }, fullscreen: toggleFullscreen, back: (): void => show('title') };
+const optionsHost = { options, save: () => saveOptions(browserStore, options), apply: (what: string): void => { if (what === 'music') music.volumesChanged(); else if (what === 'sfx') sfx.volumesChanged(); }, say: (text: string): void => { msg = text; }, refresh: (): void => { render(); }, fullscreen: toggleFullscreen, back: (): void => show('title') };
 const rebinder = createRebinder(optionsHost);
 function show(next: Screen): void {
   const prev = screen; screen = next; menu = null; const scr = $('screen'); if (prev !== next) msg = '';
@@ -304,7 +306,8 @@ const input = createInput({ options: () => options, racing: () => screen === 'ra
 const haptics = createHaptics(() => options.touch.haptics);
 const padMenu = createPadMenu(() => screen !== 'race' && rebinder.pending?.device !== 'gamepad');
 /** the input for this tick goes to the car: the driver's (keys, touch, pad) or the autopilot's */
-function readInput(): void { race.setInput(0, options.driver === 'autopilot' ? autopilot.decide(viewOf(race, 0, (race.state.runners[0] as Runner).stage)) : input.read()); }
+let pedal = 0;      // (the gas of the last tick, for the engine sound)
+function readInput(): void { const inp = options.driver === 'autopilot' ? autopilot.decide(viewOf(race, 0, (race.state.runners[0] as Runner).stage)) : input.read(); pedal = inp.throttle; race.setInput(0, inp); }
 addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
   if (screen === 'bench') { if (k === 'escape') benchScreen?.cancel(); return; }
@@ -320,7 +323,7 @@ input.attach(window, cv);
 // ---- drawing: the strip from above (see topdown.ts), sized to the window (an itch.io frame can be any size, and can be resized or made fullscreen at any time) ----
 function resize(): void { const dpr = Math.min(2, devicePixelRatio || 1); cv.width = Math.floor(innerWidth * dpr); cv.height = Math.floor(innerHeight * dpr); cv.style.width = innerWidth + 'px'; cv.style.height = innerHeight + 'px'; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); }
 watchViewport(resize); resize();
-onFirstGesture(() => { if (screen === 'race') music.startMusic(); });      // (audio stays locked until the first touch or key)
+onFirstGesture(() => { sfx.unlock(); if (screen === 'race') music.startMusic(); });      // (audio stays locked until the first touch or key)
 const fsButton = $('fs'); if (fullscreenAvailable()) { fsButton.style.display = 'block'; fsButton.onclick = toggleFullscreen; }
 const topDown = createDragTopDown();
 let last = performance.now();
@@ -332,9 +335,10 @@ function frame(now: number): void {
   const W = innerWidth, H = innerHeight, S = Math.max(0.7, Math.min(1.6, H / 720)), s = race.state, me = s.runners[0] as Runner;
   if (screen === 'race') {
     acc += dt; let n = 0; input.startFrame(now - acc * 1000, firstPad(), now);
-    while (acc >= DRAG.dt && n++ < 60) { acc -= DRAG.dt; readInput(); race.step(); haptics.onEvents(race.events); }
+    while (acc >= DRAG.dt && n++ < 60) { acc -= DRAG.dt; readInput(); race.step(); haptics.onEvents(race.events); for (const e of race.events) { if (e.t === 'amber') sfx.treeLight('amber', e.n); else if (e.t === 'green') sfx.treeLight('green'); } }
     if (s.phase === 'over') { finishRace(); if ((overT += dt) > 1.6) show('slip'); }
   }
+  sfx.engine(pedal, screen === 'race');
   topDown.draw(ctx, W, H, race.state, 0, dt, now / 1000);
   if (screen === 'race') {
     // with the touch buttons on screen the prompts name the buttons (GAS, BRAKE, BURN, BACK UP, GO, DEEP); otherwise the player's own bound keys

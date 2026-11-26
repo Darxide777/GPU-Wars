@@ -9,10 +9,11 @@ import { buildZip } from './zip.mjs';
 export const ITCH = { zipName: 'gpuwars-itch.zip', maxFiles: 1000, maxPathLength: 240, maxTotalBytes: 500 * 1024 * 1024, warnTotalBytes: 40 * 1024 * 1024 };
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-/** the files that go in the zip, as [{ name, data }]: the page, the bundle and the music (never sourcemaps) */
+/** the files that go in the zip, as [{ name, data }]: the page, the bundle, the music and the sound effects (never sourcemaps) */
 export function collectFiles(dir = root) {
   const files = [{ name: 'index.html', data: fs.readFileSync(path.join(dir, 'index.html')) }, { name: 'dist/gpuwars.js', data: Buffer.from(fs.readFileSync(path.join(dir, 'dist/gpuwars.js'), 'utf8').replace(/\n?\/\/# sourceMappingURL=.*\s*$/, '\n')) }];
   for (const f of fs.readdirSync(path.join(dir, 'assets/music')).sort()) if (/\.(ogg|mp3|wav|json)$/i.test(f)) files.push({ name: 'assets/music/' + f, data: fs.readFileSync(path.join(dir, 'assets/music', f)) });
+  for (const f of fs.readdirSync(path.join(dir, 'assets/sfx')).sort()) if (/\.(ogg|mp3|wav)$/i.test(f)) files.push({ name: 'assets/sfx/' + f, data: fs.readFileSync(path.join(dir, 'assets/sfx', f)) });
   return files;
 }
 /** problems that would make itch.io reject or break the upload; an empty list means ready */

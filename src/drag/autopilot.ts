@@ -22,9 +22,9 @@ export interface AutopilotView {
 /** the autopilot's numbers. Turn `reaction` first: it is how long after green the car leaves. */
 export const AUTOPILOT = {
   /** seconds after the green that the launch happens: a steady, clean, near-perfect driver, never a red light */ reaction: 0.12,
-  /** the longest burnout (seconds) and the tire temperature (C) at which it stops: the tires are in their window */ burnoutMax: 1.5, burnoutTireTemp: 80,
+  /** the longest burnout (seconds) and the tire temperature (C) at which it stops: the tires are in their window */ burnoutMax: 5, burnoutTireTemp: 80, /** warm tires do not end the burnout before the car is this far past the start line (metres), so the launch lane gets fresh rubber */ burnoutPastLine: 3,
   /** the gas while rolling to the water box, between the water box and the burnout, and after it (fractions of the pedal) */ approachGas: 0.6, runOutGas: 0.75,
-  /** the gas that creeps the car into the beams (slow enough for the stage to hold it), and the longest the burnout may run past the end of the water box (metres) */ creepGas: 0.06, burnoutPastWater: 4,
+  /** the gas that creeps the car into the beams (slow enough for the stage to hold it), and the longest the burnout may run past the end of the water box (metres) */ creepGas: 0.06, burnoutPastWater: 10,
   /** a throttle lift when the tires spin or the limiter is hit comes from the physics's own `autoThrottle` (what a driver would do) */
   /** the gear the nitro is pressed in when the tune leaves it to the driver */ nitroGear: 2,
   /** how far behind the final beam the back up stops (metres) */ backUpStop: 0.6,
@@ -55,7 +55,7 @@ export function createAutopilot() {
         if (!burnoutDone) {
           if (burnoutStart < 0) burnoutStart = t;
           const hot = engineHotShare(r.engineTemp), limit = AUTOPILOT.burnoutMax * (1 - BOOST.aiSense * BOOST.aiBurnTrim * hot);
-          if (t - burnoutStart >= limit || r.tireTemp >= AUTOPILOT.burnoutTireTemp || r.x >= STAGE.waterBoxEnd + AUTOPILOT.burnoutPastWater) burnoutDone = true;
+          if (t - burnoutStart >= limit || (r.tireTemp >= AUTOPILOT.burnoutTireTemp && r.x >= AUTOPILOT.burnoutPastLine) || r.x >= STAGE.waterBoxEnd + AUTOPILOT.burnoutPastWater) burnoutDone = true;
           else { out.throttle = 1; out.burnout = true; return out; }
         }
         out.throttle = AUTOPILOT.runOutGas; return out;
