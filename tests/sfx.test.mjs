@@ -34,7 +34,7 @@ test('only the idle sound plays in staging; the throttle sounds are allowed in t
   const after = engineMix(1, true, true); assert.ok(after.idle < 1e-9 && Math.abs(after.full - 1) < 1e-9);
 });
 
-test('the lift-off sound plays once, after the finish line, when the gas comes off', () => {
+test('the lift-off sound plays every time the gas comes off after the green', () => {
   const page = readFileSync(new URL('../src/drag/page.ts', import.meta.url), 'utf8');
-  assert.match(page, /me\.finished && !liftPlayed && pedal < 0\.05/); assert.match(page, /sfx\.liftOff\(\)/); assert.match(page, /liftPlayed = false; race = createDrag/);
+  assert.match(page, /screen === 'race' && s\.green/); assert.match(page, /gasWasOn/); assert.match(page, /sfx\.liftOff\(\)/); assert.match(page, /gasWasOn = false; race = createDrag/);
 });

@@ -57,8 +57,8 @@ export function createSfx(vol: { sfx: number }) {
     treeLight(light: 'amber' | 'green', n = 1): void {
       try { const a = beeps[treeFileFor(light, n)]; if (!a) return; a.currentTime = 0; a.volume = level(1); play(a); } catch (e) { /* ignore */ }
     },
-    /** the car has crossed the finish and the gas came off: one lift-off sound */
-    liftOff(): void { try { if (!liftSound) return; liftSound.currentTime = 0; liftSound.volume = level(1); play(liftSound); } catch (e) { /* ignore */ } },
+    /** the gas came off after the green: the lift-off sound (not restarted while it is still playing) */
+    liftOff(): void { try { if (!liftSound || (!liftSound.paused && !liftSound.ended)) return; liftSound.currentTime = 0; liftSound.volume = level(1); play(liftSound); } catch (e) { /* ignore */ } },
     /** `vol.sfx` changed */
     volumesChanged(): void { setVolumes(); },
   };
