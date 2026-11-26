@@ -8,6 +8,8 @@ import { maskedReason, MASKED_NOTE, classifyGpu, identityFromText, identify, gpu
 import { rerunReason, needsBenchmark, repairBenchmark, resultFromRun } from '../src/benchmark/rules.ts';
 import { dynoCurve, dynoPeaks, powerAt, torqueAt, dynoSvg } from '../src/benchmark/dyno.ts';
 import { startBenchmark, nextBatch } from '../src/benchmark/runner.ts';
+import { fragment } from '../src/benchmark/workload.ts';
+import { createHash } from 'node:crypto';
 import { specForBenchmark, stockSpec, specLimitsOf, CLASS_SPEC_LIMITS, curveForSustain, HP_DIVISOR, tableRowFor, WEAKEST_RESULT, UNBENCHMARKED_TORQUE_SHARE } from '../src/drag/spec-source.ts';
 import { CLASS_IDS } from '../src/classes.ts';
 import { benchmarkItem, classItem } from '../src/benchmark/menu.ts';
@@ -132,6 +134,43 @@ test('the runner runs warm-up, passes and scoring with a fake card and clock, an
   const again = await startBenchmark({ cls: 'integrated', beat: () => ({}), createWorkload: () => ({ ...fake, run(d) { t += 5 * d; return d * 1e9; } }), now: () => t, sleep }).done; assert.equal(again.status, 'done');
   let t2 = 0; const c = startBenchmark({ cls: 'integrated', beat: () => ({}), createWorkload: () => fake, now: () => t2, sleep: async () => { t2 += 10; } }); c.cancel(); assert.equal((await c.done).status, 'cancelled');
   assert.equal((await startBenchmark({ cls: 'integrated', beat: () => ({}), createWorkload: () => null }).done).status, 'failed', 'no way to draw is reported, not thrown');
+});
+
+test('the show phase keeps the screen up until the song ends, is light, never changes the score, and Esc still delivers the score', async () => {
+  const beat = () => ({ pulse: 0, pulse2: 0, pulseHalf: 0, phase: 1, index: 0, intensity: 0, bass: 0, mid: 0, high: 0, on: false });
+  const make = () => {
+    const state = { t: 0, runs: 0, draws: 0, lightened: 0 };
+    const fake = { backend: 'webgl2', canvas: { remove() {} }, unitsPerDraw: 1e9, dispose() {}, run(draws) { state.runs++; state.t += 5 * draws; return draws * 1e9; }, lighten() { state.lightened++; }, draw() { state.draws++; } };
+    return { state, fake, now: () => state.t, sleep: async () => { state.t += 10; } };
+  };
+  // no song: finishes right after the passes with no show phase
+  const a = make(); const noSong = await startBenchmark({ cls: 'discrete', beat, createWorkload: () => a.fake, now: a.now, sleep: a.sleep, nextFrame: async () => { a.state.t += 16; } }).done;
+  assert.equal(noSong.status, 'done'); assert.equal(a.state.draws, 0); assert.equal(a.state.lightened, 0);
+  // a song that is 20 s long and starts at 0 when the passes end: the show runs about 20 s, one draw per frame, at most every SHOW.frameMs (every 2nd 16 ms frame here), no timed work
+  const b = make(); let songStart = null; const texts = [];
+  const song = () => { if (songStart === null) songStart = b.state.t; const time = (b.state.t - songStart) / 1000; return time >= 20 ? null : { time, duration: 20 }; };
+  const runsBefore = (() => { const c = make(); return startBenchmark({ cls: 'discrete', beat, createWorkload: () => c.fake, now: c.now, sleep: c.sleep }).done.then(r => ({ r, runs: c.state.runs })); })();
+  const withShow = await startBenchmark({ cls: 'discrete', beat, createWorkload: () => b.fake, now: b.now, sleep: b.sleep, nextFrame: async () => { b.state.t += 16; }, song, onStatus: t => texts.push(t) }).done;
+  const without = await runsBefore;
+  assert.equal(withShow.status, 'done'); assert.equal(withShow.outcome.score, without.r.outcome.score, 'the show phase does not change the score'); assert.equal(b.state.runs, without.runs, 'no timed work in the show phase');
+  assert.equal(b.state.lightened, 1); assert.ok(b.state.draws >= 20000 / 32 - 3 && b.state.draws <= 20000 / 32 + 3, `draws ${b.state.draws}`);
+  assert.ok(texts.some(t => /^SCORE LOCKED IN\. SONG 0:\d\d \/ 0:20\. ESC SKIPS TO THE RESULT$/.test(t)));
+  // cancelling during the show still delivers the measured score
+  const c = make(); let handle; let n = 0;
+  handle = startBenchmark({ cls: 'discrete', beat, createWorkload: () => c.fake, now: c.now, sleep: c.sleep, nextFrame: async () => { c.state.t += 16; if (++n === 5) handle.cancel(); }, song: () => ({ time: 1, duration: 280 }) });
+  const cancelled = await handle.done; assert.equal(cancelled.status, 'done'); assert.equal(cancelled.outcome.score, without.r.outcome.score); assert.ok(n >= 5 && n < 8, 'the show stops at once');
+  // a stalled song (stuck at one time) is given up on after its length plus the grace
+  const d = make(); const stuck = await startBenchmark({ cls: 'discrete', beat, createWorkload: () => d.fake, now: d.now, sleep: d.sleep, nextFrame: async () => { d.state.t += 100; }, song: () => ({ time: 3, duration: 10 }) }).done; assert.equal(stuck.status, 'done');
+  // cancelling during the timed run still cancels
+  const e = make(); let early; early = startBenchmark({ cls: 'discrete', beat, createWorkload: () => e.fake, now: e.now, sleep: async () => { e.state.t += 10; await 0; early.cancel(); }, song: () => ({ time: 1, duration: 280 }) }); assert.equal((await early.done).status, 'cancelled'); assert.equal(e.state.draws, 0);
+});
+
+test('the scored work is pinned: constants and the Julia shader do not change, so saved scores and the class calibration stay valid', () => {
+  assert.deepEqual({ version: BENCHMARK.version, warmupMs: BENCHMARK.warmupMs, passes: BENCHMARK.passes, passMs: BENCHMARK.passMs, width: BENCHMARK.width, height: BENCHMARK.height, shaderIterations: BENCHMARK.shaderIterations, batchTargetMs: BENCHMARK.batchTargetMs, maxScore: BENCHMARK.maxScore }, { version: 2, warmupMs: 2000, passes: 5, passMs: 2000, width: 1280, height: 720, shaderIterations: 160, batchTargetMs: 30, maxScore: 10000 });
+  assert.deepEqual(BENCHMARK.rate, { webgl2: { min: 3e10, max: 4e12 }, webgl1: { min: 3e10, max: 4e12 }, canvas2d: { min: 1e8, max: 1e10 } });
+  const src = fragment(BENCHMARK.shaderIterations);
+  assert.equal((src.match(/for \(int i = 0; i < 160; i\+\+\)/g) ?? []).length, 1, 'one loop of 160 iterations'); assert.ok(src.includes('acc / 160.0'));
+  assert.equal(createHash('sha256').update(src).digest('hex'), '6311fbc3489480766266ea7088f8d07a0a7239b8cd080fd79b79b61f29148a20', 'the shader source changed: that changes the scored work (bump BENCHMARK.version and recalibrate, docs/CALIBRATION.md)');
 });
 
 // ---- detecting the class from real strings: always a class, never a pick ----

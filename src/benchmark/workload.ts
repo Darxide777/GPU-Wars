@@ -1,7 +1,7 @@
 // The GPU workload: a neon Julia-set shader with the song's beat pulsing it, in the game's colours, drawn at a fixed size so every card does the same work.
 // Three ways to draw, tried in this order so the benchmark runs on anything that can run the game: WebGL2, WebGL1, then the 2D canvas.
 // A `Workload` does a measured amount of work and waits for the card to finish it (`run(draws)` returns when the work is done), which is how the passes are timed.
-import { BENCHMARK, type BackendId } from './constants.ts';
+import { BENCHMARK, SHOW, type BackendId } from './constants.ts';
 import type { BeatState } from '../beat/clock.ts';
 
 /** what the workload draws each time: the seconds into the run and the song's beat (src/beat/clock.ts) */
@@ -14,6 +14,10 @@ export interface Workload {
   run(draws: number, frame: Frame): number;
   /** work units in one draw */
   unitsPerDraw: number;
+  /** for the SHOW phase, after scoring: shrink the canvas to a light size (the scored size is never used again) */
+  lighten(): void;
+  /** for the SHOW phase: ONE draw, no wait for the card (so no sync stall) */
+  draw(frame: Frame): void;
   dispose(): void;
 }
 
@@ -23,7 +27,7 @@ const vec3 = (c: readonly number[]): string => `vec3(${c.map(v => v.toFixed(4)).
 
 const VERTEX = 'attribute vec2 p; void main(){ gl_Position = vec4(p, 0.0, 1.0); }';
 // ESSL 1.00 so one source runs on WebGL1 and WebGL2. The loop is a fixed count with no early exit, so every pixel costs the same on every card.
-const fragment = (iterations: number): string => `precision highp float;
+export const fragment = (iterations: number): string => `precision highp float;
 uniform vec2 uRes; uniform float uTime, uPulse, uBass, uMid, uHigh;
 void main(){
   vec2 uv = gl_FragCoord.xy / uRes; vec2 p = (gl_FragCoord.xy * 2.0 - uRes) / uRes.y;
@@ -51,10 +55,13 @@ function createGl(canvas: HTMLCanvasElement, kind: 'webgl2' | 'webgl1'): Workloa
   gl.viewport(0, 0, canvas.width, canvas.height);
   gl.uniform2f(loc.res, canvas.width, canvas.height);
   const sink = new Uint8Array(4), unitsPerDraw = canvas.width * canvas.height * BENCHMARK.shaderIterations;
+  const setFrame = (f: Frame): void => { gl.uniform1f(loc.time, f.time); gl.uniform1f(loc.pulse, f.beat.pulse); gl.uniform1f(loc.bass, f.beat.bass); gl.uniform1f(loc.mid, f.beat.mid); gl.uniform1f(loc.high, f.beat.high); };
   return {
     backend: kind, canvas, unitsPerDraw,
+    lighten() { canvas.width = SHOW.width; canvas.height = SHOW.height; gl.viewport(0, 0, canvas.width, canvas.height); gl.uniform2f(loc.res, canvas.width, canvas.height); },
+    draw(f) { setFrame(f); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); },
     run(draws, f) {
-      gl.uniform1f(loc.time, f.time); gl.uniform1f(loc.pulse, f.beat.pulse); gl.uniform1f(loc.bass, f.beat.bass); gl.uniform1f(loc.mid, f.beat.mid); gl.uniform1f(loc.high, f.beat.high);
+      setFrame(f);
       for (let i = 0; i < draws; i++) gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
       // reading one pixel back makes the browser wait until the card has finished every draw before it
       gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, sink);
@@ -69,8 +76,17 @@ function createCanvas2d(canvas: HTMLCanvasElement): Workload | null {
   const g = canvas.getContext('2d', { willReadFrequently: false });
   if (!g) return null;
   const layers = 24, unitsPerDraw = canvas.width * canvas.height * layers;
+  const paint = (f: Frame, count: number): void => {
+    const w = canvas.width, h = canvas.height;
+    for (let i = 0; i < count; i++) {
+      const k = i / layers, grad = g.createRadialGradient(w * (0.5 + 0.3 * Math.sin(f.time * 0.5 + i)), h * (0.5 + 0.3 * Math.cos(f.time * 0.4 + i)), 0, w / 2, h / 2, Math.max(w, h) * (0.4 + 0.4 * f.beat.pulse * k));
+      grad.addColorStop(0, `rgba(${PALETTE.magenta.map(v => Math.round(v * 255)).join(',')},${0.25 + 0.15 * f.beat.pulse})`); grad.addColorStop(1, `rgba(${PALETTE.cyan.map(v => Math.round(v * 255)).join(',')},0)`); g.fillStyle = grad; g.fillRect(0, 0, w, h);
+    }
+  };
   return {
     backend: 'canvas2d', canvas, unitsPerDraw,
+    lighten() { canvas.width = SHOW.width; canvas.height = SHOW.height; },
+    draw(f) { g.fillStyle = '#05010f'; g.fillRect(0, 0, canvas.width, canvas.height); paint(f, 4); },
     run(draws, f) {
       const w = canvas.width, h = canvas.height;
       for (let d = 0; d < draws; d++) {
