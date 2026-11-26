@@ -2,7 +2,7 @@
 // the timeslip, and tunes kept within what a car allows.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { STAGE, STAGE_LABELS, stageLabel, ghostStagingPath, stagingPoseAt, stagingPlanFor, densityAltitudeOf, densityTorqueShare, hotPressure, pressureGrip, CONDITIONS, WIND, WEATHER, GHOST, FUEL, RUBBER, TRACTION, airDensity, autoThrottle, bottlePressure, brakeFadeOf, boostLimitOf, boostRetardAt, boostRisk, chuteOpening, cleanDragGhost, clutchAfterRun, clutchBiteTime, clutchTorqueScale, clutchTorqueShare, conditionsForSeed, conditionsText, conditionsAt, forecastText, createDrag, createDragStrip, clearDragStrip, engineHotShare, engineTrim, fuelKg, fuelTorqueShare, ghostFromRunner, gearEfficiency, lateralShare, loadGrip, nitroShotGain, predictDrag, rubberAt, rubberShare, runnerMass, slipGrip, stageRolloutTime, staticRearShare, throttleOf, timeslip, trackGrip, tireTarget, wearGrip, windAt, weatherText, DRAG, SHUTDOWN, SUSP } from '../src/drag/physics.ts';
+import { STAGE, STAGE_LABELS, stageLabel, ghostStagingPath, stagingPoseAt, stagingPlanFor, densityAltitudeOf, densityTorqueShare, hotPressure, pressureGrip, CONDITIONS, WIND, WEATHER, GHOST, FUEL, RUBBER, TRACTION, airDensity, autoThrottle, bottlePressure, brakeFadeOf, boostLimitOf, boostRetardAt, boostRisk, chuteOpening, cleanDragGhost, clutchAfterRun, tireWearAfterRun, clutchBiteTime, clutchTorqueScale, clutchTorqueShare, conditionsForSeed, conditionsText, conditionsAt, forecastText, createDrag, createDragStrip, clearDragStrip, engineHotShare, engineTrim, fuelKg, fuelTorqueShare, ghostFromRunner, gearEfficiency, lateralShare, loadGrip, nitroShotGain, predictDrag, rubberAt, rubberShare, runnerMass, slipGrip, stageRolloutTime, staticRearShare, throttleOf, timeslip, trackGrip, tireTarget, wearGrip, windAt, weatherText, DRAG, SHUTDOWN, SUSP } from '../src/drag/physics.ts';
 import { DRAG_CARS, PARTS, dragCarById } from '../src/drag/data.ts';
 import { BOOST, CLUTCH, ENGINE, TURBO, limiterTorqueShare, specFor, cleanTune, defaultTune, torqueShape } from '../src/drag/tune.ts';
 import { TUNE_HINTS, tuneHint } from '../src/drag/tune-help.ts';
@@ -908,4 +908,15 @@ test('the views read the chute as it opens, not just as a boolean', () => {
   assert.equal(chuteOpening(part), 0.25); assert.equal(chuteOpening(full), 1);
   assert.equal(chuteOpening({ chute: false, aborted: true, chuteOpen: 0.5 }), 0.5, 'an abort still opens the chute');
   assert.equal(chuteOpening(old), 1, 'an old caller with only a boolean gets a full chute');
+});
+test('tire wear carries into the next run as the entrant says, a bad number means new tires, and replacing them is just starting with none', () => {
+  const base = entrant('streeter'), wornOne = race({ seed: 1, entrants: [{ ...base, tireWear: [0.4, 0.7] }] }), newOne = race({ seed: 1, entrants: [base] });
+  assert.deepEqual(wornOne.state.runners[0].tires.map(t => t.wear), [0.4, 0.7], 'starts with the carried wear');
+  assert.deepEqual(newOne.state.runners[0].tires.map(t => t.wear), [0, 0], 'a missing value means new tires');
+  const bad = race({ seed: 1, entrants: [{ ...base, tireWear: [NaN, 9] }] });
+  assert.deepEqual(bad.state.runners[0].tires.map(t => t.wear), [0, 1], 'a bad number is repaired');
+  const after = tireWearAfterRun(runAll(race({ seed: 1, entrants: [{ ...base, tireWear: [0.4, 0.7] }] })).state.runners[0]);
+  assert.ok(after[0] >= 0.4 && after[1] >= 0.7 && after.every(w => w <= 1), 'wear only grows over a run');
+  const a = runAll(race({ seed: 3, entrants: [{ ...base, tireWear: [0.6, 0.6] }] })), b = runAll(race({ seed: 3, entrants: [{ ...base, tireWear: [0.6, 0.6] }] }));
+  assert.equal(a.state.runners[0].marks.quarter, b.state.runners[0].marks.quarter, 'the same worn start gives the same race');
 });

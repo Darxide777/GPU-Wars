@@ -15,6 +15,7 @@ export const TUNE_HINTS: Record<string, string> = {
   statsTab: 'Your car numbers, clutch condition and a predicted timeslip for this tune in the current conditions.',
   tuningTab: 'Change the car setup. Every change is saved at once.',
   test: 'A free-play race that records nothing: use it to try the tune.',
+  replaceTires: 'The rear slicks wear when they spin, and worn slicks grip less, and the wear carries from race to race in this visit. Replacing them is free and puts both back to new.',
   reset: 'Put the tune back to its stock settings.',
   back: 'Return to the menu you came from.',
 };
