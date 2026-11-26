@@ -2,9 +2,9 @@
 // The rate is what the result screen and the console print as `RATE ... units/s`. Replace a guess with a measurement and say so in `source`. docs/CALIBRATION.md says how.
 export interface ReferenceCard { name: string; class: string; /** work units per second, as the benchmark reports it */ rate: number; /** where the number comes from */ source: 'placeholder' | 'measured'; /** what the car should do in the quarter mile (s) */ targetEt?: number }
 export const REFERENCE_CARDS: readonly ReferenceCard[] = [
-  /** the owner's own machine, a strong integrated GPU (a guess: about 12 TFLOP of fp32 at roughly 5% of peak on this shader): it must land near a 10 s car. Report the real rate and replace this. */
-  { name: 'AMD Radeon 8060S', class: 'integrated', rate: 6e11, source: 'placeholder', targetEt: 10 },
-  /** Discrete cards, ALL placeholders: a guess of about 5% of the card's fp32 peak on this shader (the same ratio as the 8060S). They check that the log score scale spreads weak and strong discrete cards over the one wide discrete window. */
+  /** the owner's own machine, a strong integrated GPU: a REAL MEASUREMENT (raw score 5005, a second reading 4944; the rate that gives it on the unchanged BENCHMARK.rate scale; 2026-11-25). The integrated table gives about 10.3 s at that score, which the owner accepts as about 10 s. */
+  { name: 'AMD Radeon 8060S', class: 'integrated', rate: 3.4726e11, source: 'measured', targetEt: 10.3 },
+  /** Discrete cards, ALL placeholders: a guess of about 5% of the card's fp32 peak on this shader (a rough ratio, not the 8060S's measured one). They check that the log score scale spreads weak and strong discrete cards over the one wide discrete window. */
   { name: 'NVIDIA GeForce GT 710 (weakest)', class: 'discrete', rate: 1.8e10, source: 'placeholder', targetEt: 6.94 },
   { name: 'NVIDIA GeForce GTX 750 Ti', class: 'discrete', rate: 6.5e10, source: 'placeholder' },
   { name: 'NVIDIA GeForce GTX 1060', class: 'discrete', rate: 2.2e11, source: 'placeholder' },

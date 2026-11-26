@@ -6,7 +6,7 @@ There are TWO classes for now, `integrated` and `discrete` (no vendor or generat
 
 | class | slowest card (score 0) | fastest card (class cap) | machine |
 |---|---|---|---|
-| integrated | 12.3 s | 9.4 s (score 8000; a strong iGPU such as the Radeon 8060S scores about 6100 and runs about 9.9 s, near 10) | a 400 to 650 hp street car |
+| integrated | 12.3 s | 9.4 s (score 8000; a strong iGPU such as the Radeon 8060S scores 5005 (measured) and runs about 10.3 s, near 10) | a 400 to 650 hp street car |
 | discrete | 6.9 s (a weak old card) | 4.0 s at about 340 mph (the best current cards, score 10000) | a 1,900 hp funny car up to a top fuel dragster |
 | no benchmark | 12.9 s | | slower than every benchmarked car |
 
@@ -40,11 +40,11 @@ Times are the perfect-driver prediction (`predictDrag`) on the ranked class day 
 | discrete | 10000 | 6500 | 0.80 | 4.03 | 338 | 3.97 |
 | no benchmark (weakest) | - | 324 | 2.42 | 12.91 | 102 | - |
 
-Real cards on the log score scale (`REFERENCE_CARDS`, `src/benchmark/reference.ts`; all rates are PLACEHOLDERS at about 5 percent of the card's fp32 peak, the same guess as the 8060S):
+Real cards on the log score scale (`REFERENCE_CARDS`, `src/benchmark/reference.ts`; the 8060S is a REAL MEASUREMENT from the owner's machine (score 5005, taken for the masked-GPU PR, 2026-11-25); the discrete rates are PLACEHOLDERS at about 5 percent of the card's fp32 peak):
 
 | card | class | rate units/s | score | ET default tune |
 |---|---|---|---|---|
-| AMD Radeon 8060S | integrated | 6.0e+11 | 6123 | 9.89 |
+| AMD Radeon 8060S (measured) | integrated | 3.47e+11 | 5005 | about 10.3 |
 | NVIDIA GeForce GT 710 (weakest) | discrete | 1.8e+10 | 0 | 6.94 |
 | NVIDIA GeForce GTX 750 Ti | discrete | 6.5e+10 | 1580 | 5.93 |
 | NVIDIA GeForce GTX 1060 | discrete | 2.2e+11 | 4072 | 5.00 |
@@ -79,16 +79,16 @@ The benchmark turns a measured **work rate** (shader iterations of the Julia-set
 1. Build and open the game (`npm run build`, then serve `index.html`), press **BENCHMARK** (the class is detected, never picked) and let it finish with the screen visible and no other tab busy.
 2. Read the result screen. It prints one line, and the same line goes to the browser console (`[GPU Wars benchmark] ...`):
 
-   `RAW SCORE 6123 (KEPT 6123, CLASS CAP 8000) | RATE 6.000e+11 units/s (600.0 G units/s) | webgl2 | version 2 | gpu <name> | class integrated`
+   `RAW SCORE 5005 (KEPT 5005, CLASS CAP 8000) | RATE 3.473e+11 units/s (347.3 G units/s) | webgl2 | version 2 | gpu <name> | class integrated`
 
 3. Report the **RATE** and the **gpu** text (copy the console line). Run it three times and use the middle one: the rate is the mean of the passes that were not thermally throttled.
 4. Then do what the table below says.
 
-**Placeholder for the 8060S:** `REFERENCE_CARDS` in `src/benchmark/reference.ts` guesses 6e11 units/s (about 12 fp32 TFLOP at roughly 5% of peak on this shader). With `rate: { min: 3e10, max: 4e12 }` that scores 6123, a **9.9 s** car (about 9.6 s with a good tune), near the top of integrated (the cap is 8000). The log scale puts a 1 TFLOP iGPU near score 0 and a 4090-class card at the maximum.
+**The 8060S is measured:** the owner's machine scored **5005** on `rate: { min: 3e10, max: 4e12 }` (rate 3.47e11 units/s, stored in `REFERENCE_CARDS` with `source: 'measured'`), a **10.3 s** car on the default tune, which the owner accepts as about 10 s. The score table and `BENCHMARK.rate` were NOT changed to chase 10.0 s. The calibration test checks the 8060S lands at its `targetEt` (10.3 s) within 0.35 s. It is below the integrated cap (8000), so faster iGPUs score higher. The log scale puts a 1 TFLOP iGPU near score 0 and a 4090-class card at the maximum.
 
 **Turning the owner's number into the constants:** let `R` be the reported rate of the 8060S.
 
-- If the 8060S should score about 6100 (a 10 s car), pick `max` (the rate a flagship card reaches; anything above is capped; 4e12 is the start) and solve for `min` so that `ln(R / min) / ln(max / min) = 0.61`, that is `min = exp((ln R - 0.61 x ln max) / 0.39)`. For R = 6e11 and max = 4e12 this gives min = 3.0e10.
+- (Historical, for a re-calibration) if the 8060S should score about 6100 (a 10 s car), pick `max` (the rate a flagship card reaches; anything above is capped; 4e12 is the start) and solve for `min` so that `ln(R / min) / ln(max / min) = 0.61`, that is `min = exp((ln R - 0.61 x ln max) / 0.39)`. For R = 6e11 and max = 4e12 this gives min = 3.0e10.
 - Set `BENCHMARK.rate.webgl2` and `webgl1` to `{ min, max }`, update `REFERENCE_CARDS` (set `source: 'measured'`), bump `BENCHMARK.version` (every saved score is then re-run), and run `npm test`: the 8060S test checks that `scoreFromRate(R)` gives a 10 s car.
 - Other cards later: add them to `REFERENCE_CARDS` with their class and the ET they should have, so the table stays honest. A faster strong iGPU should score higher than the 8060S, which is why the placeholder sits below the integrated cap.
 - If the 8060S is much slower or faster than the guess, only `rate.min`/`max` change; the physics and the class windows do not.
@@ -98,3 +98,14 @@ The benchmark turns a measured **work rate** (shader iterations of the Julia-set
 ## The ghost's launch curve
 
 The class leader's ghost (`src/leaderboard/ghost.ts`) makes the splits the leader's record does not give from `launchEnvelope`. It is tuned to the simulation: `LEADERBOARD_GHOST.launchShare` holds the simulated 60 ft as a share of the ET per ET with the default tune (0.198 at 4.0 s, 0.181 at 4.55 s, 0.173 at 5.0 s, 0.169 at 5.75 s, 0.172 at 6.9 s, 0.180 at 9.5 s), `powerByClass` is 1.6 for both classes and `trapShare` is 0.2. `tests/ghost-fx.test.mjs` compares the generated splits (60 ft, 330 ft, 1/8 mile, 1000 ft as a share of the ET) with the simulated ones for both classes at the bundled leader's ET and at six scores across each class's range, and fails beyond 5 percent. A leader with a GOOD tune launches a little harder than the default-tune physics (60 ft about 0.164 of a 9.7 s ET, 0.174 of 4.3 s, against the ghost's 0.180 and 0.187): the share table follows the default tune, so a ghost is slightly conservative off the line. After changing the physics, rerun it and move `launchShare` to the new simulated 60 ft shares.
+
+## Masked graphics cards (the browser hides the name)
+
+Some browsers (Firefox ", or similar" buckets, resistFingerprinting, Tor, Brave shields) report a fixed placeholder such as `AMD Radeon R9 200 Series, or similar` (see the list and sources in the comments of `src/benchmark/gpu.ts`). Such a name is UNKNOWN, never the card it names. The class is then decided AFTER the benchmark from the measured work rate, by the one rule in `MASKED_GPU_RULE` (`src/benchmark/constants.ts`):
+
+- threshold rate = rate of the reference card (`AMD Radeon 8060S`, MEASURED, 3.47e11 units/s, score 5005) x margin (**2**) = **6.95e11 units/s**, which is a score of about **6422** on the webgl2 scale (the integrated cap is 8000, so a score above the threshold is always allowed in discrete and below it always fits integrated).
+- rate above the threshold: DISCRETE. Otherwise (or on the 2D canvas fallback, or with no rate): INTEGRATED. A masked card is never given a faster class than its speed supports, and a score is always kept to its class's cap.
+- The saved result carries `classFromSpeed: true`; the re-run check does not compare that class with the pre-benchmark default (integrated), so it does not ask again and again. A different `gpuId`, benchmark version or a card that stops being masked still asks for a re-run.
+- Risks: an iGPU more than twice as fast as the 8060S would be called discrete (none is known); a real discrete card slower than 6.95e11 units/s (about an RTX 3060 or weaker, by the placeholder rates) with a masked name is raced as integrated and its score is capped at 8000. The margin and the 8060S rate are the only numbers to tune.
+
+The 8060S score was read twice on the owner's machine: 5005 (the RAW score, used here; below both class caps so raw = kept) and 4944. That is about 1 percent run-to-run variation (about 0.5 percent in rate terms on the log scale); the margin of 2 (a 100 percent rate gap) comfortably exceeds it. The class rule and `REFERENCE_CARDS` use the work RATE, which is the raw measurement, never the capped score.

@@ -43,7 +43,7 @@ COOL ENGINE and CLEAR STRIP put the engine temperature and the rubber on the str
 THE FLOW OF THE RACE:
 
 1. BENCHMARK from the title screen (never automatic). It scores your GPU, then your class is set from it (INTEGRATED or DISCRETE: two classes for now, detected automatically; a split by generation and maker can be added later, the class list is one file, backend/src/classes.ts). Run it again only if you change your GPU or overclock it: the game cannot see an overclock.
-   The CLASS row shows the class the game detected from your graphics card; it cannot be picked or changed (when the card is masked the game assumes integrated). Skip the benchmark and you race with the weakest car.
+   The CLASS row shows the class the game detected from your graphics card; it cannot be picked or changed (when the browser hides the card's name, for example Firefox's "AMD Radeon R9 200 Series, or similar" placeholder, the name is treated as unknown: integrated until the benchmark has run, then discrete only if its measured speed is far above any built-in GPU, and the screen says so). Skip the benchmark and you race with the weakest car.
 2. RACE CLASS LEADER. You race a ghost of the fastest player in your class. Everyone races the same ranked class day (same weather, a fresh strip).
    The ghost follows the leader's time, not the physics, so it is the time to beat.
 3. The staging, like the real thing: drive to the water box, do a BURNOUT to heat the tires, run out past the tree, STOP, BACK UP to the pre-stage beam,

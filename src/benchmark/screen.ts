@@ -18,7 +18,7 @@ export function beatForScreen(playing: { name: string; time: number } | null, se
 
 export interface BenchmarkScreen extends RunHandle { close(): void }
 /** show the benchmark and run it; `playing` says which song is playing and where it is (null: none). Call `close()` when done with the result. */
-export function openBenchmarkScreen(o: { cls: ClassId; playing: () => { name: string; time: number } | null; onFinish: (r: RunResult) => void }): BenchmarkScreen {
+export function openBenchmarkScreen(o: { cls: ClassId; masked?: boolean; playing: () => { name: string; time: number } | null; onFinish: (r: RunResult) => void }): BenchmarkScreen {
   const root = document.createElement('div');
   root.style.cssText = 'position:fixed;inset:0;z-index:20;background:#05010f;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:inherit;color:#bdf7ff;';
   root.innerHTML = '<div style="width:min(92vw,1100px);display:flex;flex-direction:column;gap:10px"><div style="display:flex;justify-content:space-between;align-items:baseline;letter-spacing:.2em"><b style="color:#ff2bd6;font-size:18px">BENCHMARK</b><span id="bm-status" style="color:#ffe14d">STARTING</span></div><div id="bm-canvas" style="width:100%;aspect-ratio:16/9;background:#000;border:2px solid #ff2bd6;box-shadow:0 0 24px rgba(255,43,214,.4)"></div><div style="height:8px;background:#1a0a3a"><div id="bm-bar" style="height:100%;width:0;background:#21e6ff"></div></div><div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;letter-spacing:.1em;color:#8a9ac0"><span>KEEP THIS PAGE IN FRONT. A SCREEN FULL OF LIGHTS AND A FEW SECONDS OF WORK.<br>THE GAME CANNOT SEE AN OVERCLOCK: AFTER OVERCLOCKING OR CHANGING YOUR GPU, RUN THE BENCHMARK AGAIN YOURSELF FROM THE TITLE MENU.</span><button id="bm-cancel" style="touch-action:manipulation">' + BENCHMARK.hudText + '</button></div></div>';
@@ -27,7 +27,7 @@ export function openBenchmarkScreen(o: { cls: ClassId; playing: () => { name: st
   // the workload's canvas is added to `slot` by the runner and made to fill it
   const style = document.createElement('style'); style.textContent = '#bm-canvas canvas{width:100%;height:100%;display:block;touch-action:none}'; root.appendChild(style);
   const run = startBenchmark({
-    cls: o.cls, host: slot, beat: seconds => beatForScreen(o.playing(), seconds),
+    cls: o.cls, masked: o.masked, host: slot, beat: seconds => beatForScreen(o.playing(), seconds),
     onStatus: (text, progress) => { statusEl.textContent = text; bar.style.width = `${Math.round(progress * 100)}%`; },
   });
   (root.querySelector('#bm-cancel') as HTMLElement).onclick = () => run.cancel();

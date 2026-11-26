@@ -42,3 +42,8 @@ export const BENCHMARK = {
 
 /** the most a class may score as a share of `maxScore`, so a wrongly chosen or impossible score cannot out-run its class (a tunable anti-cheat bound, like the backend's ET floors) */
 export const CLASS_SCORE_SHARE = { integrated: 0.8, discrete: 1 } as const satisfies Record<ClassId, number>;
+
+/** THE RULE FOR A MASKED CARD (the browser hides its name, see gpu.ts): the class comes from the measured work rate. A rate above `referenceRate(referenceCard) x margin` is more than any built-in GPU does: DISCRETE; otherwise INTEGRATED.
+ *  The reference is the strongest integrated card in reference.ts (the 8060S, MEASURED at score 5005). A margin of 2 puts the line at twice its rate (score about 6420, a class cap of 8000 is above it): a faster iGPU or a boost spike is still integrated, only a card clearly beyond any built-in GPU becomes discrete.
+ *  Conservative on purpose: a strong iGPU must never be raced as discrete; a masked weak discrete card is raced as integrated (slower class, honest score). Documented in docs/CALIBRATION.md. */
+export const MASKED_GPU_RULE = { referenceCard: 'AMD Radeon 8060S', margin: 2 } as const;

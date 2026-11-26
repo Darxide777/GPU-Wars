@@ -9,6 +9,7 @@ import type { ClassId } from '../classes.ts';
 export type RunResult = { status: 'done'; outcome: BenchmarkOutcome } | { status: 'failed'; reason: string } | { status: 'cancelled' };
 export interface RunDeps {
   /** the class the score will be capped for */ cls: ClassId;
+  /** the card is masked: the class is decided from the measured speed after the run (`cls` is only the default) */ masked?: boolean;
   /** the song's beat now (the clock's `beatAt` of the playing song, or a made-up beat with no music), and the seconds the shader's animation is at */
   beat: (seconds: number) => BeatState;
   /** where to show the canvas and the status text; leave out to run without showing anything (tests) */ host?: HTMLElement;
@@ -59,7 +60,7 @@ export function startBenchmark(deps: RunDeps): RunHandle {
         passes.push({ rate: r.units / Math.max(0.001, r.wallMs / 1000), wallMs: r.wallMs });
       }
       if (cancelled) return { status: 'cancelled' };
-      const outcome = outcomeFromPasses(passes, now() - runStart, hidden || (deps.wasHidden?.() ?? false), workload.backend as BackendId, deps.cls);
+      const outcome = outcomeFromPasses(passes, now() - runStart, hidden || (deps.wasHidden?.() ?? false), workload.backend as BackendId, deps.cls, deps.masked === true);
       return outcome.ok ? { status: 'done', outcome } : { status: 'failed', reason: outcome.reason };
     } catch (e) {
       return { status: 'failed', reason: 'THE GRAPHICS CARD STOPPED RESPONDING' };

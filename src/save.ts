@@ -11,7 +11,7 @@ export const SAVE_VERSION = 2;
 const HISTORY_MAX = 10;
 
 /** what the benchmark leaves behind. It is re-run only when `gpuId` or `benchmarkVersion` changes (src/benchmark/rules.ts). `class` is a class id (src/classes.ts); `sustain` (0 to 1, optional) is how steady the card was across the passes: it shapes the torque curve. */
-export interface BenchmarkResult { score: number; class: string; benchmarkVersion: number; gpuId: string; date: number; sustain?: number }
+export interface BenchmarkResult { score: number; class: string; benchmarkVersion: number; gpuId: string; date: number; sustain?: number; /** true when the class was decided from the measured speed (the browser hid the card's name) */ classFromSpeed?: boolean }
 /** one race, as kept in the history: what it was against, how it went and the timeslip's main numbers */
 export interface RunRecord { against: string; won: boolean; foul: boolean; crossed: boolean; crashed: boolean; reaction: number; et: number; trap: number; at: number }
 export interface Records { races: number; wins: number; fouls: number; crashes: number; bestEt: number; best60: number; bestTrap: number; bestReaction: number; history: RunRecord[] }
@@ -39,6 +39,7 @@ export function cleanBenchmark(raw: unknown): BenchmarkResult | null {
   if (score < 0 || !gpuId || !/^[a-z0-9-]{1,40}$/.test(cls)) return null;
   const out: BenchmarkResult = { score: Math.round(Math.min(BENCHMARK.maxScore, score)), class: cls, benchmarkVersion: count(raw.benchmarkVersion), gpuId, date: count(raw.date) };
   if (typeof raw.sustain === 'number' && Number.isFinite(raw.sustain)) out.sustain = Math.max(0, Math.min(1, raw.sustain));
+  if (raw.classFromSpeed === true) out.classFromSpeed = true;
   return out;
 }
 function cleanRecords(raw: unknown): Records {

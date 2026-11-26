@@ -2,9 +2,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { BENCHMARK } from '../src/benchmark/constants.ts';
-import { summarizePasses, scoreFromRate, capScore, classScoreCap, checkDurations, outcomeFromPasses } from '../src/benchmark/score.ts';
-import { classifyGpu, identityFromText, identify, gpuLine, PENDING_GPU } from '../src/benchmark/gpu.ts';
+import { BENCHMARK, MASKED_GPU_RULE } from '../src/benchmark/constants.ts';
+import { classForMaskedRate, maskedDiscreteRate, maskedDiscreteMinScore, summarizePasses, scoreFromRate, capScore, classScoreCap, checkDurations, outcomeFromPasses } from '../src/benchmark/score.ts';
+import { maskedReason, MASKED_NOTE, classifyGpu, identityFromText, identify, gpuLine, PENDING_GPU } from '../src/benchmark/gpu.ts';
 import { rerunReason, needsBenchmark, repairBenchmark, resultFromRun } from '../src/benchmark/rules.ts';
 import { dynoCurve, dynoPeaks, powerAt, torqueAt, dynoSvg } from '../src/benchmark/dyno.ts';
 import { startBenchmark, nextBatch } from '../src/benchmark/runner.ts';
@@ -171,7 +171,7 @@ test('the safe defaults: unclear is integrated, a separate card from an unknown 
 test('WebGL and WebGPU: plain evidence beats a guess, a software WebGPU adapter does not veto a real WebGL card, WebGL wins ties', () => {
   assert.equal(identify({ webglVendor: '', webglRenderer: 'Mesa', adapter: { vendor: 'nvidia', architecture: 'ampere', description: 'NVIDIA GeForce RTX 3060' } }).gpuClass, 'discrete', 'WebGL masked: WebGPU names the card');
   assert.equal(identify({ webglVendor: '', webglRenderer: NV, adapter: { vendor: 'google', architecture: 'swiftshader', isFallbackAdapter: true } }).gpuClass, 'discrete');
-  assert.equal(identify({ webglVendor: '', webglRenderer: NV, adapter: { vendor: 'intel', description: 'Intel(R) UHD Graphics 630' } }).gpuClass, 'discrete', 'WebGL is the card the benchmark runs on');
+  { const g = identify({ webglVendor: '', webglRenderer: NV, adapter: { vendor: 'intel', description: 'Intel(R) UHD Graphics 630' } }); assert.equal(g.masked, true, 'WebGL and WebGPU disagree strongly: unknown'); assert.equal(g.gpuClass, 'integrated', 'the safe default until measured'); }
   assert.equal(identify({ webglVendor: '', webglRenderer: 'SwiftShader', adapter: { vendor: 'nvidia', description: 'NVIDIA GeForce RTX 3060' } }).software, true);
   assert.equal(identify({ webglVendor: '', webglRenderer: 'x\u0000éy  z', adapter: null }).gpuId, 'xy z'); assert.equal(identify({ webglVendor: '', webglRenderer: '', adapter: null }).gpuId, 'unknown');
   assert.equal(identify({ webglVendor: '', webglRenderer: '', adapter: { description: 'Radeon' } }).source, 'webgpu'); assert.ok(identify({ webglVendor: '', webglRenderer: 'a'.repeat(500), adapter: null }).gpuId.length <= 200);
@@ -181,7 +181,7 @@ test('the result screen and the console show what the game saw', () => {
   const g = identify({ webglVendor: 'Google Inc. (AMD)', webglRenderer: 'ANGLE (AMD, AMD Radeon(TM) 8060S Graphics (0x00001586) Direct3D11, D3D11)', adapter: null }), line = gpuLine(g);
   assert.match(line, /8060S/); assert.match(line, /INTEGRATED/); assert.match(line, /built into the ryzen/);
   const page = readFileSync(new URL('../src/drag/page.ts', import.meta.url), 'utf8');
-  assert.match(page, /text: `\$\{gpuLine\(gpu\)\}/, 'the BENCHMARK DONE screen shows it'); assert.match(page, /\[GPU Wars benchmark\][^\n]*gpuLine\(gpu\)/, 'the console line shows it');
+  assert.match(page, /MASKED_NOTE/, 'and the privacy note'); assert.match(page, /text: `\$\{gpuLine\(gpu, cls\)\}/, 'the BENCHMARK DONE screen shows it'); assert.match(page, /\[GPU Wars benchmark\][^\n]*gpuLine\(gpu, cls\)/, 'the console line shows it');
 });
 
 // ---- the class cannot be picked ----
@@ -203,7 +203,7 @@ test('a strong integrated GPU (the 8060S) is raced as integrated near 10 s, and 
   assert.equal(gpu.gpuClass, 'integrated');
   const score = Math.min(scoreFromRate(ref.rate, 'webgl2'), classScoreCap(gpu.gpuClass));
   const et = cls => { const { spec, tune } = readyCar({ ...emptySave(), benchmark: resultFromRun({ score, sustain: 1, cls, gpuId: gpu.gpuId, now: 1 }) }), st = rankedStart(); return predictDrag(spec, tune, RANKED.seed, RANKED.conditions, st.fuel, st.engineTemp, rankedStrip()).slip.quarter; };
-  assert.ok(Math.abs(et(gpu.gpuClass) - 10) < 0.35, `integrated: ${et(gpu.gpuClass).toFixed(2)} s`);
+  assert.ok(Math.abs(et(gpu.gpuClass) - (ref.targetEt ?? 10.3)) < 0.35, `integrated: ${et(gpu.gpuClass).toFixed(2)} s`);
   assert.ok(et('discrete') < 5, 'the same score in the discrete class would be a 4 to 5 s car, so the class must never be picked');
   // no UI path turns it discrete: the only class the benchmark is started with is the detected one, and a saved result of another class is dropped
   let started = null; benchmarkItem({ save: () => emptySave(), gpu: () => gpu, say() {}, start: c => { started = c; }, refresh() {} }).enter(); assert.equal(started, 'integrated');
@@ -249,4 +249,70 @@ test('a save from the 17-class build (class "discrete-nvidia-classic") is read a
 test('a tune saved for a stronger engine is brought inside a weaker one', () => {
   const weak = specForBenchmark(result({ class: 'integrated', score: 0 })), tune = cleanTune({ shiftRpm: 9300, launchRpm: 9000 }, { ...STOCK_CAR, redline: weak.redline, peakRpm: weak.peakRpm }, weak);
   assert.ok(tune.shiftRpm <= weak.redline && tune.launchRpm <= weak.redline);
+});
+
+// ---- masked (placeholder) renderer names ----
+const R9 = 'AMD Radeon R9 200 Series, or similar';
+const MASKED = [
+  ['Google Inc. (AMD)', R9], ['', R9], ['', 'ANGLE (NVIDIA, NVIDIA GeForce GTX 980 Direct3D11 vs_5_0 ps_5_0), or similar'], ['', 'Apple M1, or similar'], ['', 'Intel(R) HD Graphics, or similar'],
+  ['Mozilla', 'Mozilla'], ['', 'Generic Renderer'], ['', 'ANGLE (Google, Vulkan 1.3.0 (Mesa), Mesa driver)'], ['', 'Intel(R) HD Graphics'], ['', 'NVIDIA GeForce GTX 980'], ['', 'AMD Radeon R9 200 Series'], ['', 'NVIDIA GeForce GTX 1050'],
+];
+const REF = REFERENCE_CARDS.find(c => c.name === MASKED_GPU_RULE.referenceCard);
+test('masked placeholder names are UNKNOWN: integrated before the benchmark, flagged, and the string is still shown', () => {
+  for (const [v, r] of MASKED) {
+    const g = identify({ webglVendor: v, webglRenderer: r, adapter: null });
+    assert.equal(g.masked, true, r); assert.equal(g.gpuClass, 'integrated', r); assert.match(gpuLine(g), /HIDING THE REAL GPU NAME/); assert.ok(gpuLine(g).includes(r.slice(0, 40)), 'the seen string is shown');
+  }
+  assert.match(MASKED_NOTE, /CLASS SET FROM MEASURED SPEED/);
+  const owner = identify({ webglVendor: '', webglRenderer: R9, adapter: null }); assert.equal(owner.gpuClass, 'integrated');
+});
+test('real names (and bare fixed names confirmed by WebGPU) are not masked and classify as before', () => {
+  for (const [v, r, a, want] of CARDS) { const g = identify({ webglVendor: v, webglRenderer: r, adapter: a }); if (/similar|mozilla|generic/i.test(r)) continue; assert.equal(g.gpuClass, want, r); }
+  assert.equal(identify({ webglVendor: '', webglRenderer: 'NVIDIA GeForce RTX 3060', adapter: null }).masked, false);
+  assert.equal(identify({ webglVendor: '', webglRenderer: 'AMD Radeon RX 7800 XT', adapter: null }).gpuClass, 'discrete');
+  assert.equal(identify({ webglVendor: '', webglRenderer: 'AMD Radeon(TM) 8060S Graphics', adapter: null }).masked, false);
+  assert.equal(identify({ webglVendor: '', webglRenderer: 'Intel(R) HD Graphics 530', adapter: null }).masked, false);
+  const real980 = identify({ webglVendor: '', webglRenderer: 'NVIDIA GeForce GTX 980', adapter: { vendor: 'nvidia', description: 'NVIDIA GeForce GTX 980' } });
+  assert.equal(real980.masked, false); assert.equal(real980.gpuClass, 'discrete', 'WebGPU confirms a real 980');
+  assert.equal(maskedReason('SwiftShader, or similar'), '', 'software is handled apart');
+});
+test('the masked-card rule: the 8060S reference rate is integrated, far above it is discrete, one named constants object', () => {
+  assert.equal(REF.source, 'measured'); assert.equal(MASKED_GPU_RULE.margin >= 1.5, true);
+  assert.equal(maskedDiscreteRate(), REF.rate * MASKED_GPU_RULE.margin);
+  assert.equal(classForMaskedRate(REF.rate), 'integrated'); assert.equal(classForMaskedRate(REF.rate * 1.9), 'integrated'); assert.equal(classForMaskedRate(maskedDiscreteRate()), 'integrated', 'at the line: still integrated');
+  assert.equal(classForMaskedRate(REF.rate * 4), 'discrete'); assert.equal(classForMaskedRate(4e12), 'discrete');
+  assert.equal(classForMaskedRate(NaN), 'integrated'); assert.equal(classForMaskedRate(1e13, 'canvas2d'), 'integrated');
+  assert.ok(maskedDiscreteMinScore() < classScoreCap('integrated'), 'the line sits under the integrated cap');
+});
+test('a masked run decides its class from the measured speed, and a score above a class cap is never saved in it', () => {
+  const passes = rate => Array.from({ length: BENCHMARK.passes }, () => ({ rate, wallMs: BENCHMARK.passMs }));
+  const run = rate => outcomeFromPasses(passes(rate), 20000, false, 'webgl2', 'integrated', true);
+  const at = run(REF.rate), far = run(REF.rate * 6);
+  assert.equal(at.cls, 'integrated'); assert.equal(at.classFromSpeed, true); assert.equal(at.score, 5005);
+  assert.equal(far.cls, 'discrete'); assert.ok(far.score > classScoreCap('integrated'), 'a discrete score may pass the integrated cap');
+  // an unmasked card keeps the class it was given and is capped by it
+  const strongIntegrated = outcomeFromPasses(passes(4e12), 20000, false, 'webgl2', 'integrated', false);
+  assert.equal(strongIntegrated.cls, 'integrated'); assert.equal(strongIntegrated.score, classScoreCap('integrated')); assert.equal(strongIntegrated.classFromSpeed, false);
+  // whatever reaches the save is capped
+  assert.equal(resultFromRun({ score: 10000, sustain: 1, cls: 'integrated', gpuId: 'x', now: 1 }).score, classScoreCap('integrated'));
+  const masked = identify({ webglVendor: '', webglRenderer: R9, adapter: null });
+  assert.equal(far.score <= classScoreCap(far.cls), true);
+  const saved = resultFromRun({ score: far.score, sustain: 1, cls: far.cls, gpuId: masked.gpuId, now: 1, classFromSpeed: far.classFromSpeed });
+  assert.equal(saved.class, 'discrete'); assert.equal(saved.classFromSpeed, true); assert.equal(cleanBenchmark(saved).classFromSpeed, true);
+});
+test('a masked result does not loop or flip-flop the class-changed re-run, and cannot claim a faster class than its score', () => {
+  const g = identify({ webglVendor: '', webglRenderer: R9, adapter: null });
+  for (const cls of ['integrated', 'discrete']) {
+    const score = cls === 'discrete' ? 8000 : 5005, r = resultFromRun({ score, sustain: 1, cls, gpuId: g.gpuId, now: 1, classFromSpeed: true });
+    assert.equal(rerunReason(r, g.gpuId, BENCHMARK.version, g.gpuClass, g.masked), null, cls + ': no re-run');
+    assert.equal(needsBenchmark(r, g), false); assert.equal(repairBenchmark({ ...emptySave(), benchmark: r }, g), null, cls + ': kept');
+  }
+  // the same saved class from speed is NOT trusted for a card that is not masked (the plain comparison applies)
+  const r = resultFromRun({ score: 8000, sustain: 1, cls: 'discrete', gpuId: 'x', now: 1, classFromSpeed: true });
+  assert.equal(rerunReason(r, 'x', BENCHMARK.version, 'integrated', false), 'class changed');
+  // an edited save: discrete with a score below the masked line, an over-cap integrated score, or a made-up class is dropped
+  for (const bad of [{ class: 'discrete', score: 3000 }, { class: 'integrated', score: 9000 }, { class: 'weird', score: 100 }]) {
+    assert.equal(repairBenchmark({ ...emptySave(), benchmark: { ...r, classFromSpeed: true, ...bad } }, g).benchmark, null, JSON.stringify(bad));
+  }
+  assert.equal(repairBenchmark({ ...emptySave(), benchmark: { ...r, class: 'discrete' } }, { ...g, masked: false, gpuClass: 'integrated' }).benchmark, null);
 });
