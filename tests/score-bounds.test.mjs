@@ -39,7 +39,8 @@ test('physics ETs of the default tune and a good tune fall inside the backend wi
     const cap = classScoreCap(cls), step = cap / 40; // 41 scores per class, off the table's own knots too
     for (let i = 0; i <= 40; i++) {
       const score = Math.round(step * i), w = plausibleWindow(cls, score);
-      for (const [name, run] of [['default', card(cls, score)], ['good', goodTune(cls, score)]]) {
+      const extreme = card(cls, score, (spec, tune) => ({ final: 5.5, launchAggression: 10, pressure: 40, ballast: 0, nitroShot: 0.6, launchRpm: spec.peakRpm }));      // (the settings a full search ends on: the owner's 9.49 s on a score-5000 integrated card is one)
+      for (const [name, run] of [['default', card(cls, score)], ['good', goodTune(cls, score)], ...(cls === 'integrated' ? [['extreme', extreme]] : [])]) {
         const at = `${cls} score ${score} ${name} tune`;
         assert.ok(run.quarter >= w.minEt && run.quarter <= w.maxEt, `${at}: ET ${run.quarter.toFixed(3)} outside ${w.minEt.toFixed(2)}-${w.maxEt.toFixed(2)}`);
         assert.ok(run.trapSpeed >= w.minTrapMph && run.trapSpeed <= w.maxTrapMph, `${at}: trap ${run.trapSpeed.toFixed(1)} outside ${w.minTrapMph.toFixed(0)}-${w.maxTrapMph.toFixed(0)}`);
@@ -48,7 +49,7 @@ test('physics ETs of the default tune and a good tune fall inside the backend wi
       }
       // the window is not loose: the default-tune ET sits within the tune and margin allowance of the fast edge (the class bound may only tighten it)
       const def = card(cls, score).quarter;
-      assert.ok(def - w.minEt <= PLAUSIBLE_TOLERANCE.goodTune + PLAUSIBLE_TOLERANCE.physicsMargin + 0.06 + Math.max(0, CLASS_BOUNDS[cls].minQuarterEt - w.minEt + 1), `${cls} ${score}: the fast edge is ${(def - w.minEt).toFixed(2)} s under the default`);
+      assert.ok(def - w.minEt <= PLAUSIBLE_TOLERANCE.goodTune[cls] + PLAUSIBLE_TOLERANCE.physicsMargin + 0.06 + Math.max(0, CLASS_BOUNDS[cls].minQuarterEt - w.minEt + 1), `${cls} ${score}: the fast edge is ${(def - w.minEt).toFixed(2)} s under the default`);
     }
   }
 });
@@ -57,13 +58,15 @@ test('a time faster than the window for the score is rejected, the scenarios the
   assert.notEqual(implausibleReason('discrete', 1000, { quarter: 3.7, ft60: 0.74, eighth: 2.4, trapSpeed: 330 }), null, 'score 1000 + 3.7 s');
   assert.equal(implausibleReason('discrete', 10000, { quarter: 4.1, ft60: 0.8, eighth: 2.6, trapSpeed: 330 }), null, 'score 10000 + 4.1 s');
   assert.notEqual(implausibleReason('integrated', 0, { quarter: 9, ft60: 1.5, eighth: 5.8, trapSpeed: 140 }), null, 'score 0 integrated + 9 s');
+  assert.equal(implausibleReason('integrated', 5000, { quarter: 9.49, ft60: 1.5, eighth: 5.8, trapSpeed: 128 }), null, 'the owner\'s 9.49 s on a score-5000 integrated card with a full tune');
   assert.equal(implausibleReason('integrated', 0, { quarter: 12.9, ft60: 2.4, eighth: 8.2, trapSpeed: 102 }), null, 'weakest score at a slow time');
   assert.equal(implausibleReason('discrete', 0, { quarter: 7.6, ft60: 1.25, eighth: 4.7, trapSpeed: 175 }), null, 'weakest discrete, slow');
-  // for every score a run 0.8 s under the physics default is refused
+  // for every score a run well under what the best tune can do (the class allowance plus 0.4 s) is refused
   for (const cls of CLASS_IDS) for (let score = 0; score <= classScoreCap(cls); score += 500) {
     const d = card(cls, score);
-    if (d.quarter - 0.8 < CLASS_BOUNDS[cls].minQuarterEt) continue;
-    assert.notEqual(implausibleReason(cls, score, { ...d, quarter: d.quarter - 0.8 }), null, `${cls} ${score}`);
+    const under = PLAUSIBLE_TOLERANCE.goodTune[cls] + PLAUSIBLE_TOLERANCE.physicsMargin + 0.4;
+    if (d.quarter - under < CLASS_BOUNDS[cls].minQuarterEt) continue;
+    assert.notEqual(implausibleReason(cls, score, { ...d, quarter: d.quarter - under }), null, `${cls} ${score}`);
   }
 });
 

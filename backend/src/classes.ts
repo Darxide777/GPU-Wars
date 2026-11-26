@@ -23,7 +23,7 @@ export interface ClassBounds {
 }
 
 export const CLASS_BOUNDS: Record<ClassId, ClassBounds> = {
-  integrated: { minQuarterEt: 8.5, maxQuarterEt: 30, minTrapSpeed: 60, maxTrapSpeed: 170 },
+  integrated: { minQuarterEt: 8.2, maxQuarterEt: 30, minTrapSpeed: 60, maxTrapSpeed: 170 },
   discrete: { minQuarterEt: 3.6, maxQuarterEt: 30, minTrapSpeed: 60, maxTrapSpeed: 370 },
 };
 

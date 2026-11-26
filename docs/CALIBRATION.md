@@ -10,7 +10,7 @@ There are TWO classes for now, `integrated` and `discrete` (no vendor or generat
 | discrete | 6.9 s (a weak old card) | 4.0 s at about 340 mph (the best current cards, score 10000) | a 1,900 hp funny car up to a top fuel dragster |
 | no benchmark | 12.9 s | | slower than every benchmarked car |
 
-Times are the perfect-driver prediction (`predictDrag`) on the ranked class day with the default tune. A good tune is 0.1 to 0.5 s quicker.
+Times are the perfect-driver prediction (`predictDrag`) on the ranked class day with the default tune. A good tune is 0.1 to 0.5 s quicker, and a full search of every tune setting gains up to about 1.3 s on integrated and 0.7 s on discrete (the server allows for that: `PLAUSIBLE_TOLERANCE.goodTune`).
 
 ## The full table (default tune, ranked class day, 22 C air, 300 m)
 

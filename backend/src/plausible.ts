@@ -28,8 +28,9 @@ export const SCORE_CURVE: Record<ClassId, readonly Knot[]> = {
 
 /** The allowances for what honest players vary, in seconds unless noted. They are added to the default-tune curve. */
 export const PLAUSIBLE_TOLERANCE = {
-  /** a good tune is worth up to about 0.5 s (the physics gives 0.06 s at the top of discrete to 0.56 s at the bottom of integrated) */
-  goodTune: 0.5,
+  /** the most a fully tuned car can be quicker than the default tune: a search of every tune setting (tests/score-bounds.test.mjs, docs/CALIBRATION.md) gains 1.03 to 1.27 s on integrated and 0.27 to 0.66 s on discrete, so the allowance sits just above that.
+   *  A tight allowance rejects honest, well-tuned runs, so it is per class. */
+  goodTune: { integrated: 1.3, discrete: 0.7 } as Record<ClassId, number>,
   /** room for a small physics change before the table is refreshed */
   physicsMargin: 0.1,
   /** autopilot is about this much slower than a manual run; it only matters on the slow side */
@@ -41,9 +42,9 @@ export const PLAUSIBLE_TOLERANCE = {
   trapLowShare: 0.25,
   trapHighShare: 0.1,
   trapExtraMph: 5,
-  /** floors for 60 ft and 1/8 mile as a share of the default time, minus a little (a good tune cuts the 60 ft by up to about 14 percent and the eighth by up to 6 percent) */
-  ft60Share: 0.8,
-  eighthShare: 0.88,
+  /** floors for 60 ft and 1/8 mile as a share of the default time, minus a little (a full tune cuts the 60 ft by up to about 24 percent and the eighth by up to about 15 percent) */
+  ft60Share: 0.7,
+  eighthShare: 0.8,
   floorExtra: 0.05,
 } as const;
 
@@ -74,7 +75,7 @@ export function plausibleWindow(cls: ClassId, benchmarkScore: number): Plausible
   const t = PLAUSIBLE_TOLERANCE, bounds = CLASS_BOUNDS[cls];
   const c = curveAt(SCORE_CURVE[cls], Math.min(Math.max(benchmarkScore, 0), CLASS_SCORE_CAP[cls]));
   return {
-    minEt: Math.max(bounds.minQuarterEt, c.et - t.goodTune - t.physicsMargin),
+    minEt: Math.max(bounds.minQuarterEt, c.et - t.goodTune[cls] - t.physicsMargin),
     maxEt: Math.min(bounds.maxQuarterEt, c.et * (1 + t.slowShare) + t.slowExtra + t.autopilot),
     minTrapMph: Math.max(bounds.minTrapSpeed, c.trap * (1 - t.trapLowShare)),
     maxTrapMph: Math.min(bounds.maxTrapSpeed, c.trap * (1 + t.trapHighShare) + t.trapExtraMph),
