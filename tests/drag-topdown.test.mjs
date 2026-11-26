@@ -20,10 +20,10 @@ test('the top-down strip draws every stage of a race: the line-up, the run down 
   assert.match(weatherText(forecast), /FRONT AIR/, 'the forecast names the weather front');
   for (let k = 0; k < 240 * 80 && race.state.phase !== 'over'; k++) {
     race.step();
-    if (k % 12 === 0) { r.calls.length = 0; r.texts.length = 0; td.draw(r.ctx, 1280, 720, race.state, 0, 0.05, k / 240); frames++; assert.ok(r.calls.length > 40, `a frame has ${r.calls.length} drawing calls`); if (r.texts.includes('FINISH')) sawFinish = true; if (r.texts.includes(conditionsText(race.state.weather) + weatherText(forecast))) sawConditions = true; if (r.texts.some(t => t.includes('FRONT AIR'))) sawFront = true; }
+    if (k % 12 === 0) { r.calls.length = 0; r.texts.length = 0; td.draw(r.ctx, 1280, 720, race.state, 0, 0.05, k / 240); frames++; assert.ok(r.calls.length > 40, `a frame has ${r.calls.length} drawing calls`); if (r.texts.includes('FINISH')) sawFinish = true; }
   }
-  assert.ok(frames > 100); assert.ok(sawFinish, 'the finish line came into view'); assert.ok(sawConditions, 'the live conditions are drawn on the strip'); assert.ok(sawFront, 'and the forecast says what the front will do');
-  const last = recorder(); td.draw(last.ctx, 1280, 720, race.state, 0, 0.05, 99); assert.ok(last.texts.includes('YOU'), 'you are named'); assert.ok(!last.texts.includes('BEST PASS') && !last.texts.some(t => /^ET \d/.test(t)), 'the ghost carries no name or ET text');
+  assert.ok(frames > 100); assert.ok(sawFinish, 'the finish line came into view'); 
+  const last = recorder(); td.draw(last.ctx, 1280, 720, race.state, 0, 0.05, 99); assert.ok(!last.texts.includes('YOU'), 'no text sits on the cars (the panel names nothing)'); assert.ok(!last.texts.includes('BEST PASS') && !last.texts.some(t => /^ET \d/.test(t)), 'the ghost carries no name or ET text');
 });
 
 test('it follows your car (the strip scrolls as you go), names the marks, and a new race starts with no old tire marks or smoke', () => {
@@ -42,11 +42,11 @@ test('it follows your car (the strip scrolls as you go), names the marks, and a 
 test('the top-down strip shows the staging beam, the rollout and an abort', () => {
   const race = createDrag({ seed: 5, quickStart: true, entrants: entrants() }), td = createDragTopDown(), r = recorder(), runner = race.state.runners[0];
   td.draw(r.ctx, 1280, 720, race.state, 0, 0, 1);
-  assert.ok(r.texts.includes('STAGE'), 'the staging beam is drawn'); assert.ok(r.texts.includes('DEEP STAGED'), 'your car starts staged (the ghost has no stage text)');
+  assert.ok(r.texts.includes('STAGE'), 'the staging beam is drawn'); assert.ok(!r.texts.includes('DEEP STAGED'), 'the stage name is in the left panel, not on the car');
   runner.rolling = true; r.texts.length = 0; td.draw(r.ctx, 1280, 720, race.state, 0, 0, 1);
-  assert.ok(r.texts.includes('ROLLING'));
+  assert.ok(!r.texts.includes('ROLLING'), 'no car labels');
   runner.rolling = false; runner.aborted = true; race.state.runners[1].launched = true; r.texts.length = 0; td.draw(r.ctx, 1280, 720, race.state, 0, 0, 1);
-  assert.ok(r.texts.includes('ABORT')); assert.ok(!r.texts.includes('STAGED'));
+  assert.ok(!r.texts.includes('ABORT') && !r.texts.includes('STAGED'));
 });
 
 test('the top-down strip marks the deep stage and draws rubber laid during the session', () => {
@@ -55,42 +55,6 @@ test('the top-down strip marks the deep stage and draws rubber laid during the s
   td.draw(r.ctx, 1280, 720, race.state, 0, 0, 1); td.draw(p.ctx, 1280, 720, plain.state, 0, 0, 1);
   assert.ok(r.texts.includes('DEEP'), 'the deep staging spot is marked');
   const fills = x => x.calls.filter(c => c === 'fillRect').length; assert.ok(fills(r) > fills(p), `laid rubber is drawn: ${fills(r)} vs ${fills(p)} rectangles`);
-});
-
-test('the top-down strip names a wheelie while the front tires are up', () => {
-  const race = createDrag({ seed: 5, quickStart: true, entrants: entrants() }), td = createDragTopDown(), r = recorder(), runner = race.state.runners[0];
-  runner.launched = true; runner.lift = 1; td.draw(r.ctx, 1280, 720, race.state, 0, 0, 1);
-  assert.ok(r.texts.includes('FRONT UP'));
-  runner.lift = 0; r.texts.length = 0; td.draw(r.ctx, 1280, 720, race.state, 0, 0, 1);
-  assert.ok(!r.texts.includes('FRONT UP'));
-});
-
-test('the top-down strip reads clutch temperature and condition as numbers and bars', () => {
-  const race = createDrag({ seed: 5, quickStart: true, entrants: entrants() }), td = createDragTopDown(), r = recorder(), runner = race.state.runners[0];
-  runner.launched = true; runner.clutchTemp = 320; runner.clutchCondition = 0.55;
-  td.draw(r.ctx, 1280, 720, race.state, 0, 0, 1);
-  assert.ok(r.texts.some(t => /CLUTCH 320C 55% SLIP/.test(t)));
-  assert.ok(r.calls.filter(c => c === 'strokeRect').length >= 2, 'the clutch heat and condition bars are drawn');
-  runner.clutchLocked = true; r.texts.length = 0; td.draw(r.ctx, 1280, 720, race.state, 0, 0, 1);
-  assert.ok(r.texts.some(t => /CLUTCH 320C 55% LOCK/.test(t)));
-  runner.clutchLocked = false; runner.clutchTemp = 20; runner.clutchCondition = 1; r.texts.length = 0; td.draw(r.ctx, 1280, 720, race.state, 0, 0, 1);
-  assert.ok(r.texts.some(t => /CLUTCH 20C 100% SLIP/.test(t)));
-});
-
-test('the top-down strip reads each rear slick\'s temperature and wear', () => {
-  const race = createDrag({ seed: 5, quickStart: true, entrants: entrants() }), td = createDragTopDown(), r = recorder(), runner = race.state.runners[0];
-  runner.launched = true; runner.tires[0] = { temp: 95, wear: 0.2 }; runner.tires[1] = { temp: 110, wear: 0.4 };
-  td.draw(r.ctx, 1280, 720, race.state, 0, 0, 1);
-  assert.ok(r.texts.some(t => /TIRE L95C 20%  R110C 40%/.test(t)), r.texts.join(' | '));
-});
-
-test('the top-down strip reads the fuel load under the tire row', () => {
-  const race = createDrag({ seed: 5, quickStart: true, entrants: entrants() }), td = createDragTopDown(), r = recorder(), runner = race.state.runners[0];
-  runner.launched = true; runner.fuel = 30;
-  td.draw(r.ctx, 1280, 720, race.state, 0, 0, 1);
-  assert.ok(r.texts.some(t => /FUEL 30\.0 KG 24%/.test(t)), r.texts.join(' | '));
-  runner.fuel = FUEL.reserve; r.texts.length = 0; td.draw(r.ctx, 1280, 720, race.state, 0, 0, 1);
-  assert.ok(r.texts.some(t => /FUEL 10\.0 KG 0%/.test(t)), r.texts.join(' | '));
 });
 
 test('the top-down strip marks the end of the run-out and shows the chute once it is out', () => {
@@ -124,29 +88,3 @@ test('the top-down slicks draw moving spin stripes only while the tires are spin
   assert.notEqual(JSON.stringify(spinning.lines), JSON.stringify(later.lines), 'the stripes move with time');
 });
 
-test('the top-down strip shows the blower charge as a number and a bar', () => {
-  const car = DRAG_CARS[0], spec = specFor(car, { turbo: 4 }), state = createDrag({ seed: 5, entrants: [{ name: 'YOU', spec, tune: defaultTune(car), ai: null }] }).state, td = createDragTopDown(), r = recorder(), runner = state.runners[0];
-  runner.launched = true; runner.boost = 0.75; runner.engineTemp = 180; runner.retard = 0.2;
-  td.draw(r.ctx, 1280, 720, state, 0, 0, 1);
-  assert.ok(r.texts.some(t => /BOOST 75%  180C -20%/.test(t)), r.texts.join(' | '));
-  assert.ok(r.calls.filter(c => c === 'strokeRect').length >= 1, 'the boost bar is drawn');
-});
-
-test('no labels overlap on a short or a phone-sized window: the three beam names are apart, the readouts end above the conditions bar, and the ghost has none', () => {
-  // a recording context that keeps each text with its position and font size
-  const place = () => {
-    const items = []; let font = 12;
-    const ctx = new Proxy({}, { get: (t, k) => { if (k === 'fillText') return (s, x, y) => items.push({ s: String(s), x, y, size: font }); if (k === 'measureText') return s => ({ width: String(s).length * font * 0.6 }); if (k === 'createLinearGradient' || k === 'createRadialGradient') return () => ({ addColorStop() {} }); if (k === 'font') return `${font}px`; return () => {}; }, set: (t, k, v) => { if (k === 'font') font = Number(/(\d+(?:\.\d+)?)px/.exec(v)?.[1] ?? 12); return true; } });
-    return { ctx, items };
-  };
-  for (const [W, H] of [[800, 450], [420, 860], [1280, 720], [360, 640]]) {
-    const race = createDrag({ seed: 5, quickStart: true, entrants: entrants() }), td = createDragTopDown(), p = place();
-    td.draw(p.ctx, W, H, race.state, 0, 0, 1);
-    const at = s => p.items.find(i => i.s === s), names = ['DEEP', 'STAGE', 'PRE-STAGE'].map(at).filter(Boolean);
-    for (let i = 1; i < names.length; i++) for (let j = 0; j < i; j++) assert.ok(Math.abs(names[i].y - names[j].y) >= Math.min(names[i].size, names[j].size) * 0.9, `${W}x${H}: ${names[i].s} and ${names[j].s} are apart`);
-    const bar = p.items.filter(i => i.s.startsWith('AIR ') || i.s.startsWith('WIND ')), barTop = Math.min(...bar.map(i => i.y - i.size)), fuel = at(p.items.find(i => i.s.startsWith('FUEL'))?.s);
-    assert.ok(bar.length >= 1, `${W}x${H}: the conditions bar is drawn`); assert.ok(fuel.y < barTop, `${W}x${H}: the readouts (fuel line at ${fuel.y}) end above the conditions bar (top ${barTop})`);
-    for (const i of p.items) assert.ok(i.size <= 16, `${W}x${H}: "${i.s}" is ${i.size}px, not huge`);
-    assert.ok(!p.items.some(i => i.s === 'BEST PASS' || /^ET \d/.test(i.s)), 'no ghost text');
-  }
-});

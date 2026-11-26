@@ -54,7 +54,7 @@ test('the ghost stages like a real car: burnout, run-out, back up, pre-stage, st
   for (const stage of ['waterBoxApproach', 'burnout', 'runOut', 'backup', 'preStage', 'staged']) assert.ok(seen.has(stage), `the ghost was seen in ${stage}`);
   assert.ok(pastTreeX > STAGE.runOutPastTree - 1, `it ran out past the tree (${pastTreeX.toFixed(1)} m)`);
   assert.ok(reverseSeen, 'its reverse light came on while backing up'); assert.ok(preBulb && stageBulb, 'its pre-stage and stage bulbs lit');
-  assert.ok(smokeFrames > 3, 'its burnout smoke was drawn'); assert.ok(labels.has('BURNOUT') && labels.has('BACK UP'), 'the staging steps are written next to it');
+  assert.ok(smokeFrames > 3, 'its burnout smoke was drawn'); assert.ok(![...labels].some(t => /BURNOUT|BACK UP|STAGED/.test(t)), 'the ghost has no staging text');
   assert.equal(ghost.marks.quarter, g.marks.quarter, 'its ET is the leader ET (it starts at the green)'); assert.ok(race.state.greenAt > 0);
 });
 
@@ -74,17 +74,12 @@ test('the ghost launch is a realistic share of its ET: 60 ft is about 15 to 22 p
   assert.deepEqual(buildLeaderGhost(record()), buildLeaderGhost(record()));
 });
 
-test('only the player car carries the clutch, boost, tire and fuel readouts; the ghost has no text at all', () => {
+test('the ghost has no text at all: the strip writes only beam and mark names, and no readout sits near a car', () => {
   const race = raceWith(buildLeaderGhost(record()), true), td = createDragTopDown();
   for (let i = 0; i < 240 * 6; i++) race.step();
   const r = recorder(); td.draw(r.ctx, 1280, 720, race.state, 0, 0.016, 3);
-  const count = word => r.texts.filter(t => t.startsWith(word)).length;
-  for (const word of ['CLUTCH', 'TIRE', 'FUEL']) assert.equal(count(word), 1, `${word} once (the player's)`);
-  assert.ok(count('BOOST') <= 1, 'BOOST at most once');
-  assert.ok(!r.texts.includes('SPEEDY') && !r.texts.some(t => /^ET \d/.test(t)), 'the ghost has no name, stage or ET text beside it');
-  const stageWords = ['STAGED', 'PRE-STAGED', 'DEEP STAGED', 'ROLLING', 'ABORT', 'FRONT UP'], onlyYou = r.texts.filter(t => stageWords.includes(t)).length; assert.ok(onlyYou <= 1, 'a stage word is written at most once (for your car), never for the ghost');
-  // with the camera on the ghost's lane the player's readouts are still the only ones
-  const other = recorder(); td.draw(other.ctx, 1280, 720, race.state, 1, 0.016, 3); assert.ok(other.texts.filter(t => t.startsWith('CLUTCH')).length <= 1);
+  const allowed = new Set(['WATER BOX', 'PRE-STAGE', 'STAGE', 'DEEP', '60 FT', '330 FT', '1/8 MILE', '1000 FT', '66 FT TRAP', 'FINISH', 'END OF STRIP']);
+  assert.ok(r.texts.every(t => allowed.has(t)), `only the beam and mark names: ${r.texts.join(' | ')}`);
 });
 
 test('ghost splits follow the physics: every class leader ghost reaches 60 ft, 330 ft, the eighth and 1000 ft at the same share of its ET as the simulated car (within 5 percent), and a given split is never moved', async () => {

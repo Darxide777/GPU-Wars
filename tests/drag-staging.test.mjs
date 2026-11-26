@@ -114,14 +114,14 @@ test('backing up is slow, with a reverse light, and shows its speed and distance
   while (r.stage !== 'preStage' && d.state.t < 80) { driver(d, r, { noLaunch: true }); d.step(); if (r.stage === 'backup') { fastest = Math.max(fastest, -r.v); if (r.reversing) lit++; if (r.v < -0.1) reverseTicks++; } }
   assert.ok(fastest > 1 && fastest <= STAGE.backupSpeed + 1e-9, `slow: ${fastest.toFixed(2)} m/s`); assert.ok(lit > 240 * 3, 'the reverse light stays on while reversing'); assert.ok(reverseTicks > 240 * 3, 'a back up takes seconds, not a teleport');
   const text = { launch: 'X', nitro: 'N', manual: false, gas: 'W', burnout: 'J', brake: 'S', chute: 'N', backUp: 'R' };
-  r.stage = 'backup'; r.v = -1.5; r.x = 3; const shown = stagingPrompt(r, d.state, text); assert.equal(shown.title, 'BACK UP');
-  assert.ok(shown.lines.some(l => /ROLLBACK 1\.5 M\/S\s+3\.80 M TO PRE-STAGE/.test(l[0])), shown.lines.map(l => l[0]).join(' | '));
+  r.stage = 'backup'; r.v = -1.5; r.x = 3; const shown = stagingPrompt(r, d.state, text); assert.equal(shown.title, '', 'the stage name is in the panel, not the prompt');
+  assert.ok(shown.lines.some(l => /3\.80 M TO PRE-STAGE/.test(l[0])), shown.lines.map(l => l[0]).join(' | ')); assert.ok(!shown.lines.some(l => /M\/S|ROLLBACK/.test(l[0])), 'the speed is shown once (the panel)');
 });
 
 test('the HUD names every stage and the tree draws a dark tree before staging and its bulbs after', () => {
   const d = full({ seed: 5, entrants: [mine(), mine(STOCK_PARTS, {}, AUTO_DRIVER, 'OTHER')] }), r = d.state.runners[0], keys = { launch: 'X', nitro: 'N', manual: false, gas: 'W', burnout: 'J', brake: 'S', chute: 'N', deepStage: 'H', backUp: 'R' };
   const expect = [['waterBoxApproach', 'WATER BOX'], ['burnout', 'BURNOUT'], ['runOut', 'RUN OUT'], ['backup', 'BACK UP'], ['preStage', 'PRE-STAGE'], ['staged', 'STAGED'], ['deepStaged', 'DEEP STAGED']];
-  for (const [stage, label] of expect) { r.stage = stage; r.deepStage = stage === 'deepStaged'; assert.equal(STAGE_LABELS[stage], label); const rec = recorder(); drawProgress(rec.ctx, 1280, 720, d.state, 0, 1, keys); assert.ok(rec.texts.some(t => t.startsWith(label)), `${label}: ${rec.texts.join(' | ')}`); }
+  for (const [stage, label] of expect) { r.stage = stage; r.deepStage = stage === 'deepStaged'; assert.equal(STAGE_LABELS[stage], label); const rec = recorder(); drawProgress(rec.ctx, 1280, 720, d.state, 0, 1, keys); assert.ok(rec.texts.filter(t => t === label).length === 1, `${label} once: ${rec.texts.join(' | ')}`); }
   const dark = recorder(); drawTree(dark.ctx, 1280, d.state, 1); assert.equal(dark.fills.length, 14, 'two lanes of seven bulbs'); assert.ok(dark.fills.every(f => f === 'rgba(255,255,255,0.1)'), 'every bulb is dark while nobody is staged');
   r.preBulb = r.stageBulb = true; d.state.ambers = 2; const lit = recorder(); drawTree(lit.ctx, 1280, d.state, 1); assert.equal(lit.fills.filter(f => f !== 'rgba(255,255,255,0.1)').length, 2 + 4, 'two stage bulbs and the lit ambers');
   r.stage = 'preStage'; r.overstaged = true; r.deepStage = false; assert.equal(stageLabel(r), 'OVER-STAGED');
