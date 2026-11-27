@@ -7,15 +7,15 @@ import { ghostFromRecord } from './formula-ghost.ts';
 import { textSeed } from './leader.ts';
 
 /** THE BUNDLED STAND-IN LEADERS (not real players; `placeholder` stays true because a real record replaces them), CALIBRATED in phase 3 to the simulation (docs/CALIBRATION.md, "Formula lap times"). Turn `classLapTime` first.
- *  Each leader sits just UNDER the lap of the BEST card of its class (integrated cap 8000: 44.50 s, discrete cap 10000: 38.08 s, default tune, the autopilot's lap), the way Drag's leader is set from its class's strong cards:
+ *  Each leader sits just UNDER the lap of the BEST card of its class (integrated cap 8000: 44.50 s, discrete cap 10000: 38.00 s, default tune, the autopilot's lap), the way Drag's leader is set from its class's strong cards:
  *  - a DEFAULT tune on the best card only just fails to beat the leader (by 0.10 s integrated, 0.08 s discrete);
- *  - a GOOD tune on the best card beats it (about 1.1 s integrated, 0.7 s discrete), so does a good tune on a strong card;
+ *  - a GOOD tune on the best card beats it (about 1.3 s integrated, 1.1 s discrete), so does a good tune on a strong card;
  *  - a typical or weak card cannot beat it, which is right for a class leader.
  *  The autopilot category's leader is the same car driven by the autopilot, so it is only `autopilotExtraLap` slower: a default-tune autopilot on the best card still just fails (by 0.05 s), a tuned one wins.
  *  tests/formula-calibration.test.mjs asserts all of this. */
 export const FORMULA_FALLBACK_LEADERS = {
   placeholder: true,
-  classLapTime: { integrated: 44.4, discrete: 38.0 } as Record<string, number>,
+  classLapTime: { integrated: 44.4, discrete: 37.92 } as Record<string, number>,
   /** the autopilot lap of the same car is this much slower than the manual leader (the autopilot IS the calibration's perfect driver, so the gap is small) */ autopilotExtraLap: 0.05,
   /** the stand-in top speed, mph, per class (a little over each leader lap's average speed, which the server checks; the best card's default-tune top speed is 246 and 288 mph) */ topSpeedMph: { integrated: 247, discrete: 289 } as Record<string, number>,
   /** the stand-in sector 1 and sector 2 as shares of the lap (the sim's own: 0.29 and 0.72) */ sectorShare: [0.29, 0.72] as [number, number],

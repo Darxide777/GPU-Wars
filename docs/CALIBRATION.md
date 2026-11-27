@@ -117,17 +117,17 @@ The benchmark screen's neon look and its show phase (the rest of the song after 
 
 ## Formula lap times (phase 3)
 
-Formula is calibrated the way Drag is: **the class sets the range, the score sets the place in it, the tune is worth a few percent.** The number is the lap of a PERFECT DRIVER (the autopilot's standing-start lap, `predictFormula`, from the green) on BEACH (4828 m, a plain banked oval you can drive flat out) with the DEFAULT tune. (BEACH was a tri-oval with a kink; it became a plain oval at the owner's request. The best car's lap is the same 38.07 s, flat out. A weak car now gains up to about 2 percent with no downforce, since it never needs it on a flat-out oval; the best card still needs it.)
+Formula is calibrated the way Drag is: **the class sets the range, the score sets the place in it, the tune is worth a few percent.** The number is the lap of a PERFECT DRIVER (the autopilot's standing-start lap, `predictFormula`, from the green) on BEACH (4828 m, a plain banked oval you can drive flat out) with the DEFAULT tune. (BEACH was a tri-oval with a kink; it became a plain oval at the owner's request. The autopilot aims 6 percent over the top speed (`AUTOPILOT.topSpeedAim`) so it never lifts off the gas on this flat-out oval; that made every autopilot lap 0.05 to 0.15 s quicker and the table was re-solved (the best car now laps 38.00 s). A weak car now gains up to about 2 percent with no downforce, since it never needs it on a flat-out oval; the best card still needs it.)
 
 **The targets (the owner's constants, one table: `TARGETS` in `tests/formula-calibration.test.mjs`; the test pins each within 0.3 s):**
 
 | car | score | target lap |
 |---|---|---|
-| best discrete card (class cap) | 10000 | about 38 s (38.08) |
+| best discrete card (class cap) | 10000 | about 38 s (38.00) |
 | Radeon 8060S, a strong iGPU (measured) | 5005 | about 47 s (47.00) |
-| Samsung Galaxy S24 Ultra, phone (measured) | 1302 | about 51 s (51.02) |
+| Samsung Galaxy S24 Ultra, phone (measured) | 1302 | about 51 s (51.00) |
 | weakest integrated card | 0 | about 55 s (55.02) |
-| NO BENCHMARK | - | about 58 s (58.00), slower than every benchmarked car |
+| NO BENCHMARK | - | about 58 s (58.02), slower than every benchmarked car |
 | best integrated card (class cap) | 8000 | 44.5 s |
 | weakest discrete card | 0 | 43.0 s |
 
@@ -137,47 +137,47 @@ The class gap is now 1.45x (weakest integrated 55 s against best discrete 38 s; 
 
 | class | score | engine level | lap, default tune (s) | top speed (mph) | lap, good tune (s) | good tune gain |
 |---|---|---|---|---|---|---|
-| integrated | 0 | -1.444 | 55.02 | 199 | 53.33 | 3.1% |
-| integrated | 500 | -0.829 | 53.47 | 204 | 51.85 | 3.0% |
-| integrated | 1000 | -0.182 | 51.90 | 210 | 50.38 | 2.9% |
-| integrated | 1302 | 0.217 | 51.02 | 214 | 49.50 | 3.0% |
-| integrated | 1500 | 0.317 | 50.78 | 215 | 49.30 | 2.9% |
-| integrated | 2000 | 0.568 | 50.23 | 218 | 48.77 | 2.9% |
-| integrated | 2500 | 0.819 | 49.68 | 220 | 48.25 | 2.9% |
-| integrated | 3000 | 1.07 | 49.17 | 222 | 47.75 | 2.9% |
-| integrated | 3500 | 1.341 | 48.62 | 225 | 47.22 | 2.9% |
-| integrated | 4000 | 1.612 | 48.07 | 227 | 46.70 | 2.8% |
-| integrated | 4500 | 1.882 | 47.53 | 230 | 46.22 | 2.8% |
-| integrated | 5000 | 2.153 | 47.02 | 232 | 45.72 | 2.8% |
-| integrated | 5005 | 2.156 | 47.00 | 233 | 45.72 | 2.7% |
-| integrated | 5500 | 2.382 | 46.60 | 235 | 45.30 | 2.8% |
-| integrated | 6000 | 2.61 | 46.18 | 237 | 44.90 | 2.8% |
-| integrated | 6500 | 2.839 | 45.77 | 239 | 44.52 | 2.7% |
-| integrated | 7000 | 3.077 | 45.33 | 241 | 44.12 | 2.7% |
-| integrated | 7500 | 3.314 | 44.92 | 243 | 43.73 | 2.6% |
-| integrated | 8000 | 3.552 | 44.50 | 246 | 43.35 | 2.6% |
-| discrete | 0 | 4.474 | 43.00 | 254 | 41.93 | 2.5% |
-| discrete | 1000 | 5.163 | 41.93 | 261 | 40.93 | 2.4% |
-| discrete | 2000 | 5.851 | 40.95 | 267 | 40.00 | 2.3% |
-| discrete | 3000 | 6.305 | 40.30 | 272 | 39.42 | 2.2% |
-| discrete | 4000 | 6.759 | 39.68 | 276 | 38.83 | 2.1% |
-| discrete | 5000 | 7.055 | 39.30 | 279 | 38.47 | 2.1% |
-| discrete | 6000 | 7.351 | 38.90 | 282 | 38.12 | 2.0% |
-| discrete | 7000 | 7.566 | 38.63 | 284 | 37.85 | 2.0% |
-| discrete | 8000 | 7.781 | 38.35 | 286 | 37.60 | 2.0% |
-| discrete | 9000 | 7.89 | 38.22 | 287 | 37.47 | 2.0% |
-| discrete | 10000 | 8 | 38.08 | 288 | 37.33 | 2.0% |
-| no benchmark | - | -2.54 | 58.00 | 188 | 56.23 |
+| integrated | 0 | -1.49 | 55.02 | 198 | 53.28 | 3.2% |
+| integrated | 500 | -0.876 | 53.45 | 204 | 51.78 | 3.1% |
+| integrated | 1000 | -0.23 | 51.90 | 210 | 50.30 | 3.1% |
+| integrated | 1302 | 0.169 | 51.00 | 214 | 49.40 | 3.1% |
+| integrated | 1500 | 0.267 | 50.78 | 215 | 49.20 | 3.1% |
+| integrated | 2000 | 0.516 | 50.23 | 217 | 48.67 | 3.1% |
+| integrated | 2500 | 0.765 | 49.70 | 219 | 48.15 | 3.1% |
+| integrated | 3000 | 1.014 | 49.18 | 222 | 47.65 | 3.1% |
+| integrated | 3500 | 1.287 | 48.63 | 224 | 47.10 | 3.2% |
+| integrated | 4000 | 1.559 | 48.08 | 227 | 46.57 | 3.2% |
+| integrated | 4500 | 1.831 | 47.53 | 229 | 46.05 | 3.1% |
+| integrated | 5000 | 2.103 | 47.02 | 232 | 45.55 | 3.1% |
+| integrated | 5005 | 2.106 | 47.00 | 232 | 45.55 | 3.1% |
+| integrated | 5500 | 2.328 | 46.58 | 234 | 45.13 | 3.1% |
+| integrated | 6000 | 2.553 | 46.18 | 236 | 44.73 | 3.1% |
+| integrated | 6500 | 2.778 | 45.78 | 238 | 44.33 | 3.2% |
+| integrated | 7000 | 3.018 | 45.35 | 241 | 43.92 | 3.2% |
+| integrated | 7500 | 3.258 | 44.92 | 243 | 43.50 | 3.2% |
+| integrated | 8000 | 3.498 | 44.50 | 245 | 43.12 | 3.1% |
+| discrete | 0 | 4.417 | 43.00 | 254 | 41.65 | 3.1% |
+| discrete | 1000 | 5.098 | 41.95 | 260 | 40.63 | 3.1% |
+| discrete | 2000 | 5.779 | 40.95 | 267 | 39.65 | 3.2% |
+| discrete | 3000 | 6.237 | 40.30 | 271 | 39.02 | 3.2% |
+| discrete | 4000 | 6.695 | 39.68 | 275 | 38.43 | 3.1% |
+| discrete | 5000 | 6.99 | 39.30 | 278 | 38.05 | 3.2% |
+| discrete | 6000 | 7.285 | 38.90 | 281 | 37.67 | 3.2% |
+| discrete | 7000 | 7.499 | 38.63 | 283 | 37.40 | 3.2% |
+| discrete | 8000 | 7.713 | 38.37 | 285 | 37.13 | 3.2% |
+| discrete | 9000 | 7.857 | 38.18 | 286 | 36.97 | 3.2% |
+| discrete | 10000 | 8 | 38.00 | 288 | 36.78 | 3.2% |
+| no benchmark | - | -2.586 | 58.02 | 188 | 56.22 |
 
 `PRINT_LAP_TABLE=1 node tests/formula-calibration.test.mjs` prints this table (pass the file to node directly: the test runner hides the printout).
 
 **What sets the numbers, in the order to turn them** (all in `src/formula/car.ts` and `constants.ts` unless noted):
 
 1. **The target laps** (`TARGETS` in the calibration test): the owner's numbers.
-2. **`FORMULA_CLASS_WINDOWS`**: the engine level at the slowest card of each class and at the class cap. An engine level moves pull 9 percent and top speed 5 percent per level (the source game's `raceCarStats`) and may be negative: integrated is -1.444 (a 55 s lap) to 3.552 (44.5 s), discrete 4.474 (43 s) to 8 (38 s, the source's top engine). `UNBENCHMARKED_ENGINE` is -2.54 (a 58 s lap).
+2. **`FORMULA_CLASS_WINDOWS`**: the engine level at the slowest card of each class and at the class cap. An engine level moves pull 9 percent and top speed 5 percent per level (the source game's `raceCarStats`) and may be negative: integrated is -1.49 (a 55 s lap) to 3.498 (44.5 s), discrete 4.417 (43 s) to 8 (38 s, the source's top engine). `UNBENCHMARKED_ENGINE` is -2.586 (a 58 s lap).
 3. **`FORMULA_SCORE_TO_ENGINE`** (like Drag's `BENCHMARK_TO_SPEC`): the score as a share of the class cap to the share of the window, straight lines between rows. The rows are solved so the lap table hits the targets at the 1302 and 5005 rows and is smooth between them; a higher score is never slower (tested over every 50 points). To change a target: bisect the engine for the new lap (`engineForLap` in the calibration test), rewrite the window end or row, recopy the backend table.
 4. **`TUNE_EFFECT`**: the tune (below).
-5. **`FORMULA_FALLBACK_LEADERS`** (`src/leaderboard/formula-leader.ts`): integrated 44.4 s, discrete 38.0 s, the autopilot category +0.05 s. Each is just under the default-tune lap of the BEST card of its class (44.50 s and 38.08 s): a default tune on the best card fails to beat it by 0.10 s (0.08 s discrete), a good tune beats it by about 1.0 s (0.7 s discrete), a weaker card cannot. The autopilot leader is the same car, so the default-tune autopilot on the best card also just fails (by 0.05 s) and a tuned one wins. (Drag sets its leader from a card at 70 percent of the cap with a good tune; the owner asked for the best card here.)
+5. **`FORMULA_FALLBACK_LEADERS`** (`src/leaderboard/formula-leader.ts`): integrated 44.4 s, discrete 37.92 s, the autopilot category +0.05 s. Each is just under the default-tune lap of the BEST card of its class (44.50 s and 38.00 s): a default tune on the best card fails to beat it by 0.10 s (0.08 s discrete), a good tune beats it by about 1.3 s (1.1 s discrete), a weaker card cannot. The autopilot leader is the same car, so the default-tune autopilot on the best card also just fails (by 0.05 s) and a tuned one wins. (Drag sets its leader from a card at 70 percent of the cap with a good tune; the owner asked for the best card here.)
 6. **`FORMULA_LAP_TABLE`** (`backend/src/plausible.ts`): the server's windows, copied from the table above (`docs/LEADERBOARD.md`). `tests/formula-calibration.test.mjs` fails if the table drifts more than 0.12 s or 3 mph from the physics, or if any default, good or extreme tune leaves its window at a dense sweep of scores.
 
 ### Tune balance
@@ -186,8 +186,8 @@ The source game's tune was a straight line: gearing +1 (tall) made the BEACH lap
 
 - **Gearing and tyre pressure now have a best value inside their range.** Their TOP SPEED effect is `top * x - curve * x^2` (`TUNE_EFFECT.gearingTop/gearingCurve`: 5 percent and 6.25 percent; `pressureTop/pressureCurve`: 2.5 percent and 3.125 percent). That peaks at +0.4 and falls again past it (a gear that is too tall, or a tyre that is too hard, cannot reach its top speed in a lap): gearing +1 and pressure +1 are now slightly slower than neutral, short gears (-1) lose about 12 to 14 percent. Pull lost per +1 of gearing (12 percent) and grip lost per +1 of pressure (8 percent) are unchanged.
 - **Unchanged from the source:** downforce (7 percent top speed, 30 percent grip per unit), steering (15 percent turn, 8 percent grip), nitro, the whole physics, the gearbox, the grip and the banking. Downforce already had a real optimum (about 0.3 to 0.4; 0 loses 18 percent) and the autopilot's line needs almost no extra steering, so steering is worth under 0.5 percent and nitro (2 bottles) about 0.4 percent.
-- **Result:** the fixed good tune above is worth 2.0 percent of the lap at the best discrete card, 2.7 to 3.0 percent at the 8060S and S24 Ultra and 3.1 percent at the weakest integrated card (table). A coordinate search over the whole tune box (the test, and a wider one run while calibrating) finds a little more: 2.1 percent at the best discrete card, 2.4 to 3.1 percent in the middle and 3.4 to 3.6 percent at the weakest cards (a slow car wants less downforce: its best value moves from 0.4 to 0.1 to 0.2). The default tune (gearing 0, downforce 0.5, pressure 0) is therefore within 2 to 3.6 percent of the best, a sensible near-optimum; no single setting pushed to either end of its range gains more than 1 percent over the default (tested). Turn `TUNE_EFFECT` first to make the tune matter more or less; the test fails over 4.5 percent or under 1 percent.
-- **The source comparison** (`tests/formula-autopilot.test.mjs`) stays at 3 percent, but its cases that set gearing or pressure (which the source made linear on purpose, so they no longer agree) were re-recorded from the live source with only downforce and steering set. The default-tune lap of the stock car (38.08 s) is unchanged.
+- **Result:** the fixed good tune above is worth about 3.1 to 3.2 percent of the lap at every card (table; before the autopilot stopped lifting off the gas it was 2.0 percent at the best card,). A coordinate search over the whole tune box (the test, and a wider one run while calibrating) finds a little more: 2.1 percent at the best discrete card, 2.4 to 3.1 percent in the middle and 3.4 to 3.6 percent at the weakest cards (a slow car wants less downforce: its best value moves from 0.4 to 0.1 to 0.2). The default tune (gearing 0, downforce 0.5, pressure 0) is therefore within 2 to 3.6 percent of the best, a sensible near-optimum; no single setting pushed to either end of its range gains more than 1 percent over the default (tested). Turn `TUNE_EFFECT` first to make the tune matter more or less; the test fails over 4.5 percent or under 1 percent.
+- **The source comparison** (`tests/formula-autopilot.test.mjs`) stays at 3 percent, but its cases that set gearing or pressure (which the source made linear on purpose, so they no longer agree) were re-recorded from the live source with only downforce and steering set. The default-tune lap of the stock car is now 38.00 s.
 
 ### What is NOT validated
 

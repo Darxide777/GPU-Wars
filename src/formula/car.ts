@@ -53,26 +53,26 @@ export function carStats(spec: FormulaSpec, tune: FormulaTune): CarStats {
 }
 
 /** WHERE THE CAR'S POWER COMES FROM, CALIBRATED (docs/CALIBRATION.md, phase 3). Two steps, the same idea as Drag's `BENCHMARK_TO_SPEC`:
- *  1. `FORMULA_CLASS_WINDOWS`: the engine level at the slowest card of a class and at its class cap. Integrated runs from -1.44 (a 55 s lap, score 0) to 3.55 (44.5 s, score 8000); discrete from 4.47 (43 s, score 0) to 8 (38 s, the best card, score 10000, the source game's top engine).
+ *  1. `FORMULA_CLASS_WINDOWS`: the engine level at the slowest card of a class and at its class cap. Integrated runs from -1.49 (a 55 s lap, score 0) to 3.50 (44.5 s, score 8000); discrete from 4.42 (43 s, score 0) to 8 (38 s, the best card, score 10000, the source game's top engine).
  *     The windows do not overlap and the best integrated card is slower than the weakest discrete one, as in Drag. The engine level is a number the physics reads (pull 9 percent and top speed 5 percent per level), so it may be negative for a weak card.
  *  2. `FORMULA_SCORE_TO_ENGINE`: where in the window a score sits (the score as a share of the class cap, then the share of the window), blended in a straight line between rows. The rows were solved from the target lap times
  *     (default tune, the autopilot's lap on BEACH): integrated 55 s at score 0, 51 s at 1302 (the S24 Ultra phone, measured), 47 s at 5005 (the Radeon 8060S, measured), 44.5 s at the cap; discrete 43 s at 0 down to 38 s at 10000 in the shape of Drag's discrete curve (steep at the bottom, flat at the top).
  *  These are the OWNER'S CONSTANTS: change a target lap, solve the engine again (the bisection in tests/formula-calibration.test.mjs does it) and rewrite the row. The lap table is `PRINT_LAP_TABLE=1 node --test tests/formula-calibration.test.mjs`. */
 export const FORMULA_CLASS_WINDOWS: Record<ClassId, { engine: [number, number] }> = {
-  integrated: { engine: [-1.444, 3.552] },
-  discrete: { engine: [4.474, PART_MAX.engine] },
+  integrated: { engine: [-1.49, 3.498] },
+  discrete: { engine: [4.417, PART_MAX.engine] },
 };
 export const FORMULA_SCORE_TO_ENGINE: Record<ClassId, readonly { share: number; engineShare: number }[]> = {
   integrated: [
-    { share: 0, engineShare: 0 }, { share: 0.08125, engineShare: 0.1599 }, { share: 0.16275, engineShare: 0.3325 }, { share: 0.375, engineShare: 0.5033 },
-    { share: 0.62562, engineShare: 0.7205 }, { share: 0.8125, engineShare: 0.8573 }, { share: 1, engineShare: 1 },
+    { share: 0, engineShare: 0 }, { share: 0.08125, engineShare: 0.1599 }, { share: 0.16275, engineShare: 0.3325 }, { share: 0.375, engineShare: 0.5021 },
+    { share: 0.62562, engineShare: 0.7209 }, { share: 0.8125, engineShare: 0.8557 }, { share: 1, engineShare: 1 },
   ],
   discrete: [
-    { share: 0, engineShare: 0 }, { share: 0.2, engineShare: 0.3906 }, { share: 0.4, engineShare: 0.6481 }, { share: 0.6, engineShare: 0.8159 }, { share: 0.8, engineShare: 0.9378 }, { share: 1, engineShare: 1 },
+    { share: 0, engineShare: 0 }, { share: 0.2, engineShare: 0.38 }, { share: 0.4, engineShare: 0.6358 }, { share: 0.6, engineShare: 0.8004 }, { share: 0.8, engineShare: 0.92 }, { share: 1, engineShare: 1 },
   ],
 };
 /** the car that skipped the benchmark has the weakest engine there is, below the slowest card's (a 58 s lap), so it is slower than any benchmarked car */
-export const UNBENCHMARKED_ENGINE = -2.54;
+export const UNBENCHMARKED_ENGINE = -2.586;
 const mix = (a: number, b: number, share: number): number => a + (b - a) * share;
 /** where in a class's window a share of its top score sits: a straight-line blend between the two rows around it */
 export function engineShareFor(cls: ClassId, share: number): number {

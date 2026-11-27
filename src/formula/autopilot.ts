@@ -17,6 +17,7 @@ export const AUTOPILOT_CATEGORY: RunCategory = 'autopilot';
 export const AUTOPILOT = {
   /** seconds after the green that the gas goes down: a steady, clean, near-perfect driver, never a jump start */ reaction: 0.12,
   /** how it follows the line: the path points it aims ahead of its waypoint, the metres of the bend it looks at for the heading, and the metres it keeps to the side of the middle line (positive is the driver's right) */ aim: 4, bendLook: 26, lane: 0,
+  /** the speed it aims for on a clear road, as a multiple of the car's top speed: a little over 1, so the gas stays pinned at the top speed instead of easing off and braking when the car is already there (that sounded like lifting on a plain oval you can drive flat out) */ topSpeedAim: 1.06,
   /** how much it slows for the bend coming up in the next few metres (0: none, the cars take every bend at their limit), how much it slows for being off its line, and how hard it holds the gas */ cornerSlow: 0, errSlow: 0.1, gas: 3,
   /** looking down the road for bends: how many path points ahead, how close to the car's cornering limit it takes one, and how much of its braking it counts on */ brakeLook: 60, cornerMargin: 1.0, brakeMargin: 0.85,
   /** how hard it steers for each radian of error, and the metres from the wall at which it starts to move away from it and the slowing it gives for a wall close ahead */ steerGain: 2.6, wallLook: 9, wallSlow: 0.25,
@@ -49,7 +50,7 @@ export function createFormulaAutopilot(track: FormulaTrack, stats: Pick<CarStats
     const seg = Math.atan2(at(1).y - at(0).y, at(1).x - at(0).x), far = Math.atan2(at(K).y - at(K - 2).y, at(K).x - at(K - 2).x), aim = at(AUTOPILOT.aim), turnAhead = Math.abs(wrapAngle(far - seg));
     // (the lane: positive is the driver's right, the way the normal of a heading points)
     const goalX = aim.x - Math.sin(seg) * AUTOPILOT.lane, goalY = aim.y + Math.cos(seg) * AUTOPILOT.lane;
-    let target = stats.vmax * (1 - clamp(turnAhead / 1.1, 0, 1) * AUTOPILOT.cornerSlow);
+    let target = stats.vmax * AUTOPILOT.topSpeedAim * (1 - clamp(turnAhead / 1.1, 0, 1) * AUTOPILOT.cornerSlow);
     // look down the road and be slow enough for each bend by the time it comes (braking a little short of the car's best)
     for (let k = 1; k <= AUTOPILOT.brakeLook; k++) {
       const p0 = at(k - 2), p1 = at(k), p2 = at(k + 2), a = Math.hypot(p1.x - p0.x, p1.y - p0.y), b = Math.hypot(p2.x - p1.x, p2.y - p1.y), c = Math.hypot(p2.x - p0.x, p2.y - p0.y), area = Math.abs((p1.x - p0.x) * (p2.y - p0.y) - (p2.x - p0.x) * (p1.y - p0.y)) / 2;

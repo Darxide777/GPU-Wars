@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { createFormulaRace, driveAutopilotLap, createFormulaAutopilot, racingLineFor, predictFormula, STOCK_SPEC, FORMULA_TRACKS, LINE, IDLE_FORMULA_INPUT } from '../src/formula/index.ts';
+import { createFormulaRace, driveAutopilotLap, createFormulaAutopilot, racingLineFor, predictFormula, STOCK_SPEC, FORMULA_TRACKS, LINE, IDLE_FORMULA_INPUT, FORMULA_DT, LIGHTS, formulaSpecForBenchmark } from '../src/formula/index.ts';
 
 /** PHASE 3 NOTE: the source's tune for GEARING and TYRE PRESSURE was a straight line (tall gears and hard tyres only ever got quicker), which phase 3 rebalanced on purpose (`TUNE_EFFECT`, docs/CALIBRATION.md, "Tune balance"); so the cases below tune only the settings Formula still has exactly as the source (downforce, steering) and the physics fidelity check stays at 3 percent. The three source cases that set gearing or pressure were re-recorded from the live source without them.
  *  the lap time (s from the green) of the source game's ace bot in the same car on BEACH, recorded from Chromium Halo: Neon (src/arena/raceBot.ts, skill 2) */
@@ -25,7 +25,7 @@ test('on the plain oval the autopilot laps flat out: no wall hits, a lap close t
   // (the source game's tri-oval had a kink that needed downforce and braking; Formula's BEACH is a plain oval, so the lap-for-lap comparison with the source ace bot (0.2 to 0.4 percent apart on the source's own track in phase 1) no longer applies; the physics is unchanged)
   const race = driveAutopilotLap({ spec: { ...STOCK_SPEC, engine: 8 }, tune: {} }), slip = race.timeslip(), again = driveAutopilotLap({ spec: { ...STOCK_SPEC, engine: 8 }, tune: {} }).timeslip();
   assert.equal(race.state.lap.phase, 'finished'); assert.equal(slip.wallHits ?? 0, 0, 'no wall hits flat out'); assert.equal(slip.lapTime, again.lapTime, 'deterministic');
-  assert.ok(Math.abs(slip.lapTime - 38.07) < 0.2, `the best car laps the plain oval in ${slip.lapTime.toFixed(2)} s`);
+  assert.ok(Math.abs(slip.lapTime - 38.0) < 0.2, `the best car laps the plain oval in ${slip.lapTime.toFixed(2)} s`);
 });
 
 test('manual or automatic gearbox, the autopilot laps the same; nitro bottles never slow it', () => {
@@ -35,6 +35,22 @@ test('manual or automatic gearbox, the autopilot laps the same; nitro bottles ne
   assert.ok(nitro.state.car.nitroLeft < 3, 'it used its bottles');
   const shifts = []; const r = createFormulaRace(), ap = createFormulaAutopilot(r.track, r.state.car.stats); let last = 1; for (let i = 0; i < 1500; i++) { r.step(ap.decide(r.view())); if (r.state.car.gear !== last) { shifts.push(r.state.car.gear); last = r.state.car.gear; } }
   assert.deepEqual(shifts.slice(0, 6), [2, 3, 4, 5, 6, 7], 'the manual autopilot shifts up through the gears');
+});
+
+test('REGRESSION: after the launch the autopilot never lifts off the gas on the plain oval (it aims a little over the top speed, AUTOPILOT.topSpeedAim), manual and automatic gearbox', () => {
+  const bench = (cls, score) => ({ score, class: cls, benchmarkVersion: 1, gpuId: 'regression', date: 0 });
+  const cars = [['weakest integrated', bench('integrated', 0)], ['8060S', bench('integrated', 5005)], ['best card', bench('discrete', 10000)]];
+  for (const [name, benchmark] of cars) for (const gearbox of ['manual', 'auto']) {
+    const race = createFormulaRace({ spec: formulaSpecForBenchmark(benchmark), tune: { gearbox } }), ap = createFormulaAutopilot(race.track, race.state.car.stats);
+    let ticks = 0, lifts = 0, lowest = 1;
+    for (let i = 0; i < 6000 && !race.over; i++) {
+      const input = ap.decide(race.view()); race.step(input);
+      // the plain oval has no bend to brake for, so any lift after 3 s from the green is the bug
+      if (i * FORMULA_DT >= LIGHTS.go + 3) { ticks++; lowest = Math.min(lowest, input.throttle); if (input.throttle < 0.9 || input.brake > 0.05) lifts++; }
+    }
+    assert.ok(race.over && ticks > 60 * 25, `${name} ${gearbox}: the lap ran (${ticks} ticks)`);
+    assert.equal(lifts, 0, `${name} ${gearbox}: ${lifts} ticks off the gas (lowest throttle ${lowest.toFixed(2)})`);
+  }
 });
 
 test('the autopilot never jumps the start, is deterministic, and keeps off the wall with the stock car', () => {
